@@ -1,0 +1,16 @@
+[package]
+name = "cell-rerun-server"
+version = "0.1.0"
+edition = "2021"
+license = "MIT-0"
+description = "Single self-contained supervisor binary that embeds the cell-runner backend and drives it over an NDJSON stdin/stdout control channel (for factoryos-backend's simulated cell)."
+
+[[bin]]
+name = "cell-rerun-server"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }

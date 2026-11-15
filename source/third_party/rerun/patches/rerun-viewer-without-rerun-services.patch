@@ -1,0 +1,316 @@
+diff --git a/crates/top/re_viewer/Cargo.toml b/crates/top/re_viewer/Cargo.toml
+index 2480c60..0944c97 100644
+--- a/crates/top/re_viewer/Cargo.toml
++++ b/crates/top/re_viewer/Cargo.toml
+@@ -45,7 +45,7 @@ default = ["agent_context", "analytics", "map_view"]
+ agent_context = []
+ 
+ ## Enable anonymized telemetry using our analytics SDK.
+-analytics = ["dep:re_analytics", "re_ui/analytics"]
++analytics = ["dep:re_analytics", "re_analytics/enabled", "re_ui/analytics"]
+ 
+ ## Enable the map view
+ map_view = ["dep:re_view_map"]
+diff --git a/crates/top/re_viewer/src/app/command_handling.rs b/crates/top/re_viewer/src/app/command_handling.rs
+index 59f5dac..686e09a 100644
+--- a/crates/top/re_viewer/src/app/command_handling.rs
++++ b/crates/top/re_viewer/src/app/command_handling.rs
+@@ -1126,6 +1126,7 @@ impl App {
+                 re_ui::apply_style_and_install_loaders(egui_ctx);
+             }
+ 
++            UICommand::Share if self.startup_options.hide_share_button => {}
+             UICommand::Share => {
+                 let selection = self.state.selection_state.selected_items();
+                 let rec_cfg = route
+diff --git a/crates/top/re_viewer/src/app/mod.rs b/crates/top/re_viewer/src/app/mod.rs
+index a6064b7..ed70c95 100644
+--- a/crates/top/re_viewer/src/app/mod.rs
++++ b/crates/top/re_viewer/src/app/mod.rs
+@@ -241,8 +241,13 @@ impl App {
+             .map(|render_state| render_state.renderer.clone());
+ 
+         let connection_registry_was_provided = connection_registry.is_some();
+-        let connection_registry = connection_registry
+-            .unwrap_or_else(re_redap_client::ConnectionRegistry::new_with_stored_credentials);
++        let connection_registry = connection_registry.unwrap_or_else(|| {
++            if startup_options.disable_stored_credentials {
++                re_redap_client::ConnectionRegistry::new_without_stored_credentials()
++            } else {
++                re_redap_client::ConnectionRegistry::new_with_stored_credentials()
++            }
++        });
+ 
+         // Only subscribe to auth changes and load credentials if we're supposed to use stored credentials.
+         // This prevents tests from being affected by stored credentials on the developer's machine.
+@@ -338,7 +343,7 @@ impl App {
+             });
+         }
+ 
+-        if state.app_options.check_for_updates_on_startup {
++        if state.app_options.check_for_updates_on_startup && !startup_options.disable_update_check {
+             crate::version_check::check_for_new_version(build_info.version, &app_env, ehttp::fetch);
+         }
+ 
+@@ -1709,6 +1714,7 @@ impl eframe::App for App {
+                 recording: store_context.as_ref().map(|ctx| ctx.recording()),
+                 redap_servers: &self.state.redap_servers,
+                 cmd_env,
++                hide_share: self.startup_options.hide_share_button,
+             };
+             if let Some(cmd) = self.cmd_palette.show(ui.ctx(), &mut cmd_palette_provider) {
+                 match cmd {
+diff --git a/crates/top/re_viewer/src/app_state.rs b/crates/top/re_viewer/src/app_state.rs
+index dabe1b5..fb7f815 100644
+--- a/crates/top/re_viewer/src/app_state.rs
++++ b/crates/top/re_viewer/src/app_state.rs
+@@ -408,7 +408,12 @@ impl AppState {
+             } => {
+                 let mut show_settings_ui = true;
+                 let app_options = new_app_options.insert(self.app_options.clone());
+-                settings_screen_ui(ui, app_options, &mut show_settings_ui);
++                settings_screen_ui(
++                    ui,
++                    app_options,
++                    !startup_options.disable_update_check,
++                    &mut show_settings_ui,
++                );
+                 if !show_settings_ui {
+                     command_sender.send_system(SystemCommand::SetRoute((**previous).clone()));
+                 }
+diff --git a/crates/top/re_viewer/src/command_palette.rs b/crates/top/re_viewer/src/command_palette.rs
+index 5723bbd..3c3d156 100644
+--- a/crates/top/re_viewer/src/command_palette.rs
++++ b/crates/top/re_viewer/src/command_palette.rs
+@@ -103,6 +103,9 @@ pub struct CommandPaletteProviderImpl<'a> {
+ 
+     /// Determines which commands are currently available.
+     pub cmd_env: CommandEnvironment,
++
++    /// Leave out [`UICommand::Share`] (see `StartupOptions::hide_share_button`).
++    pub hide_share: bool,
+ }
+ 
+ impl CommandPaletteProvider<CommandPaletteAction> for CommandPaletteProviderImpl<'_> {
+@@ -149,6 +152,7 @@ impl CommandPaletteProvider<CommandPaletteAction> for CommandPaletteProviderImpl
+             };
+ 
+             let mut matches: Vec<_> = UICommand::iter()
++                .filter(|command| !(self.hide_share && *command == UICommand::Share))
+                 .filter_map(|command| {
+                     match_command(
+                         command.text(),
+diff --git a/crates/top/re_viewer/src/startup_options.rs b/crates/top/re_viewer/src/startup_options.rs
+index 512b96f..0f38c6f 100644
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -134,6 +134,17 @@ pub struct StartupOptions {
+     /// Likewise for the right panel: while `right_panel_sections` are shown, the selection view
+     /// is a bar at its bottom, opened by a click.
+     pub compact_selection_panel: bool,
++
++    /// Hide the top bar's "Share" button (and its command, `Cmd+L`).
++    pub hide_share_button: bool,
++
++    /// Never ask GitHub for the latest Rerun release at startup, whatever the "Check for updates
++    /// on startup" setting says, and don't offer that setting.
++    pub disable_update_check: bool,
++
++    /// Don't use the Rerun Cloud credentials stored by the `rerun` CLI (`rerun auth login`):
++    /// they are not loaded, so neither refreshed with Rerun's login service at startup.
++    pub disable_stored_credentials: bool,
+ }
+ 
+ /// UI callback that draws a custom welcome screen, see [`StartupOptions::custom_welcome_screen`].
+@@ -262,6 +273,9 @@ impl Default for StartupOptions {
+             top_bar_buttons: None,
+             compact_sources_panel: false,
+             compact_selection_panel: false,
++            hide_share_button: false,
++            disable_update_check: false,
++            disable_stored_credentials: false,
+         }
+     }
+ }
+diff --git a/crates/top/re_viewer/src/ui/settings_screen.rs b/crates/top/re_viewer/src/ui/settings_screen.rs
+index 5e7121b..d67c3e3 100644
+--- a/crates/top/re_viewer/src/ui/settings_screen.rs
++++ b/crates/top/re_viewer/src/ui/settings_screen.rs
+@@ -8,7 +8,12 @@ use re_ui::syntax_highlighting::SyntaxHighlightedBuilder;
+ use re_ui::{DesignTokens, UiExt as _};
+ use re_viewer_context::{AppOptions, ExperimentalAppOptions, VideoOptions};
+ 
+-pub fn settings_screen_ui(ui: &mut egui::Ui, app_options: &mut AppOptions, keep_open: &mut bool) {
++pub fn settings_screen_ui(
++    ui: &mut egui::Ui,
++    app_options: &mut AppOptions,
++    show_update_check: bool,
++    keep_open: &mut bool,
++) {
+     egui::Frame {
+         inner_margin: egui::Margin::same(5),
+         ..Default::default()
+@@ -25,7 +30,7 @@ pub fn settings_screen_ui(ui: &mut egui::Ui, app_options: &mut AppOptions, keep_
+             .auto_shrink(false)
+             .show(&mut child_ui, |ui| {
+                 ui.set_min_width(MIN_WIDTH);
+-                settings_screen_ui_impl(ui, app_options, keep_open);
++                settings_screen_ui_impl(ui, app_options, show_update_check, keep_open);
+             });
+ 
+         if ui.input_mut(|ui| ui.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+@@ -34,7 +39,12 @@ pub fn settings_screen_ui(ui: &mut egui::Ui, app_options: &mut AppOptions, keep_
+     });
+ }
+ 
+-fn settings_screen_ui_impl(ui: &mut egui::Ui, app_options: &mut AppOptions, keep_open: &mut bool) {
++fn settings_screen_ui_impl(
++    ui: &mut egui::Ui,
++    app_options: &mut AppOptions,
++    show_update_check: bool,
++    keep_open: &mut bool,
++) {
+     //
+     // Title
+     //
+@@ -161,7 +171,9 @@ fn settings_screen_ui_impl(ui: &mut egui::Ui, app_options: &mut AppOptions, keep
+     ui.re_checkbox(show_notification_toasts, "Show notification toasts")
+         .on_hover_text("Show toasts for log messages and other notifications");
+ 
+-    ui.re_checkbox(check_for_updates_on_startup, "Check for updates on startup");
++    if show_update_check {
++        ui.re_checkbox(check_for_updates_on_startup, "Check for updates on startup");
++    }
+ 
+     separator_with_some_space(ui);
+     ui.strong("Map view");
+diff --git a/crates/top/re_viewer/src/ui/top_panel.rs b/crates/top/re_viewer/src/ui/top_panel.rs
+index 1730de8..cb19a6c 100644
+--- a/crates/top/re_viewer/src/ui/top_panel.rs
++++ b/crates/top/re_viewer/src/ui/top_panel.rs
+@@ -477,17 +477,19 @@ fn panel_buttons_r2l(
+ 
+     app.notifications.notification_toggle_button(ui);
+ 
+-    let selection = app.state.selection_state.selected_items();
+-    let time_ctrl = app
+-        .active_recording_id()
+-        .and_then(|id| app.state.time_controls.get(id));
+-    app.state.share_modal.button_ui(
+-        ui,
+-        store_hub,
+-        app.state.navigation.current(),
+-        time_ctrl,
+-        selection,
+-    );
++    if !app.startup_options().hide_share_button {
++        let selection = app.state.selection_state.selected_items();
++        let time_ctrl = app
++            .active_recording_id()
++            .and_then(|id| app.state.time_controls.get(id));
++        app.state.share_modal.button_ui(
++            ui,
++            store_hub,
++            app.state.navigation.current(),
++            time_ctrl,
++            selection,
++        );
++    }
+ 
+     if let Some(auth) = &app.state.auth_state
+         && !app.is_screenshotting()
+diff --git a/crates/top/re_viewer/src/web.rs b/crates/top/re_viewer/src/web.rs
+index 4550e33..71397e9 100644
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -875,6 +875,9 @@ fn create_app(
+         top_bar_buttons: None,
+         compact_sources_panel: false,
+         compact_selection_panel: false,
++        hide_share_button: false,
++        disable_update_check: false,
++        disable_stored_credentials: false,
+     };
+     crate::customize_eframe_and_setup_renderer(cc)?;
+ 
+diff --git a/crates/top/re_web_viewer_server/Cargo.toml b/crates/top/re_web_viewer_server/Cargo.toml
+index 89e7b89..2daf6e7 100644
+--- a/crates/top/re_web_viewer_server/Cargo.toml
++++ b/crates/top/re_web_viewer_server/Cargo.toml
+@@ -78,7 +78,7 @@ __trailing_web_viewer = []
+ __external_web_viewer = []
+ 
+ ## Enable anonymized telemetry using our analytics SDK.
+-analytics = ["dep:re_analytics"]
++analytics = ["dep:re_analytics", "re_analytics/enabled"]
+ 
+ [dependencies]
+ re_log = { workspace = true, features = ["setup"] }
+diff --git a/crates/top/rerun/Cargo.toml b/crates/top/rerun/Cargo.toml
+index af85389..823eb20 100644
+--- a/crates/top/rerun/Cargo.toml
++++ b/crates/top/rerun/Cargo.toml
+@@ -43,6 +43,7 @@ auth = ["re_auth/cli", "dep:jiff", "dep:url"]
+ ## Enable anonymized telemetry using our analytics SDK.
+ analytics = [
+   "dep:re_analytics",
++  "re_analytics/enabled",
+   "re_crash_handler?/analytics",
+   "re_viewer?/analytics",
+   "re_web_viewer_server?/analytics",
+diff --git a/crates/utils/re_analytics/Cargo.toml b/crates/utils/re_analytics/Cargo.toml
+index 950dbed..c2bec63 100644
+--- a/crates/utils/re_analytics/Cargo.toml
++++ b/crates/utils/re_analytics/Cargo.toml
+@@ -21,6 +21,11 @@ all-features = true
+ [features]
+ default = []
+ 
++## Actually record and send events. Every crate's `analytics` feature turns this on; without it
++## nothing is ever sent, and the analytics config is never read or written, even though crates
++## such as `re_auth` and `re_datafusion` always link this one.
++enabled = []
++
+ # During testing, analytics are disabled.
+ testing = []
+ 
+diff --git a/crates/utils/re_analytics/src/lib.rs b/crates/utils/re_analytics/src/lib.rs
+index 13d1a4b..cfe0f74 100644
+--- a/crates/utils/re_analytics/src/lib.rs
++++ b/crates/utils/re_analytics/src/lib.rs
+@@ -318,6 +318,9 @@ fn disabled_reason() -> Option<&'static str> {
+         // Checked before `ENV_FORCE_ANALYTICS`: a test must never touch the shared config,
+         // not even in an environment that forces analytics on.
+         Some("in tests")
++    } else if !cfg!(feature = "enabled") {
++        // Linked only for its types (e.g. by `re_auth`), not by an `analytics` feature.
++        Some("in this build (no `analytics` feature)")
+     } else if is_native && re_log::env_var_is_truthy(ENV_FORCE_ANALYTICS) {
+         None
+     } else if is_native && std::env::var("CI").is_ok() {
+diff --git a/crates/utils/re_crash_handler/Cargo.toml b/crates/utils/re_crash_handler/Cargo.toml
+index 4a31fce..2277b9c 100644
+--- a/crates/utils/re_crash_handler/Cargo.toml
++++ b/crates/utils/re_crash_handler/Cargo.toml
+@@ -23,7 +23,7 @@ all-features = true
+ default = ["analytics"]
+ 
+ ## Send analytics to Rerun on crashes
+-analytics = ["dep:re_analytics"]
++analytics = ["dep:re_analytics", "re_analytics/enabled"]
+ 
+ [dependencies]
+ re_build_info.workspace = true
+diff --git a/crates/viewer_support/re_ui/Cargo.toml b/crates/viewer_support/re_ui/Cargo.toml
+index 310d709..e492472 100644
+--- a/crates/viewer_support/re_ui/Cargo.toml
++++ b/crates/viewer_support/re_ui/Cargo.toml
+@@ -30,7 +30,7 @@ all-features = true
+ default = []
+ 
+ ## Enable anonymized telemetry using our analytics SDK.
+-analytics = ["dep:re_analytics"]
++analytics = ["dep:re_analytics", "re_analytics/enabled"]
+ 
+ ## Enable helpers for testing
+ testing = ["dep:egui_kittest", "re_analytics/testing"]

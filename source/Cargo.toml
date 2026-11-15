@@ -1,0 +1,49 @@
+# Factory OS: the viewer (native + wasm), its backend, and the crates they share.
+# The cell runtime (cell-runner, Pinocchio/C++) is a separate workspace in cell/.
+
+[workspace]
+resolver = "2"
+members = [
+  "crates/factoryos-protocol",
+  "crates/factoryos-client",
+  "crates/factoryos-backend",
+  "crates/factoryos-pty",
+  "crates/factoryos-terminal-agent",
+  "crates/factoryos-viewer",
+  "crates/factoryos-urdf-materials",
+  "crates/urdf-robo-dresser",
+  "crates/robo-fitting-room",
+  "crates/openapi-mcp",
+  "crates/factoryos-mcp",
+]
+# The rerun checkout is a path dependency, not a member. plan2cell/ is its own workspace (own lock:
+# trust-platform pins zenoh 1.7.2, the backend 1.10.1); the viewer uses its bt-view by path.
+exclude = ["third_party", "plan2cell"]
+# `cargo run` / `cargo build` without -p: the viewer (it starts the backend binary next to itself, so
+# build that with `cargo build --workspace` or `-p factoryos-backend`).
+default-members = ["crates/factoryos-viewer"]
+
+# Must mirror the [patch.crates-io] section of third_party/rerun/src/Cargo.toml (rerun 0.38.1 has
+# none, so neither do we); otherwise rerun's egui crates won't resolve.
+
+[profile.dev]
+opt-level = 1
+debug = false
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev.package.re_rav1d]
+opt-level = 3
+debug-assertions = false
+
+[profile.release]
+panic = "abort"
+lto = "thin"
+codegen-units = 1
+
+# The wasm viewer (scripts/build-web.sh), like rerun's own web viewer: small over fast.
+[profile.web-release]
+inherits = "release"
+lto = true
+opt-level = "z"

@@ -1,0 +1,129 @@
+{
+  "name": "weld_box",
+  "description": "A 0.6 x 0.45 x 0.3 m box with spot welds on its top face.",
+  "geometry": {
+    "kind": "box",
+    "size": [
+      0.6,
+      0.45,
+      0.3
+    ]
+  },
+  "tasks": [
+    {
+      "name": "spot_weld_1",
+      "process": "spotWeld",
+      "tool": "",
+      "params": {
+        "approachOffset": 0.05,
+        "current": 9.0,
+        "force": 3.0,
+        "weldTime": 0.3
+      },
+      "operations": [
+        {
+          "id": "W01",
+          "target": {
+            "kind": "point",
+            "position": [
+              -0.25,
+              -0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W02",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.0,
+              -0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W03",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.25,
+              -0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W04",
+          "target": {
+            "kind": "point",
+            "position": [
+              -0.25,
+              0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W05",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.0,
+              0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W06",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.25,
+              0.175,
+              0.3
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        }
+      ]
+    }
+  ]
+}

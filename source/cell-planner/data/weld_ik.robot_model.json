@@ -1,0 +1,40 @@
+{
+ "table": "weld_ik.json",
+ "table_md5": "637f57ca56e33feb218c9269f686d6bc",
+ "cell_id": "welding_cell_2_small",
+ "robots": {
+  "robot1": {
+   "urdf": "kr240r2900__sticktool.urdf",
+   "urdf_md5": "8cf1b0340513fa9ffac429b5e7d499fa",
+   "base": [
+    0.06915208,
+    -3.318409,
+    0.0
+   ],
+   "yaw": 0.0,
+   "tip_link": "like_kr240r2900_link_6",
+   "tcp_offset": [
+    -0.9092,
+    0.0005,
+    -0.0056
+   ]
+  },
+  "robot2": {
+   "urdf": "kr240r2900__sticktool.urdf",
+   "urdf_md5": "8cf1b0340513fa9ffac429b5e7d499fa",
+   "base": [
+    -1.18318,
+    1.042389,
+    0.0
+   ],
+   "yaw": 0.0,
+   "tip_link": "like_kr240r2900_link_6",
+   "tcp_offset": [
+    -0.9092,
+    0.0005,
+    -0.0056
+   ]
+  }
+ },
+ "note": "P3U round 2 (2026-10-12): stamped from the stock cell files; Track X solved the table on this robot model (third_party/sample-umarell unchanged since)"
+}

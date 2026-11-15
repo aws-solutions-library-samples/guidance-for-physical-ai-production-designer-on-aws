@@ -1,0 +1,187 @@
+FactoryOS public deployment: the umarell servers listen on loopback unless told otherwise.
+
+Applied by deploy/fetch-umarell.sh to the chat tree (/var/lib/factoryos/umarell) only, after the cell planner's
+patches_08d5a39 series, with patch -p1 --forward --batch. Written against umarell 08d5a39
+(08d5a390a498cef123cfe36becfc45ee61876cd9, deploy/umarell.pin's commit) with the cell planner's
+docs/upstream/patches_08d5a39/series.txt (factoryos-cell-planner 78b496c) applied.
+
+The planner MCP the backend starts natively (agents/trajectory/mcp_server.py, :8890) bound 0.0.0.0: anything that
+reached the instance's network could plan and read plans through an endpoint without authentication. Every
+hard-coded 0.0.0.0 server bind of the tree is now an environment variable, default 127.0.0.1:
+  TRAJ_MCP_HOST       agents/trajectory/mcp_server.py      (:8890, TRAJ_MCP_PORT)
+  CELL_MCP_HOST       agents/cell/mcp_server.py            (:8892, CELL_MCP_PORT)
+  CELL_HTTP_HOST      agents/cell/server.py                (:8891, CELL_HTTP_PORT)
+  ORCHESTRATOR_BIND   agents/orchestrator/server.py        (:8889; ORCHESTRATOR_HOST is the address clients dial)
+  ORCH_MCP_HOST       agents/orchestrator/cell_data_mcp.py (:8893, ORCH_MCP_PORT)
+  POLICY_TRAINER_BIND agents/policy_trainer/mcp_server.py  (:8894; was env-driven already, default 0.0.0.0)
+  DASHBOARD_HOST      dashboard/web_control_panel.py       (:8888)
+The public host runs no Docker (provision.sh refuses it), so nothing sets them there. Upstream, the compose services
+set them to 0.0.0.0 (see the upstream PR); this patch goes when sample-umarell has that change and the pin moves.
+
+diff --git a/agents/cell/mcp_server.py b/agents/cell/mcp_server.py
+index 2e3b6cb..ca7776e 100644
+--- a/agents/cell/mcp_server.py
++++ b/agents/cell/mcp_server.py
+@@ -69,6 +69,9 @@ from utils import cell_layout, cell_store
+ # ─── Environment config ───────────────────────────────────────────────────────
+ _CELL_ID    = default_cell_id()
+ _PORT       = int(os.environ.get("CELL_MCP_PORT", "8892"))
++# Listen address: loopback unless CELL_MCP_HOST says otherwise (a container, or the
++# execution half of a split deployment: CELL_MCP_HOST=0.0.0.0).
++_HOST       = os.environ.get("CELL_MCP_HOST", "127.0.0.1")
+ _TRANSPORT  = os.environ.get("MCP_TRANSPORT", "sse").lower()
+ _HTTP_PORT  = int(os.environ.get("CELL_HTTP_PORT", "8891"))
+ _BASE_PATH  = os.environ.get("CELL_BASE_PATH", "/cells")
+@@ -590,7 +593,7 @@ if __name__ == "__main__":
+         print("[CellMCP] Starting stdio transport (offline/IDE mode)", flush=True)
+     else:
+         print(
+-            f"[CellMCP] Starting SSE on 0.0.0.0:{_PORT} "
++            f"[CellMCP] Starting SSE on {_HOST}:{_PORT} "
+             f"(cell={_CELL_ID}, http={_HTTP_PORT}, base={_BASE_PATH})",
+             flush=True,
+         )
+@@ -605,7 +608,7 @@ if __name__ == "__main__":
+             app = mcp.sse_app()
+             # Plain JSON-RPC /mcp endpoint for HTTP callers (orchestrator, Makefile).
+             add_jsonrpc_mcp_route(app, mcp)
+-            uvicorn.run(app, host="0.0.0.0", port=_PORT, log_level="warning")
++            uvicorn.run(app, host=_HOST, port=_PORT, log_level="warning")
+     except OSError as exc:
+         print(f"[CellMCP] ERROR: port {_PORT} already in use — exiting", flush=True)
+         sys.exit(1)
+diff --git a/agents/cell/server.py b/agents/cell/server.py
+index f2441ee..e3faf2c 100644
+--- a/agents/cell/server.py
++++ b/agents/cell/server.py
+@@ -29,8 +29,9 @@ def http_server():
+         return jsonify({"status": "ok", "cell_id": CELL_ID})
+ 
+     port = int(os.environ.get("CELL_HTTP_PORT", "8891"))
+-    print(f"[CellAgent] HTTP health on 0.0.0.0:{port}", flush=True)
+-    app.run(host="0.0.0.0", port=port, debug=False)
++    host = os.environ.get("CELL_HTTP_HOST", "127.0.0.1")  # 0.0.0.0 in a container
++    print(f"[CellAgent] HTTP health on {host}:{port}", flush=True)
++    app.run(host=host, port=port, debug=False)
+ 
+ 
+ def ros2_joint_state_sub():
+diff --git a/agents/orchestrator/cell_data_mcp.py b/agents/orchestrator/cell_data_mcp.py
+index c1ca774..818522a 100644
+--- a/agents/orchestrator/cell_data_mcp.py
++++ b/agents/orchestrator/cell_data_mcp.py
+@@ -28,6 +28,7 @@ the endpoint that serves it cannot be scheduled apart or restarted separately.
+ """
+ from __future__ import annotations
+ 
++import os
+ import threading
+ 
+ from mcp.server.fastmcp import FastMCP
+@@ -243,6 +244,12 @@ def build_app():
+     return app
+ 
+ 
++def bind_host() -> str:
++    """The listen address: loopback unless ORCH_MCP_HOST says otherwise (0.0.0.0 in a
++    container, or for the planner of a split deployment on another machine)."""
++    return os.environ.get("ORCH_MCP_HOST", "127.0.0.1")
++
++
+ def serve_in_thread(port: int) -> threading.Thread:
+     """Run the cell-data MCP beside the orchestrator's Flask app.
+ 
+@@ -259,7 +266,7 @@ def serve_in_thread(port: int) -> threading.Thread:
+ 
+     def _run() -> None:
+         try:
+-            uvicorn.run(build_app(), host="0.0.0.0", port=port,
++            uvicorn.run(build_app(), host=bind_host(), port=port,
+                         log_level="warning")
+         except Exception as exc:  # noqa: BLE001
+             print(f"[cell-data] MCP server stopped: {exc}", flush=True)
+diff --git a/agents/orchestrator/server.py b/agents/orchestrator/server.py
+index 2d7d224..24f71d3 100644
+--- a/agents/orchestrator/server.py
++++ b/agents/orchestrator/server.py
+@@ -1526,7 +1526,7 @@ if __name__ == "__main__":
+     try:
+         from agents.orchestrator import cell_data_mcp
+         cell_data_mcp.serve_in_thread(mcp_port)
+-        print(f"[Orchestrator] Cell-data MCP on 0.0.0.0:{mcp_port}", flush=True)
++        print(f"[Orchestrator] Cell-data MCP on {cell_data_mcp.bind_host()}:{mcp_port}", flush=True)
+     except Exception as exc:  # noqa: BLE001
+         # Availability, not safety: without this endpoint the planner refuses to
+         # plan (it will not silently read the volume), and the orchestrator's own
+@@ -1534,5 +1534,8 @@ if __name__ == "__main__":
+         print(f"[Orchestrator] WARNING: cell-data MCP did not start ({exc}) — "
+               f"the planner will refuse to plan", flush=True)
+ 
+-    print(f"[Orchestrator] Starting A2A HTTP on 0.0.0.0:{port}", flush=True)
+-    app.run(host="0.0.0.0", port=port, debug=False)
++    # Loopback unless ORCHESTRATOR_BIND says otherwise (0.0.0.0 in a container;
++    # ORCHESTRATOR_HOST is the address the other agents dial, not this one).
++    host = os.environ.get("ORCHESTRATOR_BIND", "127.0.0.1")
++    print(f"[Orchestrator] Starting A2A HTTP on {host}:{port}", flush=True)
++    app.run(host=host, port=port, debug=False)
+diff --git a/agents/policy_trainer/mcp_server.py b/agents/policy_trainer/mcp_server.py
+index a71b0c5..f622985 100644
+--- a/agents/policy_trainer/mcp_server.py
++++ b/agents/policy_trainer/mcp_server.py
+@@ -438,8 +438,9 @@ if __name__ == "__main__":
+         app.add_route("/health", _health, methods=["GET"])
+         add_jsonrpc_mcp_route(app, mcp)
+         _tracker().start_monitor()
+-        # 0.0.0.0 INSIDE the container so the compose network reaches it; the host
+-        # publish is 127.0.0.1 by default (scripts/generate_compose.py, LOCAL).
+-        host = os.environ.get("POLICY_TRAINER_BIND", "0.0.0.0")
++        # Loopback by default; a container sets POLICY_TRAINER_BIND=0.0.0.0 so the
++        # compose network reaches it (the host publish is 127.0.0.1 by default:
++        # scripts/generate_compose.py, LOCAL).
++        host = os.environ.get("POLICY_TRAINER_BIND", "127.0.0.1")
+         print(f"[PolicyTrainerMCP] Starting SSE on {host}:{_PORT}", flush=True)
+         uvicorn.run(app, host=host, port=_PORT, log_level="warning")
+diff --git a/agents/trajectory/mcp_server.py b/agents/trajectory/mcp_server.py
+index b658dd9..4ed51f1 100644
+--- a/agents/trajectory/mcp_server.py
++++ b/agents/trajectory/mcp_server.py
+@@ -243,6 +243,10 @@ def _run_plan_job(cell_id: str, operations: list, constraints: Optional[dict],
+ # ─── Transport ────────────────────────────────────────────────────────────────
+ _TRANSPORT = os.environ.get("MCP_TRANSPORT", "sse").lower()
+ _PORT      = int(os.environ.get("TRAJ_MCP_PORT", "8890"))
++# The SSE/HTTP listen address. Loopback by default: these endpoints have no
++# authentication of their own. A container sets TRAJ_MCP_HOST=0.0.0.0 so the
++# compose network reaches it (the host publish stays ${PUBLISH_HOST:-127.0.0.1}).
++_HOST      = os.environ.get("TRAJ_MCP_HOST", "127.0.0.1")
+ #: This planner's name among the planners the orchestrator distributes work to.
+ _PLANNER_ID = os.environ.get("PLANNER_ID") or __import__("socket").gethostname()
+ 
+@@ -1814,7 +1818,7 @@ if __name__ == "__main__":
+         import uvicorn
+         from starlette.responses import JSONResponse
+         print(
+-            f"[TrajectoryMCP] Starting SSE on 0.0.0.0:{_PORT} "
++            f"[TrajectoryMCP] Starting SSE on {_HOST}:{_PORT} "
+             f"(cell={_default_cell_id()}, llm={_resolve_model()}, "
+             f"planning={_planning_model()})",
+             flush=True,
+@@ -1854,4 +1858,4 @@ if __name__ == "__main__":
+ 
+         planner_registration.start(_status_for_registry)
+ 
+-        uvicorn.run(app, host="0.0.0.0", port=_PORT, log_level="warning")
++        uvicorn.run(app, host=_HOST, port=_PORT, log_level="warning")
+diff --git a/dashboard/web_control_panel.py b/dashboard/web_control_panel.py
+index 3584be2..5dee04e 100644
+--- a/dashboard/web_control_panel.py
++++ b/dashboard/web_control_panel.py
+@@ -4650,7 +4650,8 @@ def main():
+     print(f"  Web Control Panel  [{CELL_ID}]")
+     print("  Open: http://localhost:8888")
+     print("=" * 50)
+-    app.run(host="0.0.0.0", port=8888, debug=False)
++    # Loopback unless DASHBOARD_HOST says otherwise (0.0.0.0 in a container).
++    app.run(host=os.environ.get("DASHBOARD_HOST", "127.0.0.1"), port=8888, debug=False)
+ 
+ 
+ if __name__ == "__main__":

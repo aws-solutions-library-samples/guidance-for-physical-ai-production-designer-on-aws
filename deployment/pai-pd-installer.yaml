@@ -1,0 +1,624 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Physical AI Production Designer installer (Guidance for Physical AI Production Designer on AWS). Creates an AWS
+  CodeBuild project that runs the guidance's deployment/install.sh in this account and Region, from the latest GitHub
+  release, a pinned tag, or files you provide (S3, HTTPS, or an upload bucket this stack creates). The build role
+  has AdministratorAccess: the installer bootstraps the AWS CDK and creates IAM roles, Amazon CloudFront and
+  Lambda@Edge. Deleting this stack keeps the installed application; remove that first with the Uninstall output.
+  Tested Region: us-east-1 (the Region needs Graviton m7g instances and CloudFront VPC origins).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: First user}
+        Parameters: [AdminEmail]
+      - Label: {default: What to install}
+        Parameters: [SourceMode, Release, RepoUrl, ArtifactsUri, SourceArchiveUri, UmarellTarballUri, UmarellJamTarballUri]
+      - Label: {default: The installation}
+        Parameters: [AppStackName, InstanceType, VolumeGb, Bedrock]
+    ParameterLabels:
+      AdminEmail: {default: Administrator e-mail}
+      SourceMode: {default: Source}
+      Release: {default: Release (github)}
+      RepoUrl: {default: Repository (github)}
+      ArtifactsUri: {default: Artifact set (s3)}
+      SourceArchiveUri: {default: 'Export archive (optional, any source)'}
+      UmarellTarballUri: {default: 'umarell archive (optional, any source)'}
+      UmarellJamTarballUri: {default: 'umarell_jam umarell archive (optional, any source)'}
+      AppStackName: {default: Application stack name}
+      InstanceType: {default: Instance type}
+      VolumeGb: {default: Volume size (GB)}
+      Bedrock: {default: Amazon Bedrock}
+
+Parameters:
+  AdminEmail:
+    Type: String
+    Description: The first user. Amazon Cognito sends the sign-in URL and a temporary password to this address.
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: an e-mail address
+  SourceMode:
+    Type: String
+    Description: >-
+      github - a release of RepoUrl. s3 - the artifact set at ArtifactsUri. upload - this stack creates a private
+      bucket; upload the files to it (the UploadTo output), then start the install (the StartInstall output).
+    AllowedValues: [github, s3, upload]
+    Default: github
+  Release:
+    Type: String
+    Description: latest, or a release tag such as v0.1.20 (SourceMode github).
+    AllowedPattern: '^[A-Za-z0-9._-]+$'
+    Default: latest
+  RepoUrl:
+    Type: String
+    Description: The guidance's GitHub repository (SourceMode github).
+    AllowedPattern: '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Default: https://github.com/aws-solutions-library-samples/guidance-for-physical-ai-production-designer-on-aws
+  ArtifactsUri:
+    Type: String
+    Description: >-
+      SourceMode s3: s3://bucket/prefix/ holding the export (pai-pd*.zip or .tar.gz), umarell*.tar.gz, an optional
+      umarell-jam*.tar.gz, optional <file>.sha256 files and an optional artifacts.json.
+    AllowedPattern: '^(s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9](/.*)?)?$'
+    Default: ''
+  SourceArchiveUri:
+    Type: String
+    Description: Optional, any SourceMode. The export archive (.zip or .tar.gz) as s3://... or https://... (a presigned URL works); it wins over the artifact set and GitHub.
+    AllowedPattern: '^((s3|https)://\S+)?$'
+    Default: ''
+  UmarellTarballUri:
+    Type: String
+    Description: Optional, any SourceMode. The umarell archive (.tar.gz) as s3://... or https://...; needed while umarell's GitHub repository is not public, unless the artifact set holds it.
+    AllowedPattern: '^((s3|https)://\S+)?$'
+    Default: ''
+  UmarellJamTarballUri:
+    Type: String
+    Description: Optional, any SourceMode. The plain umarell commit the umarell_jam planner builds on (a git archive --prefix=umarell/ of deploy/umarell-jam.pin's commit, .tar.gz) as s3://... or https://...; while umarell's GitHub repository is not public, without it the install succeeds but umarell_jam is incomplete (its jobs fall back to umarell_u3).
+    AllowedPattern: '^((s3|https)://\S+)?$'
+    Default: ''
+  AppStackName:
+    Type: String
+    Description: The application's stack (its sign-in stack is <name>-edge in us-east-1). One per Region.
+    AllowedPattern: '^(?!(aws|amazon|amzn))[a-z][a-z0-9-]{0,30}$'
+    ConstraintDescription: 1 to 31 of a-z, 0-9 and -, starting with a letter, not with aws, amazon or amzn
+    Default: pai-pd
+  InstanceType:
+    Type: String
+    Description: The application's instance, a Graviton type.
+    AllowedPattern: '^[a-z][0-9]+g[a-z]*\.[0-9a-z]+$'
+    ConstraintDescription: a Graviton instance type, such as m7g.2xlarge
+    Default: m7g.2xlarge
+  VolumeGb:
+    Type: Number
+    Description: The instance's volume (designs, cells, plans).
+    MinValue: 100
+    Default: 200
+  Bedrock:
+    Type: String
+    Description: Allow the instance to call Amazon Bedrock (the optional agentic planner).
+    AllowedValues: ['false', 'true']
+    Default: 'false'
+
+Conditions:
+  IsUpload: !Equals [!Ref SourceMode, upload]
+  NotUpload: !Not [!Condition IsUpload]
+  HasJamTarball: !Not [!Equals [!Ref UmarellJamTarballUri, '']]
+
+Resources:
+  # ---- The inputs bucket: the upload target (SourceMode upload) and where HTTPS downloads are staged for install.sh
+  InputsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_18
+            comment: Access logging is not needed for a private bucket of installer inputs that only this stack's build reads.
+          - id: CKV_AWS_21
+            comment: Versioning is off on purpose; the objects are copies of release files, deleted with the stack.
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+
+  InputsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref InputsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt InputsBucket.Arn, !Sub '${InputsBucket.Arn}/*']
+            Condition:
+              Bool: {aws:SecureTransport: 'false'}
+
+  # ---- The build: runs the export's deployment/deploy.sh (install) or deployment/cleanup.sh (uninstall) ----------
+  BuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: The installer's build log holds no secrets; the default CloudWatch Logs encryption applies.
+    Properties:
+      LogGroupName: !Sub '/pai-pd/installer/${AWS::StackName}'
+      RetentionInDays: 30
+
+  InstallerRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_274
+            comment: >-
+              The installer needs administrator access: it bootstraps the AWS CDK and deploys the application's
+              stacks (IAM roles, VPC, EC2, Amazon CloudFront, Lambda@Edge, Amazon Cognito). Only CodeBuild can
+              assume the role, and only for this stack's project.
+    Properties:
+      Description: !Sub 'Physical AI Production Designer installer (${AWS::StackName}): runs deployment/install.sh in CodeBuild'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codebuild.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {aws:SourceAccount: !Ref AWS::AccountId}
+              ArnLike: {aws:SourceArn: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}'}
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess'
+
+  InstallerProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref AWS::StackName
+      Description: !Sub 'Installs (ACTION=install) or uninstalls (ACTION=uninstall) Physical AI Production Designer as the stack ${AppStackName}'
+      ServiceRole: !GetAtt InstallerRole.Arn
+      TimeoutInMinutes: 480
+      QueuedTimeoutInMinutes: 60
+      ConcurrentBuildLimit: 1
+      # The account's AWS managed S3 key (cdk-nag AwsSolutions-CB4): no key of this stack to create, rotate or pay for.
+      EncryptionKey: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3'
+      Artifacts: {Type: NO_ARTIFACTS}
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        EnvironmentVariables:
+          - {Name: ACTION, Value: install}
+          - {Name: SOURCE_MODE, Value: !Ref SourceMode}
+          - {Name: RELEASE, Value: !Ref Release}
+          - {Name: REPO_URL, Value: !Ref RepoUrl}
+          - {Name: ARTIFACTS_URI, Value: !Ref ArtifactsUri}
+          - {Name: SOURCE_ARCHIVE_URI, Value: !Ref SourceArchiveUri}
+          - {Name: UMARELL_TARBALL_URI, Value: !Ref UmarellTarballUri}
+          - {Name: UMARELL_JAM_TARBALL_URI, Value: !Ref UmarellJamTarballUri}
+          - {Name: APP_STACK_NAME, Value: !Ref AppStackName}
+          - {Name: ADMIN_EMAIL, Value: !Ref AdminEmail}
+          - {Name: INSTANCE_TYPE, Value: !Ref InstanceType}
+          - {Name: VOLUME_GB, Value: !Ref VolumeGb}
+          - {Name: BEDROCK, Value: !Ref Bedrock}
+          - {Name: INPUTS_BUCKET, Value: !Ref InputsBucket}
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 20
+            build:
+              commands:
+                - |
+                  cat > /tmp/pai-pd-build.sh <<'PAIPD_BUILD_EOF'
+                  #!/usr/bin/env bash
+                  # The build of pai-pd-installer.yaml: gets the export (and umarell) from the configured source,
+                  # unpacks it, and runs its deployment/deploy.sh (ACTION=install) or deployment/cleanup.sh
+                  # (ACTION=uninstall). install.sh does all the work; this only resolves its inputs.
+                  set -euo pipefail
+                  W="${PAIPD_WORK:-/tmp/pai-pd}"
+                  LOG="$W/build.log"
+                  REASON="" APP_URL=""
+                  mkdir -p "$W"; : > "$LOG"
+                  say() { printf '==> %s\n' "$*"; }
+                  fail() { REASON="$*"; printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+                  # public <uri>: the URI without a presigned query string (for messages).
+                  public() { printf '%s' "${1%%\?*}"; }
+
+                  # signal SUCCESS|FAILURE <reason> <data>: tells the stack's wait condition (the create's build only).
+                  signal() {
+                    [ -n "${WAIT_HANDLE_URL:-}" ] && [ "${ACTION:-}" = install ] || return 0
+                    local body
+                    body=$(python3 -c 'import json, sys; print(json.dumps({"Status": sys.argv[1], "UniqueId": "install",
+                      "Reason": sys.argv[2][:1000], "Data": sys.argv[3][:1000]}))' "$1" "$2" "$3")
+                    curl -fsS --retry 5 --retry-all-errors -X PUT -H 'Content-Type:' --data-binary "$body" \
+                      "$WAIT_HANDLE_URL" >/dev/null || echo "WARNING: could not signal $1 to the stack" >&2
+                  }
+                  on_exit() {
+                    local rc=$?
+                    if [ "$rc" = 0 ]; then signal SUCCESS "installed: $APP_STACK_NAME" "$APP_URL"; return; fi
+                    # The last error line of deploy.sh / install.sh, else the exit code.
+                    [ -n "$REASON" ] || REASON=$(sed 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -E '^(ERROR|FAILED)' | tail -1 || true)
+                    signal FAILURE "${REASON:-the build failed (exit $rc)}. Build ${CODEBUILD_BUILD_ID:-?}: see BuildLogs" ""
+                  }
+                  trap on_exit EXIT
+
+                  # fetch <uri> <file>: an s3:// or https:// object to <file>; a <uri>.sha256 next to an s3:// object
+                  # must match it (an https:// URI may be presigned: there is no sibling to derive).
+                  fetch() {
+                    local uri=$1 out=$2 sum=""
+                    case "$uri" in
+                      s3://*)
+                        aws s3 cp --only-show-errors "$uri" "$out" || fail "could not download $uri"
+                        if aws s3 cp --only-show-errors "$uri.sha256" "$out.sha256" 2>/dev/null; then
+                          sum=$(awk '{print $1; exit}' "$out.sha256")
+                          [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || fail "$uri.sha256 holds no sha256"
+                        fi ;;
+                      https://*) curl -fsSL --retry 3 -o "$out" "$uri" || fail "could not download $(public "$uri")" ;;
+                      *) fail "not an s3:// or https:// URI: $(public "$uri")" ;;
+                    esac
+                    if [ -n "$sum" ]; then
+                      [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$sum" ] || fail "sha256 mismatch: $uri does not match $uri.sha256"
+                      say "sha256 ok: $uri"
+                    fi
+                    say "got $(public "$uri") ($(( $(wc -c < "$out") / 1048576 )) MB)"
+                  }
+
+                  ACTION="${ACTION:-install}"
+                  case "$ACTION" in install|uninstall) ;; *) fail "ACTION must be install or uninstall (is '$ACTION')" ;; esac
+                  [[ "$APP_STACK_NAME" =~ ^[a-z][a-z0-9-]{0,30}$ ]] || fail "unusable AppStackName '$APP_STACK_NAME'"
+                  say "$ACTION of $APP_STACK_NAME in $AWS_REGION, source: $SOURCE_MODE"
+
+                  # ---- The artifact set (SourceMode s3: ArtifactsUri; upload: the inputs bucket) ----------------
+                  src_uri="${SOURCE_ARCHIVE_URI:-}" umarell_uri="${UMARELL_TARBALL_URI:-}" jam_uri="${UMARELL_JAM_TARBALL_URI:-}" base=""
+                  # An uninstall uses the export the last install installed (kept below): the configured source may be
+                  # gone by then (an expired presigned URL, a newer latest release, deleted uploads).
+                  kept="s3://$INPUTS_BUCKET/installed/$APP_STACK_NAME"
+                  if [ "$ACTION" = uninstall ]; then
+                    for ext in zip tar.gz; do
+                      if aws s3 ls "$kept.$ext" >/dev/null 2>&1; then src_uri="$kept.$ext" SOURCE_MODE=kept; say "the export the last install installed: $src_uri"; break; fi
+                    done
+                  fi
+                  case "$SOURCE_MODE" in
+                    s3) base="${ARTIFACTS_URI:-}"
+                        [ -n "$base" ] || [ -n "$src_uri" ] || fail "SourceMode s3 needs ArtifactsUri (s3://bucket/prefix/) or SourceArchiveUri" ;;
+                    upload) base="s3://$INPUTS_BUCKET/" ;;
+                    github|kept) ;;
+                    *) fail "SourceMode must be github, s3 or upload (is '$SOURCE_MODE')" ;;
+                  esac
+                  if [ -n "$base" ]; then
+                    base="${base%/}/"; bucket="${base#s3://}"; bucket="${bucket%%/*}"; prefix="${base#s3://$bucket/}"
+                    names=$(aws s3api list-objects-v2 --bucket "$bucket" --prefix "$prefix" --delimiter / \
+                              --query 'Contents[].Key' --output text) || fail "could not list $base"
+                    names=$(tr '\t' '\n' <<<"$names" | sed -n "s|^$prefix||p" | grep -v -x -e None -e '' || true)
+                    say "the artifact set $base: $(tr '\n' ' ' <<<"$names")"
+                    set_source="" set_umarell="" set_jam=""
+                    if grep -qx artifacts.json <<<"$names"; then
+                      fetch "${base}artifacts.json" "$W/artifacts.json"
+                      read -r set_source set_umarell set_jam < <(python3 -c 'import json, re, sys
+                  a = json.load(open(sys.argv[1]))
+                  ok = lambda v: v is None or (isinstance(v, str) and re.fullmatch(r"[A-Za-z0-9._+-][A-Za-z0-9._+/-]*", v) and ".." not in v)
+                  s, u, j = a.get("source"), a.get("umarell"), a.get("umarellJam")
+                  if not s or not ok(s) or not ok(u) or not ok(j): sys.exit("artifacts.json needs \"source\" (and may have \"umarell\", \"umarellJam\"): file names in the set")
+                  print(s, u or "-", j or "-")' "$W/artifacts.json") || fail "artifacts.json is not usable (see above)"
+                      [ "$set_umarell" != - ] || set_umarell=""
+                      [ "$set_jam" != - ] || set_jam=""
+                      [ -n "$set_source" ] && say "artifacts.json: source $set_source${set_umarell:+, umarell $set_umarell}${set_jam:+, umarell_jam $set_jam}"
+                    else
+                      srcs=$(grep -E '^(pai-pd|factoryos)[A-Za-z0-9._+-]*\.(zip|tar\.gz|tgz)$' <<<"$names" || true)
+                      # umarell-jam*: umarell_jam's archive, not a second umarell archive.
+                      umas=$(grep -E '^umarell[A-Za-z0-9._+-]*\.tar\.gz$' <<<"$names" | grep -v '^umarell-jam' || true)
+                      jams=$(grep -E '^umarell-jam[A-Za-z0-9._+-]*\.tar\.gz$' <<<"$names" || true)
+                      [ "$(grep -c . <<<"$srcs")" -le 1 ] || fail "more than one export in $base ($(tr '\n' ' ' <<<"$srcs")): keep one, or name it in artifacts.json"
+                      [ "$(grep -c . <<<"$umas")" -le 1 ] || fail "more than one umarell archive in $base ($(tr '\n' ' ' <<<"$umas")): keep one, or name it in artifacts.json"
+                      [ "$(grep -c . <<<"$jams")" -le 1 ] || fail "more than one umarell_jam archive in $base ($(tr '\n' ' ' <<<"$jams")): keep one, or name it in artifacts.json"
+                      set_source="$srcs" set_umarell="$umas" set_jam="$jams"
+                    fi
+                    [ -n "$src_uri" ] || { [ -n "$set_source" ] || fail "no export in $base: upload pai-pd.zip (the export, .zip or .tar.gz), or name it in artifacts.json"; src_uri="$base$set_source"; }
+                    [ -n "$umarell_uri" ] || [ -z "$set_umarell" ] || umarell_uri="$base$set_umarell"
+                    [ -n "$jam_uri" ] || [ -z "$set_jam" ] || jam_uri="$base$set_jam"
+                  fi
+
+                  # ---- GitHub: the release's source archive -------------------------------------------------------
+                  if [ -z "$src_uri" ]; then
+                    repo="${REPO_URL%/}"; repo="${repo%.git}"
+                    [[ "$repo" =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "RepoUrl must be https://github.com/<owner>/<repo>"
+                    tag="$RELEASE"
+                    if [ "$tag" = latest ]; then
+                      # The redirect of releases/latest (not api.github.com: 60 unauthenticated requests an hour per IP).
+                      loc=$(curl -fsSI --retry 3 "$repo/releases/latest" | tr -d '\r' | sed -n 's/^[Ll]ocation: *//p' | tail -1) \
+                        || fail "could not reach $repo/releases/latest (is the repository public?)"
+                      tag="${loc##*/releases/tag/}"
+                      [ "$tag" != "$loc" ] || fail "$repo has no published release yet (releases/latest went to '$loc')"
+                    fi
+                    [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || fail "unusable release tag '$tag'"
+                    say "release $tag of $repo"
+                    src_uri="$repo/archive/refs/tags/$tag.tar.gz"
+                  fi
+
+                  # ---- Unpack the export ---------------------------------------------------------------------------
+                  case "$(public "$src_uri")" in
+                    *.zip) src_file="$W/source.zip" ;;
+                    *.tar.gz|*.tgz) src_file="$W/source.tar.gz" ;;
+                    *) fail "the export must be a .zip or .tar.gz: $(public "$src_uri")" ;;
+                  esac
+                  fetch "$src_uri" "$src_file"
+                  rm -rf "$W/src"; mkdir -p "$W/src"
+                  case "$src_file" in
+                    *.zip) unzip -q "$src_file" -d "$W/src" || fail "could not unpack the export (zip)" ;;
+                    *) tar -xzf "$src_file" -C "$W/src" || fail "could not unpack the export (tar.gz)" ;;
+                  esac
+                  top=$(ls -A "$W/src")
+                  [ "$(grep -c . <<<"$top")" = 1 ] && [ -d "$W/src/$top" ] || fail "the export must hold exactly one top directory (it holds: $(tr '\n' ' ' <<<"$top"))"
+                  tree="$W/src/$top"
+                  [ -f "$tree/deployment/install.sh" ] && [ -f "$tree/deployment/deploy.sh" ] && [ -f "$tree/deployment/cleanup.sh" ] \
+                    || fail "the export has no deployment/install.sh, deploy.sh and cleanup.sh: is it the guidance?"
+                  # deploy.sh and cleanup.sh use their own tree when install.sh next to them is executable.
+                  chmod u+x "$tree/deployment/install.sh" "$tree/deployment/deploy.sh" "$tree/deployment/cleanup.sh"
+                  say "the export: $top ($(python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); print(v.get("release") or "tree " + v.get("tree", "?")[:12])' "$tree/source/VERSION.json" 2>/dev/null || echo "no source/VERSION.json"))"
+
+                  export ONECLICK_REGION="$AWS_REGION" ONECLICK_STACK_NAME="$APP_STACK_NAME" ONECLICK_STATE_FILE="$W/oneclick.state"
+                  export FACTORYOS_WORK="$W/install"
+                  cd "$W"
+                  if [ "$ACTION" = uninstall ]; then
+                    bash "$tree/deployment/cleanup.sh" </dev/null 2>&1 | tee -a "$LOG"
+                    say "uninstalled $APP_STACK_NAME"
+                    exit 0
+                  fi
+
+                  # ---- umarell: install.sh takes an s3:// archive; an https:// one is staged to the inputs bucket ---
+                  umarell_s3=""
+                  if [ -n "$umarell_uri" ]; then
+                    case "$(public "$umarell_uri")" in *.tar.gz) ;; *) fail "the umarell archive must be a .tar.gz: $(public "$umarell_uri")" ;; esac
+                    fetch "$umarell_uri" "$W/umarell.tar.gz"
+                    case "$umarell_uri" in
+                      s3://*) umarell_s3="$umarell_uri" ;;
+                      *) umarell_s3="s3://$INPUTS_BUCKET/staging/umarell-$(sha256sum "$W/umarell.tar.gz" | cut -c1-12).tar.gz"
+                         aws s3 cp --only-show-errors "$W/umarell.tar.gz" "$umarell_s3" || fail "could not stage umarell to $umarell_s3"
+                         say "staged umarell to $umarell_s3" ;;
+                    esac
+                  fi
+                  # ---- umarell_jam's umarell (optional): the same way ----------------------------------------------
+                  jam_s3=""
+                  if [ -n "$jam_uri" ]; then
+                    case "$(public "$jam_uri")" in *.tar.gz) ;; *) fail "the umarell_jam archive must be a .tar.gz: $(public "$jam_uri")" ;; esac
+                    fetch "$jam_uri" "$W/umarell-jam.tar.gz"
+                    case "$jam_uri" in
+                      s3://*) jam_s3="$jam_uri" ;;
+                      *) jam_s3="s3://$INPUTS_BUCKET/staging/umarell-jam-$(sha256sum "$W/umarell-jam.tar.gz" | cut -c1-12).tar.gz"
+                         aws s3 cp --only-show-errors "$W/umarell-jam.tar.gz" "$jam_s3" || fail "could not stage umarell_jam's umarell to $jam_s3"
+                         say "staged umarell_jam's umarell to $jam_s3" ;;
+                    esac
+                  fi
+
+                  export ONECLICK_ADMIN_EMAIL="$ADMIN_EMAIL" ONECLICK_UMARELL_TARBALL="$umarell_s3" ONECLICK_UMARELL_JAM_TARBALL="$jam_s3" \
+                    ONECLICK_INSTANCE_TYPE="$INSTANCE_TYPE" ONECLICK_VOLUME_GB="$VOLUME_GB" ONECLICK_BEDROCK="$BEDROCK" \
+                    ONECLICK_WAIT_FOR_RELEASE=1 ONECLICK_RELEASE_TIMEOUT_SECONDS=18000
+                  bash "$tree/deployment/deploy.sh" </dev/null 2>&1 | tee -a "$LOG"
+                  APP_URL=$(aws cloudformation describe-stacks --stack-name "$APP_STACK_NAME" \
+                    --query "Stacks[0].Outputs[?OutputKey=='Url'].OutputValue | [0]" --output text)
+                  # Kept for the uninstall (its installer removes what this one installed).
+                  ext=zip; [[ "$src_file" == *.zip ]] || ext=tar.gz
+                  aws s3 rm --only-show-errors "$kept.zip" >/dev/null 2>&1 || true; aws s3 rm --only-show-errors "$kept.tar.gz" >/dev/null 2>&1 || true
+                  aws s3 cp --only-show-errors "$src_file" "$kept.$ext" || fail "could not keep the export at $kept.$ext"
+                  say "kept the export for the uninstall: $kept.$ext"
+                  say "installed: $APP_URL (sign in as $ADMIN_EMAIL with the password from the invitation e-mail)"
+                  PAIPD_BUILD_EOF
+                  bash /tmp/pai-pd-build.sh
+
+  # ---- The custom resources: start the create's build (and stop builds on delete), read the outputs, empty the bucket
+  HelperLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_158
+            comment: The helper function's log holds no secrets; the default CloudWatch Logs encryption applies.
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-helper'
+      RetentionInDays: 30
+
+  HelperRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: helper
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${HelperLogGroup.Arn}'
+              - Effect: Allow
+                Action: [codebuild:StartBuild, codebuild:StopBuild, codebuild:BatchGetBuilds, codebuild:ListBuildsForProject]
+                Resource: !GetAtt InstallerProject.Arn
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt InputsBucket.Arn
+              - Effect: Allow
+                Action: s3:DeleteObject
+                Resource: !Sub '${InputsBucket.Arn}/*'
+
+  HelperFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: HelperLogGroup
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_116
+            comment: A CloudFormation custom resource; CloudFormation retries nothing, a failure is reported to the stack.
+          - id: CKV_AWS_117
+            comment: Calls only AWS APIs (CodeBuild, CloudFormation, S3) and the CloudFormation response URL; no VPC.
+          - id: CKV_AWS_115
+            comment: A custom resource with a handful of calls per stack operation; no concurrency to reserve.
+          - id: CKV_AWS_173
+            comment: Its environment holds no variables.
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-helper'
+      Description: !Sub 'Custom resources of ${AWS::StackName}: starts and stops the installer build, reads the application outputs, empties the inputs bucket'
+      Runtime: python3.14
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 128
+      Role: !GetAtt HelperRole.Arn
+      Code:
+        ZipFile: |
+          import json, urllib.request
+          import boto3
+
+          def send(e, ok, data=None, reason=""):
+              body = json.dumps({"Status": "SUCCESS" if ok else "FAILED", "Reason": reason[:1000] or "ok",
+                                 "PhysicalResourceId": e.get("PhysicalResourceId") or e["LogicalResourceId"],
+                                 "StackId": e["StackId"], "RequestId": e["RequestId"],
+                                 "LogicalResourceId": e["LogicalResourceId"], "Data": data or {}}).encode()
+              req = urllib.request.Request(e["ResponseURL"], data=body, method="PUT", headers={"Content-Type": ""})
+              urllib.request.urlopen(req, timeout=60)
+
+          def builds(cb, project):
+              ids = cb.list_builds_for_project(projectName=project, sortOrder="DESCENDING")["ids"][:20]
+              return [b for b in cb.batch_get_builds(ids=ids)["builds"] if b["buildStatus"] == "IN_PROGRESS"] if ids else []
+
+          def handler(e, context):
+              p, kind, data = e["ResourceProperties"], e["RequestType"], {}
+              print(json.dumps({k: e[k] for k in ("RequestType", "LogicalResourceId")}))
+              try:
+                  mode = p["Mode"]
+                  if mode == "start-build":
+                      cb = boto3.client("codebuild")
+                      if kind == "Delete":
+                          for b in builds(cb, p["ProjectName"]):
+                              cb.stop_build(id=b["id"])
+                              print("stopped", b["id"])
+                      else:
+                          if builds(cb, p["ProjectName"]):
+                              raise RuntimeError("an installer build is still running; wait for it, then update again")
+                          env = [{"name": "WAIT_HANDLE_URL", "value": p["WaitHandle"], "type": "PLAINTEXT"}] if kind == "Create" else []
+                          b = cb.start_build(projectName=p["ProjectName"], environmentVariablesOverride=env)["build"]
+                          data = {"BuildId": b["id"]}
+                          print("started", b["id"])
+                  elif mode == "read-outputs" and kind != "Delete":
+                      s = boto3.client("cloudformation").describe_stacks(StackName=p["AppStackName"])["Stacks"][0]
+                      data = {o["OutputKey"]: o["OutputValue"] for o in s.get("Outputs", []) if o["OutputKey"] in ("Url", "GateVerified")}
+                  elif mode == "empty-bucket" and kind == "Delete":
+                      bucket = boto3.resource("s3").Bucket(p["Bucket"])
+                      bucket.objects.all().delete()
+                      print("emptied", p["Bucket"])
+                  send(e, True, data)
+              except Exception as x:
+                  print("error:", repr(x))
+                  # Never stall a delete (or a rollback's delete): report success and leave the error in the log.
+                  send(e, kind == "Delete", data, ("ignored on delete: " if kind == "Delete" else "") + str(x))
+
+  StartBuild:
+    Type: Custom::PaiPdStartBuild
+    Condition: NotUpload
+    Properties:
+      ServiceToken: !GetAtt HelperFunction.Arn
+      Mode: start-build
+      ProjectName: !Ref InstallerProject
+      WaitHandle: !Ref InstallDoneHandle
+      # A change of any of these starts a new build on a stack update (install.sh then updates the installation).
+      # UmarellJamTarballUri only when set: a stack updated to this template without it keeps its Config (no build).
+      Config: !Join
+        - ''
+        - - !Join
+            - '|'
+            - [!Ref SourceMode, !Ref Release, !Ref RepoUrl, !Ref ArtifactsUri, !Ref SourceArchiveUri, !Ref UmarellTarballUri,
+               !Ref AppStackName, !Ref AdminEmail, !Ref InstanceType, !Ref VolumeGb, !Ref Bedrock]
+          - !If [HasJamTarball, !Sub '|jam=${UmarellJamTarballUri}', '']
+
+  InstallDoneHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Condition: NotUpload
+
+  InstallDone:
+    Type: AWS::CloudFormation::WaitCondition
+    Condition: NotUpload
+    DependsOn: StartBuild
+    Properties:
+      Handle: !Ref InstallDoneHandle
+      # The build's own limit (480 min) plus a margin: a build that times out cannot signal, this then fails the stack.
+      Timeout: '29400'
+
+  ReadOutputs:
+    Type: Custom::PaiPdReadOutputs
+    Condition: NotUpload
+    DependsOn: InstallDone
+    Properties:
+      ServiceToken: !GetAtt HelperFunction.Arn
+      Mode: read-outputs
+      AppStackName: !Ref AppStackName
+      Config: !GetAtt StartBuild.BuildId
+
+  EmptyInputsBucket:
+    Type: Custom::PaiPdEmptyBucket
+    DependsOn: InputsBucketPolicy
+    Properties:
+      ServiceToken: !GetAtt HelperFunction.Arn
+      Mode: empty-bucket
+      Bucket: !Ref InputsBucket
+
+Outputs:
+  Url:
+    Condition: NotUpload
+    Description: Physical AI Production Designer. Sign in with the e-mail address and the temporary password from the invitation.
+    Value: !GetAtt ReadOutputs.Url
+  GateVerified:
+    Condition: NotUpload
+    Description: true when the installer verified that the sign-in gate denies anonymous requests.
+    Value: !GetAtt ReadOutputs.GateVerified
+  AppStack:
+    Description: The application's stack (its sign-in stack is <name>-edge in us-east-1).
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudformation/home?region=${AWS::Region}#/stacks?filteringText=${AppStackName}'
+  BuildLogs:
+    Description: The installer's builds and their logs.
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${InstallerProject}/history?region=${AWS::Region}'
+  UploadTo:
+    Condition: IsUpload
+    Description: 'Upload the export (pai-pd.zip) and umarell.tar.gz here (optionally umarell-jam.tar.gz, their .sha256 files and an artifacts.json), then start the install.'
+    Value: !Sub 'https://s3.console.aws.amazon.com/s3/buckets/${InputsBucket}?region=${AWS::Region}'
+  StartInstall:
+    Condition: IsUpload
+    Description: After the upload, open the project and choose Start build, or run this command (AWS CloudShell).
+    Value: !Sub 'aws codebuild start-build --region ${AWS::Region} --project-name ${InstallerProject}'
+  Uninstall:
+    Description: >-
+      Removes the application (both stacks, the instance and its data, the users). In the project, choose Start
+      build with overrides and set ACTION to uninstall, or run this command. Then delete this stack.
+    Value: !Sub 'aws codebuild start-build --region ${AWS::Region} --project-name ${InstallerProject} --environment-variables-override name=ACTION,value=uninstall,type=PLAINTEXT'

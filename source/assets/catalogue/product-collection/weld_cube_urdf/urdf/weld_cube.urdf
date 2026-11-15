@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+  weld_cube - a 1 m cube work piece for the Factory OS sample cell "cube_weld_2r".
+  Base centred on the link origin, top face at z = 1.0 m (metres, Z up). The mesh is
+  used for both visual and collision so the planner's converter can voxelise it.
+-->
+<robot name="weld_cube">
+  <link name="World">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes/weld_cube.obj" scale="1 1 1"/></geometry>
+      <material name="cube_steel"><color rgba="0.62 0.64 0.68 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes/weld_cube.obj" scale="1 1 1"/></geometry>
+    </collision>
+  </link>
+</robot>

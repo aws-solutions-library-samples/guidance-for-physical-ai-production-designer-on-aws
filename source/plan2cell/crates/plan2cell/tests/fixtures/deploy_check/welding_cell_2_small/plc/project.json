@@ -1,0 +1,598 @@
+{
+  "schema": "bt2plc/codesys-project@1",
+  "generator": "bt2plc 0.1.0",
+  "plan": {
+    "tree_id": "bt_1792076124_welding_cell_2_small",
+    "cell_id": "welding_cell_2_small",
+    "fingerprint": "fnv1a64:7b3518fdddb0f1f8",
+    "plan_id": "16#4F80",
+    "grant_policy": "planned",
+    "zones": 2,
+    "permit_edges": 0
+  },
+  "ide": {
+    "product": "CODESYS",
+    "version": "CODESYS V3.5 SP22 Patch 1",
+    "os": "windows"
+  },
+  "prerequisites": [
+    {
+      "id": "gsdml",
+      "kind": "device_repository_install",
+      "file": "profinet-headplc-robot-simulation/codesys-project/kuka-vass-device-simulator/gsdml/GSDML-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030.xml",
+      "needed_by": [
+        "head_plc"
+      ],
+      "provides": {
+        "type": 81,
+        "id": "GSDML-019B-0301-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030 - DIM 2",
+        "version": "V8.2 - HW 1"
+      }
+    },
+    {
+      "id": "gsdml_dim3",
+      "kind": "device_repository_install",
+      "file": "profinet-headplc-robot-simulation/codesys-project/kuka-vass-device-simulator/gsdml/GSDML-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030.xml",
+      "how": "the same GSDML file: its DAP 'DIM 3' (V8.3), for the robots with safety_module = false",
+      "needed_by": [
+        "head_plc"
+      ],
+      "provides": {
+        "type": 81,
+        "id": "GSDML-019B-0301-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030 - DIM 3",
+        "version": "V8.3 - HW 1"
+      }
+    },
+    {
+      "id": "pn_device_desc",
+      "kind": "manual",
+      "how": "Tools > Miscellaneous > Generate PROFINET Device from GSDML (select the KUKA GSDML, DAP 'DIM 2' VKRC nexxt Device V8.2); not scriptable",
+      "needed_by": [
+        "robot_sim"
+      ],
+      "provides": {
+        "type": 83,
+        "id": "0x019B_0x0301_DIM 2",
+        "version": "1 V8.2"
+      }
+    }
+  ],
+  "projects": [
+    {
+      "key": "head",
+      "role": "head_plc",
+      "name": "HeadPLC_welding_cell_2_small",
+      "file": "HeadPLC_welding_cell_2_small.project",
+      "source_dir": "codesys/head",
+      "runtime": {
+        "container": "codesys-master",
+        "ip": "192.168.100.10",
+        "gateway_port": 11740,
+        "opcua_port": 4840
+      },
+      "device_tree": {
+        "name": "Device",
+        "device_id": {
+          "type": 4102,
+          "id": "0000 0005",
+          "version": "4.20.0.0"
+        },
+        "children": [
+          {
+            "name": "Ethernet",
+            "device_id": {
+              "type": 110,
+              "id": "0000 0002",
+              "version": "4.2.0.0"
+            },
+            "parameters": [
+              {
+                "id": 0,
+                "name": "IPAddress",
+                "value": "[192,168,100,10]"
+              },
+              {
+                "id": 1,
+                "name": "SubnetMask",
+                "value": "[255,255,255,0]"
+              },
+              {
+                "id": 2,
+                "name": "GatewayAddress",
+                "value": "[192,168,100,1]"
+              },
+              {
+                "id": 10,
+                "name": "NetworkInterfaceName",
+                "value": "'eth1'"
+              },
+              {
+                "id": 12,
+                "name": "NetworkInterfaceName (WSTRING)",
+                "value": "\"eth1\""
+              }
+            ],
+            "children": [
+              {
+                "name": "PN_Controller",
+                "device_id": {
+                  "type": 80,
+                  "id": "0000 0002",
+                  "version": "4.7.1.0"
+                },
+                "parameters": [
+                  {
+                    "id": 130,
+                    "name": "StationName",
+                    "value": "'controller'"
+                  },
+                  {
+                    "id": 384,
+                    "name": "FirstIPAddress",
+                    "value": "[192,168,100,2]"
+                  },
+                  {
+                    "id": 385,
+                    "name": "LastIPAddress",
+                    "value": "[192,168,100,254]"
+                  },
+                  {
+                    "id": 386,
+                    "name": "DefaultSubnetMask",
+                    "value": "[255,255,255,0]"
+                  }
+                ],
+                "children": [
+                  {
+                    "name": "kuka_robi1",
+                    "robot": "robot1",
+                    "device_id": {
+                      "type": 81,
+                      "id": "GSDML-019B-0301-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030 - DIM 3",
+                      "version": "V8.3 - HW 1"
+                    },
+                    "parameters": [
+                      {
+                        "id": 512,
+                        "member": "Identification.StationName",
+                        "value": "'kuka-robi1'"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.IPAddress",
+                        "value": "[192,168,100,11]"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.SubnetMask",
+                        "value": "[255,255,255,0]"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.DefaultGateway",
+                        "value": "[192,168,100,1]"
+                      }
+                    ],
+                    "slots": [
+                      {
+                        "slot": 1,
+                        "empty": true,
+                        "module_id": null,
+                        "profisafe": false,
+                        "io": []
+                      },
+                      {
+                        "slot": 2,
+                        "name": "VASS_DIO256_R1",
+                        "module_id": "7",
+                        "ident": "16#00001000",
+                        "profisafe": false,
+                        "io": [
+                          {
+                            "param_id": 77824,
+                            "channel": "Inputs",
+                            "dir": "in",
+                            "variable": "Application.GVL_IO.aVassInputData_R1"
+                          },
+                          {
+                            "param_id": 81920,
+                            "channel": "Outputs",
+                            "dir": "out",
+                            "variable": "Application.GVL_IO.aVassOutputData_R1"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "name": "kuka_robi2",
+                    "robot": "robot2",
+                    "device_id": {
+                      "type": 81,
+                      "id": "GSDML-019B-0301-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030 - DIM 3",
+                      "version": "V8.3 - HW 1"
+                    },
+                    "parameters": [
+                      {
+                        "id": 512,
+                        "member": "Identification.StationName",
+                        "value": "'kuka-robi2'"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.IPAddress",
+                        "value": "[192,168,100,12]"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.SubnetMask",
+                        "value": "[255,255,255,0]"
+                      },
+                      {
+                        "id": 512,
+                        "member": "Identification.DefaultGateway",
+                        "value": "[192,168,100,1]"
+                      }
+                    ],
+                    "slots": [
+                      {
+                        "slot": 1,
+                        "empty": true,
+                        "module_id": null,
+                        "profisafe": false,
+                        "io": []
+                      },
+                      {
+                        "slot": 2,
+                        "name": "VASS_DIO256_R2",
+                        "module_id": "7",
+                        "ident": "16#00001000",
+                        "profisafe": false,
+                        "io": [
+                          {
+                            "param_id": 77824,
+                            "channel": "Inputs",
+                            "dir": "in",
+                            "variable": "Application.GVL_IO.aVassInputData_R2"
+                          },
+                          {
+                            "param_id": 81920,
+                            "channel": "Outputs",
+                            "dir": "out",
+                            "variable": "Application.GVL_IO.aVassOutputData_R2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "libraries": [
+        {
+          "name": "Standard",
+          "vendor": "System",
+          "version": "*",
+          "mode": "ensure"
+        },
+        {
+          "name": "IoStandard",
+          "vendor": "System",
+          "mode": "auto"
+        },
+        {
+          "name": "IoDrvEthernet",
+          "vendor": "3S - Smart Software Solutions GmbH",
+          "version": "4.2.0.0",
+          "mode": "auto"
+        },
+        {
+          "name": "IoDrvProfinet",
+          "vendor": "CODESYS",
+          "version": "4.7.1.0",
+          "mode": "auto"
+        },
+        {
+          "name": "ProfinetCommon",
+          "vendor": "CODESYS",
+          "version": "4.7.0.0",
+          "mode": "auto"
+        },
+        {
+          "name": "CommFB",
+          "vendor": "3S - Smart Software Solutions GmbH",
+          "version": "3.5.17.10",
+          "mode": "auto"
+        },
+        {
+          "name": "CAA Device Diagnosis",
+          "vendor": "CAA Technical Workgroup",
+          "mode": "auto"
+        },
+        {
+          "name": "3SLicense",
+          "vendor": "CODESYS",
+          "mode": "auto"
+        }
+      ],
+      "tasks": [
+        {
+          "name": "MainTask",
+          "kind": "cyclic",
+          "interval": "t#4ms",
+          "priority": 1,
+          "pous": [
+            "PLC_PRG"
+          ],
+          "mode": "ensure"
+        },
+        {
+          "name": "Profinet_CommunicationTask",
+          "kind": "cyclic",
+          "interval": "t#10ms",
+          "priority": 14,
+          "pous": [
+            "PN_Controller.CommCycle"
+          ],
+          "mode": "verify_or_create"
+        },
+        {
+          "name": "Profinet_IOTask",
+          "kind": "cyclic",
+          "interval": "t#1ms",
+          "priority": 1,
+          "pous": [],
+          "bus_cycle_task_of": "PN_Controller",
+          "mode": "verify_or_create"
+        }
+      ],
+      "objects": [
+        {
+          "order": 1,
+          "name": "E_CellError",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/E_CellError.st",
+          "origin": "template"
+        },
+        {
+          "order": 2,
+          "name": "E_CellState",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/E_CellState.st",
+          "origin": "template"
+        },
+        {
+          "order": 3,
+          "name": "E_GrantPolicy",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/E_GrantPolicy.st",
+          "origin": "template"
+        },
+        {
+          "order": 4,
+          "name": "E_RobotState",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/E_RobotState.st",
+          "origin": "template"
+        },
+        {
+          "order": 5,
+          "name": "ST_OpInfo",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/ST_OpInfo.st",
+          "origin": "template"
+        },
+        {
+          "order": 6,
+          "name": "ST_RobotIn",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/ST_RobotIn.st",
+          "origin": "template"
+        },
+        {
+          "order": 7,
+          "name": "ST_RobotOut",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/ST_RobotOut.st",
+          "origin": "template"
+        },
+        {
+          "order": 8,
+          "name": "ST_Ticket",
+          "kind": "dut",
+          "parent": "Application",
+          "declaration": "codesys/head/DUT/ST_Ticket.st",
+          "origin": "template"
+        },
+        {
+          "order": 9,
+          "name": "GVL_Cell",
+          "kind": "gvl",
+          "parent": "Application",
+          "declaration": "codesys/head/GVL/GVL_Cell.st",
+          "origin": "generated"
+        },
+        {
+          "order": 10,
+          "name": "GVL_IO",
+          "kind": "gvl",
+          "parent": "Application",
+          "declaration": "codesys/head/GVL/GVL_IO.st",
+          "origin": "template"
+        },
+        {
+          "order": 11,
+          "name": "FB_VassRobot",
+          "kind": "pou",
+          "pou_type": "function_block",
+          "language": "ST",
+          "parent": "Application",
+          "declaration": "codesys/head/POU/FB_VassRobot.st",
+          "implementation": "codesys/head/POU/FB_VassRobot_Body.st",
+          "origin": "template"
+        },
+        {
+          "order": 12,
+          "name": "FB_ZoneArbiter",
+          "kind": "pou",
+          "pou_type": "function_block",
+          "language": "ST",
+          "parent": "Application",
+          "declaration": "codesys/head/POU/FB_ZoneArbiter.st",
+          "implementation": "codesys/head/POU/FB_ZoneArbiter_Body.st",
+          "origin": "template"
+        },
+        {
+          "order": 13,
+          "name": "FB_Cell",
+          "kind": "pou",
+          "pou_type": "function_block",
+          "language": "ST",
+          "parent": "Application",
+          "declaration": "codesys/head/POU/FB_Cell.st",
+          "implementation": "codesys/head/POU/FB_Cell_Body.st",
+          "origin": "template"
+        },
+        {
+          "order": 14,
+          "name": "PLC_PRG",
+          "kind": "pou",
+          "pou_type": "program",
+          "language": "ST",
+          "parent": "Application",
+          "declaration": "codesys/head/POU/PLC_PRG.st",
+          "implementation": "codesys/head/POU/PLC_PRG_Body.st",
+          "origin": "template",
+          "replace_existing": true
+        }
+      ],
+      "io_mapping_csv": "codesys/head/io_mapping.csv",
+      "steps": [
+        {
+          "op": "create_project",
+          "note": "Standard project, device CODESYS Control for Linux SL (4102 / '0000 0005' / 4.20.0.0), language ST"
+        },
+        {
+          "op": "add_device",
+          "parent": "Device",
+          "name": "Ethernet"
+        },
+        {
+          "op": "set_device_parameters",
+          "device": "Ethernet"
+        },
+        {
+          "op": "add_device",
+          "parent": "Ethernet",
+          "name": "PN_Controller"
+        },
+        {
+          "op": "set_device_parameters",
+          "device": "PN_Controller"
+        },
+        {
+          "op": "add_device",
+          "parent": "PN_Controller",
+          "name": "kuka_robi1"
+        },
+        {
+          "op": "set_device_parameters",
+          "device": "kuka_robi1"
+        },
+        {
+          "op": "ensure_empty_slot",
+          "device": "kuka_robi1",
+          "slot": 1,
+          "note": "SIMULATION ONLY (safety_module = false): remove the module the device description plugs into this slot by default (FDIO64 on DAP DIM 3), then read back that the slot is empty"
+        },
+        {
+          "op": "ensure_module",
+          "device": "kuka_robi1",
+          "slot": 2,
+          "module_id": "7",
+          "name": "VASS_DIO256_R1"
+        },
+        {
+          "op": "add_device",
+          "parent": "PN_Controller",
+          "name": "kuka_robi2"
+        },
+        {
+          "op": "set_device_parameters",
+          "device": "kuka_robi2"
+        },
+        {
+          "op": "ensure_empty_slot",
+          "device": "kuka_robi2",
+          "slot": 1,
+          "note": "SIMULATION ONLY (safety_module = false): remove the module the device description plugs into this slot by default (FDIO64 on DAP DIM 3), then read back that the slot is empty"
+        },
+        {
+          "op": "ensure_module",
+          "device": "kuka_robi2",
+          "slot": 2,
+          "module_id": "7",
+          "name": "VASS_DIO256_R2"
+        },
+        {
+          "op": "ensure_libraries",
+          "note": "libraries[] with mode ensure; verify the auto ones"
+        },
+        {
+          "op": "create_objects",
+          "note": "objects[] in order: declaration file -> declaration part, implementation file -> implementation part"
+        },
+        {
+          "op": "configure_tasks",
+          "note": "tasks[]; PLC_PRG only in MainTask"
+        },
+        {
+          "op": "map_io",
+          "note": "device_tree slots[].io (fallback: import io_mapping_csv)"
+        },
+        {
+          "op": "build",
+          "note": "0 errors required"
+        },
+        {
+          "op": "save"
+        }
+      ],
+      "acceptance": {
+        "build_errors": 0,
+        "objects": [
+          "E_CellError",
+          "E_CellState",
+          "E_GrantPolicy",
+          "E_RobotState",
+          "ST_OpInfo",
+          "ST_RobotIn",
+          "ST_RobotOut",
+          "ST_Ticket",
+          "GVL_Cell",
+          "GVL_IO",
+          "FB_VassRobot",
+          "FB_ZoneArbiter",
+          "FB_Cell",
+          "PLC_PRG"
+        ],
+        "devices": [
+          "Ethernet",
+          "PN_Controller",
+          "kuka_robi1",
+          "kuka_robi2"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+# Written at run time: btexport's work and plan caches, U3's working copies and results, the umarell base U3
+# patches (umarell_fast/apply.py links it here).
+/data/btexport/
+/data/trajgen/
+/data/umarell_fast/
+/results/
+/third_party/

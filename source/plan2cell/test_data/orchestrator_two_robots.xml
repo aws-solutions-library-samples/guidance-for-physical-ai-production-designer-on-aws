@@ -1,0 +1,20 @@
+<?xml version="1.0" ?>
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <Parallel success_count="-1" failure_count="1">
+        <ExecuteTrajectory name="weld_r1_A" robot_ns="r1" operation_id="A" operation_type="weld" trajectory="{traj_A}" hold_duration_s="0.5" velocity_scale="1.0" has_interlock="false"/>
+        <ExecuteTrajectory name="move_r2_B" robot_ns="r2" operation_id="B" operation_type="move" trajectory="{traj_B}" hold_duration_s="0.5" velocity_scale="2.0" has_interlock="false"/>
+      </Parallel>
+      <Parallel success_count="-1" failure_count="1">
+        <MoveHome name="home_r1" robot_ns="r1" trajectory="{traj_H}"/>
+        <MoveHome name="home_r2" robot_ns="r2"/>
+      </Parallel>
+    </Sequence>
+  </BehaviorTree>
+  <TreeNodesModel>
+    <Action ID="ExecuteTrajectory">
+      <input_port name="robot_ns"/>
+    </Action>
+  </TreeNodesModel>
+</root>

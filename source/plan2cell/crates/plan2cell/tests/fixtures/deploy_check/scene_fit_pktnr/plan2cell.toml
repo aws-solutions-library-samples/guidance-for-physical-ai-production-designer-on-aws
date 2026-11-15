@@ -1,0 +1,34 @@
+# Written by Factory OS (Control Code Export) for agentic_planner/plans/bt_1792156523_scene_fit.json: plan2cell's defaults, the request's options on top, then its Hardware Configuration (plan2cell/hardware.json).
+# Rebuild by hand: plan2cell build <plan> -c plan2cell.toml -o <dir> --plc-dialect codesys --robot-language krl --krl-e-axes-default none
+
+[build]
+krl = true
+plc = "codesys"
+profile = "vw-ks24"
+robot_sim = true
+st_check = true
+strict = false
+
+[plc.cell]
+job_number = "word_le"
+
+[plc.network]
+controller_station = "controller"
+gateway = "0.0.0.0"
+head_ip = "192.168.100.10"
+netmask = "255.255.255.0"
+
+[plc.opcua]
+symbols = false
+
+[[plc.robot]]
+device_name = "kuka_robi1"
+ip = "192.168.100.11"
+ns = "robot1"
+station = "kuka-robi1"
+
+[[plc.robot]]
+device_name = "kuka_robi2"
+ip = "192.168.100.12"
+ns = "robot2"
+station = "kuka-robi2"

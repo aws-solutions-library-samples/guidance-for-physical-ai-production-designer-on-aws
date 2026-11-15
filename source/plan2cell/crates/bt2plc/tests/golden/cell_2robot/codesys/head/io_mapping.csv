@@ -1,0 +1,24 @@
+//CoDeSys Mapping Export V1.2
+//Mapped variable,//Parameter name @ counter in device,//Unit,//Description,//IEC address,//Device name
+//Important: change only first, third or fourth column in Excel or add variable name before first
+//
+// R1 robot1 (kuka-robi1, 192.168.100.11)
+//
+Application.GVL_IO.bySafeIn0_R1,8 safe digital inputs,,safe status from robot byte 0,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn1_R1,8 safe digital inputs@1,,safe status from robot byte 1,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn2_R1,8 safe digital inputs@2,,safe status from robot byte 2,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn3_R1,8 safe digital inputs@3,,safe status from robot byte 3,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn4_R1,8 safe digital inputs@4,,safe status from robot byte 4,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn5_R1,8 safe digital inputs@5,,safe status from robot byte 5,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn6_R1,8 safe digital inputs@6,,safe status from robot byte 6,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeIn7_R1,8 safe digital inputs@7,,safe status from robot byte 7,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut0_R1,8 safe digital outputs,,safe commands to robot byte 0,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut1_R1,8 safe digital outputs@1,,safe commands to robot byte 1,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut2_R1,8 safe digital outputs@2,,safe commands to robot byte 2,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut3_R1,8 safe digital outputs@3,,safe commands to robot byte 3,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut4_R1,8 safe digital outputs@4,,safe commands to robot byte 4,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut5_R1,8 safe digital outputs@5,,safe commands to robot byte 5,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut6_R1,8 safe digital outputs@6,,safe commands to robot byte 6,,SafeIO_FDIO64_R1
+Application.GVL_IO.bySafeOut7_R1,8 safe digital outputs@7,,safe commands to robot byte 7,,SafeIO_FDIO64_R1
+Application.GVL_IO.aVassInputData_R1,Inputs,,VASS status from robot,,VASS_DIO256_R1
+Application.GVL_IO.aVassOutputData_R1,Outputs,,VASS commands to robot,,VASS_DIO256_R1

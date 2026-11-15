@@ -1,0 +1,23 @@
+[package]
+name = "plan2cell-cell"
+description = "plan2cell cell: bring a build up on the cell (PLC host runtimes over ssh, CODESYS projects over MCP, deploy, verify)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+rmcp = { version = "3.5.1", features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+
+[dev-dependencies]
+rmcp = { version = "3.5.1", features = ["client", "transport-streamable-http-client-reqwest", "reqwest", "server", "transport-streamable-http-server"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time"] }
+axum = { version = "0.8", features = ["http1", "tokio"] }
+tempfile.workspace = true

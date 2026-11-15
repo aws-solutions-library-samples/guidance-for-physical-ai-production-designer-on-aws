@@ -1,0 +1,19 @@
+{
+  "name": "bug_cube",
+  "description": "",
+  "geometry": {"kind": "box", "size": [2.0, 2.0, 2.0]},
+  "tasks": [
+    {
+      "name": "spot_weld_1",
+      "process": "spotWeld",
+      "tool": "",
+      "params": {"approachOffset": 0.05, "current": 9.0, "force": 3.0, "weldTime": 0.3},
+      "operations": [
+        {"id": "W01", "target": {"kind": "point", "position": [-0.5, -0.5, 2.0], "normal": [0.0, 0.0, 1.0]}, "group": "structural"},
+        {"id": "W02", "target": {"kind": "point", "position": [0.5, -0.5, 2.0], "normal": [0.0, 0.0, 1.0]}, "group": "structural"},
+        {"id": "W03", "target": {"kind": "point", "position": [-0.5, 0.5, 2.0], "normal": [0.0, 0.0, 1.0]}, "group": "structural"},
+        {"id": "W04", "target": {"kind": "point", "position": [0.5, 0.5, 2.0], "normal": [0.0, 0.0, 1.0]}, "group": "structural"}
+      ]
+    }
+  ]
+}

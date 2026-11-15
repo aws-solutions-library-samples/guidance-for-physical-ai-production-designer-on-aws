@@ -1,0 +1,92 @@
+[package]
+name = "factoryos_viewer"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# The Rerun Viewer wrapped as "Factory OS" (native binary + wasm web viewer), based on rerun's
+# extend_viewer_ui example. Depends on the repo's rerun checkout (third_party/rerun) by path so the
+# viewer matches the SDK version the backend logs with.
+
+[features]
+default = []
+# Rerun's usage analytics and crash reports (docs/NETWORK.md; off by default). Through re_viewer and
+# re_crash_handler rather than `rerun/analytics`: that one also names `re_web_viewer_server?/analytics`, and a weak
+# feature makes Cargo lock the optional crate (re_web_viewer_server and its zip 8) even though nothing builds it.
+analytics = ["re_viewer/analytics", "dep:re_crash_handler", "re_crash_handler/analytics"]
+
+[lib]
+# cdylib for the web viewer (wasm-bindgen), rlib for the native binary in src/main.rs.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "factoryos_viewer"
+path = "src/main.rs"
+
+[dependencies]
+# The viewer itself, for native and web; `rerun` (SDK, gRPC server) is native-only, see below.
+re_viewer = { path = "../../third_party/rerun/src/crates/top/re_viewer", default-features = false }
+# URDF parsing and joint transforms for neutral scenes (scene3d/rerun), native and web; meshes come
+# from the asset cache, never from disk.
+re_importer = { path = "../../third_party/rerun/src/crates/data_flow/re_importer", default-features = false, features = ["urdf"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The agent's markdown in the chat; the version Rerun uses (same egui).
+egui_commonmark = { version = "0.25.0", default-features = false }
+# `std::time::Instant` panics on wasm32; this is the same type natively.
+web-time = "1.1"
+# The backend (config, cell runner, Robo Dresser, Robo Fitter, …) is reached through this; see crates/.
+# Without its default features: the internal build turns its `internal` on with ours (the public export has neither).
+factoryos-client = { path = "../factoryos-client", default-features = false }
+# The behaviour-tree pane (Groot-style tree, bt-exec interpreter with cell-runner semantics); egui
+# only, wasm-clean.
+bt-view = { path = "../../plan2cell/crates/bt-view" }
+# Checks content-addressed scene assets (scene3d/assets.rs) against their hash; wasm-clean.
+sha2 = "0.10"
+# The Workspace IDE's highlighting (src/syntax.rs): fancy-regex rather than onig, which doesn't build for wasm32.
+# The IDE terminal's screen (term_view.rs): parses the shell's ANSI output; wasm-clean.
+vt100 = "0.18"
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy", "yaml-load"] }
+# Colors of URDF OBJ meshes (their .mtl materials): `obj_to_mesh3d` for fetched meshes (wasm-clean),
+# natively also the URDF importer for files opened in the viewer.
+factoryos-urdf-materials = { path = "../factoryos-urdf-materials" }
+
+# Screenshots of the automation (automation.rs) as PNG; the version Rerun uses.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rerun = { path = "../../third_party/rerun/src/crates/top/rerun", default-features = false, features = [
+  "native_viewer",
+  "sdk",
+  "server",
+  "log_setup",
+] }
+# Only for the `analytics` feature (the crash handler itself comes through `rerun::external`).
+re_crash_handler = { path = "../../third_party/rerun/src/crates/utils/re_crash_handler", default-features = false, optional = true }
+mimalloc = { version = "=0.1.48", features = ["v3"] }
+rfd = "0.17"
+# The browser login to a backend behind the workspace edge's login (backend.rs).
+webbrowser = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# The Workspace IDE's file picker for uploads (an <input type=file>; saving is a download link).
+rfd = { version = "0.17", default-features = false }
+wasm-bindgen = "0.2.126"
+# The automation's bridge to the page (automation.rs): its reply callback, screenshots inline.
+js-sys = "0.3"
+base64 = "0.22"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["CssStyleDeclaration", "Document", "EventTarget", "HtmlCanvasElement", "HtmlDocument", "HtmlElement", "Location", "Storage", "VisibilityState", "Window"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# tests/scene_e2e.rs: the real backend over Zenoh (multi-threaded runtime) and HTTP.
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "time", "sync"] }
+
+[lints.rust]
+# The internal build's feature, which this export leaves out with the code it gates.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("internal"))'] }

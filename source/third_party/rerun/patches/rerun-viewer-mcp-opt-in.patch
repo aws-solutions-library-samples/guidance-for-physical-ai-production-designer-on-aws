@@ -1,0 +1,67 @@
+diff --git a/crates/top/rerun/Cargo.toml b/crates/top/rerun/Cargo.toml
+--- a/crates/top/rerun/Cargo.toml
++++ b/crates/top/rerun/Cargo.toml
+@@ -99,17 +99,19 @@
+ ## Support spawning a native viewer and allow to extend the viewer.
+ ## This adds a lot of extra dependencies, so only enable this feature if you need it!
+ ##
+-## Also enables the `rerun viewer-mcp` command.
++## The `rerun viewer-mcp` command is the separate `viewer_mcp` feature.
+ native_viewer = [
+   "dep:libc",
+   "dep:re_viewer",
+   "dep:re_crash_handler",
+-  "dep:re_viewer_mcp",
+   "dep:url",
+   "importers",
+   "re_viewer?/agent_context",
+ ]
+ 
++## Enable the `rerun viewer-mcp` command: an MCP server that controls a running native viewer.
++viewer_mcp = ["native_viewer", "dep:re_viewer_mcp"]
++
+ ## Enable the in-memory Rerun data server.
+ oss_server = ["dep:re_server"]
+ 
+diff --git a/crates/top/rerun-cli/Cargo.toml b/crates/top/rerun-cli/Cargo.toml
+--- a/crates/top/rerun-cli/Cargo.toml
++++ b/crates/top/rerun-cli/Cargo.toml
+@@ -85,7 +85,7 @@
+ 
+ ## Support spawning a native viewer.
+ ## This adds a lot of extra dependencies, so only enable this feature if you need it!
+-native_viewer = ["rerun/native_viewer"]
++native_viewer = ["rerun/native_viewer", "rerun/viewer_mcp"]
+ 
+ ## Enable the in-memory Rerun Server, useful for testing.
+ oss_server = ["rerun/oss_server"]
+diff --git a/crates/top/rerun/src/commands/entrypoint.rs b/crates/top/rerun/src/commands/entrypoint.rs
+--- a/crates/top/rerun/src/commands/entrypoint.rs
++++ b/crates/top/rerun/src/commands/entrypoint.rs
+@@ -665,7 +665,7 @@
+     /// `"command": "rerun"` and `"args": ["viewer-mcp"]`.
+     ///
+     /// See <https://rerun.io/docs/reference/viewer/mcp> for details.
+-    #[cfg(feature = "native_viewer")]
++    #[cfg(feature = "viewer_mcp")]
+     #[command(name = "viewer-mcp")]
+     ViewerMcp {
+         /// gRPC endpoint of the viewer to connect to on startup, e.g. `http://127.0.0.1:9876`.
+@@ -814,7 +814,7 @@
+             #[cfg(feature = "importers")]
+             Command::Mcap(mcap) => mcap.run(),
+ 
+-            #[cfg(feature = "native_viewer")]
++            #[cfg(feature = "viewer_mcp")]
+             Command::ViewerMcp { endpoint } => {
+                 tokio_runtime.block_on(re_viewer_mcp::serve(endpoint))
+             }
+@@ -2115,7 +2115,7 @@
+             return;
+         }
+ 
+-        #[cfg(feature = "native_viewer")]
++        #[cfg(feature = "viewer_mcp")]
+         Some(Command::ViewerMcp { .. }) => ("viewer-mcp", None),
+ 
+         Some(Command::Download(_)) => ("download", None),

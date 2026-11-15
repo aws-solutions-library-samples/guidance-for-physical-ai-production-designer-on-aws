@@ -1,0 +1,44 @@
+--- a/crates/top/re_viewer/src/app/ui.rs
++++ b/crates/top/re_viewer/src/app/ui.rs
+@@ -55,6 +55,10 @@
+                     gpu_resource_stats,
+                     ui,
+                 );
++
++                if let Some(outer_panels) = self.startup_options.outer_panels.clone() {
++                    outer_panels(ui);
++                }
+ 
+                 #[cfg(agent_panel)]
+                 self.agent_panel_ui(ui);
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -118,6 +118,10 @@
+ 
+     /// Extra panes stacked at the top of the right (selection) panel, above the selection view.
+     pub right_panel_sections: Vec<CustomLeftPanelSection>,
++
++    /// Drawn right after the top panel, before the agent panel and everything else: the host's
++    /// own side panels, below the top bar and at the window's edges.
++    pub outer_panels: Option<CustomPanelUi>,
+ }
+ 
+ /// UI callback that draws a custom welcome screen, see [`StartupOptions::custom_welcome_screen`].
+@@ -242,6 +246,7 @@
+             custom_welcome_screen: None,
+             left_panel_sections: Vec::new(),
+             right_panel_sections: Vec::new(),
++            outer_panels: None,
+         }
+     }
+ }
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -871,6 +871,7 @@
+         custom_welcome_screen: None,
+         left_panel_sections: Vec::new(),
+         right_panel_sections: Vec::new(),
++        outer_panels: None,
+     };
+     crate::customize_eframe_and_setup_renderer(cc)?;
+ 

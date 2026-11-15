@@ -1,0 +1,247 @@
+# Robo Fitter: scenes (by name; each the folder scenes/<name>/scene.yaml) with robots and fixtures (products, supports), and the
+# cells made from them. Scene frame: metres, z up, floor at z = 0; yaw in degrees about z.
+
+- name: scene_list
+  title: Robo Fitter state and palette
+  method: GET
+  path: /api/v1/fitter/state
+  description: |
+    The Robo Fitter's whole state (large; scene_current has the open scene in brief): its linked cell, and the palette (`palette.scenes`:
+    the scenes' names; `robots`: dressed robots; `fixtures`; `products`). Large: read
+    `palette` and `scene_file_name`.
+
+- name: scene_get
+  title: Read a scene file
+  method: GET
+  path: /api/v1/scene/get
+  query:
+    file: {type: string, required: true, description: "The scene's name (scenes/<name>/)."}
+  description: A scene's robots (id, dressed URDF, position, yaw, pedestal) and fixtures (products, supports).
+
+- name: scene_create
+  title: Create an empty scene
+  path: /api/v1/scene/create
+  body:
+    type: object
+    properties:
+      file_name: {type: string, description: "The new scene's name: letters, digits, _, -, . (never overwrites)."}
+      description: {type: string}
+    required: [file_name]
+  description: Create a new, empty scene (the folder scenes/<name>/). Then place a product and robots in it.
+
+- name: scene_open
+  title: Open a scene in the Robo Fitter
+  path: /api/v1/fitter/load
+  read_only: true
+  body:
+    type: object
+    properties:
+      file_name: {type: string, description: "The scene's name."}
+    required: [file_name]
+  description: Show a scene in the Robo Fitter's 3D view.
+
+- name: scene_place_product
+  title: Put a product into a scene
+  path: /api/v1/scene/{file}/place_product
+  params: {file: "The scene's name (scenes/<name>/)."}
+  body:
+    type: object
+    properties:
+      product: {type: string, description: "A Product & Task product."}
+      id: {type: string, description: "Fixture id (default: the product's name)."}
+      position: {type: array, items: {type: number}, minItems: 2, maxItems: 2, description: "[x, y] metres of the product's origin."}
+      yaw_deg: {type: number}
+      height_m: {type: number, description: "Height of the product's bottom. Left out: automatic (where the robots reach its welds best)."}
+      robot: {type: string, description: "For the automatic height in a scene without robots: a dressed robot <robot>__<tool>."}
+      pedestal_mm: {type: number, description: "That robot's pedestal, for the automatic height."}
+      support: {type: boolean, description: "Put a box support under a raised product (default true)."}
+      replace: {type: boolean, description: "Move the fixture `id` instead of adding one."}
+    required: [product]
+  description: |
+    Place a product in the scene at a height, raised on a generated support box (written to the catalogue's
+    urdf-fixture-collection/support_<w>x<d>x<h>mm) when it stands above the floor. With no height_m the height
+    is chosen from the reach domes: of the scene's robots, else of `robot`. Saves the scene (its cells are
+    rebuilt).
+
+- name: scene_add_robot
+  title: Add a robot to a scene
+  path: /api/v1/scene/{file}/robots/add
+  params: {file: "The scene."}
+  body:
+    type: object
+    properties:
+      dressed: {type: string, description: "A dressed robot <robot>__<tool> (urdf-dressed-robots/)."}
+      robot_id: {type: string}
+      position: {type: array, items: {type: number}, minItems: 2, maxItems: 2}
+      yaw_deg: {type: number, description: "Default: facing the scene's products."}
+      pedestal_mm: {type: number}
+      home_pose_deg: {type: array, items: {type: number}}
+    required: [dressed, position]
+  description: Add a dressed robot to the scene and save it.
+
+- name: scene_move_robot
+  title: Move, turn or re-dress a robot
+  path: /api/v1/scene/{file}/robots/move
+  params: {file: "The scene."}
+  body:
+    type: object
+    properties:
+      robot_id: {type: string}
+      position: {type: array, items: {type: number}, minItems: 2, maxItems: 2}
+      delta: {type: array, items: {type: number}, minItems: 2, maxItems: 2, description: "Or move by [dx, dy]."}
+      yaw_deg: {type: number}
+      face_products: {type: boolean, description: "Turn it to face the products."}
+      pedestal_mm: {type: number, description: "Pedestal height; 0 removes it."}
+      home_pose_deg: {type: array, items: {type: number}}
+      dressed: {type: string, description: "Another dressed robot, e.g. the one dresser_orient_sweep applied."}
+    required: [robot_id]
+  description: Change a robot of the scene and save it.
+
+- name: scene_remove_robots
+  title: Remove robots from a scene
+  path: /api/v1/scene/{file}/robots/remove
+  params: {file: "The scene."}
+  body:
+    type: object
+    properties:
+      ids: {type: array, items: {type: string}}
+    required: [ids]
+  description: Remove robots from the scene and save it.
+
+- name: scene_remove_fixtures
+  title: Remove products or fixtures from a scene
+  path: /api/v1/scene/{file}/fixtures/remove
+  params: {file: "The scene."}
+  body:
+    type: object
+    properties:
+      ids: {type: array, items: {type: string}}
+    required: [ids]
+  description: Remove fixtures (a product's support goes with it) and save the scene.
+
+- name: scene_auto_place_robots
+  title: Place robots where they reach the welds comfortably
+  path: /api/v1/reach/place
+  body:
+    type: object
+    properties:
+      scene_file: {type: string, description: "The scene's name."}
+      cell: {type: string}
+      dressed: {type: string, description: "The dressed robot to place (default: the scene's first robot's)."}
+      min_robots: {type: integer, minimum: 1, description: "min = max: exactly that many robots."}
+      max_robots: {type: integer, minimum: 1, maximum: 8, description: "Default 4."}
+      keep_robots: {type: boolean, description: "Keep the scene's robots and add to them (default: replace them)."}
+      min_spacing_m: {type: number, description: "Between bases (default: the robot's own min_spacing_m, see robot_describe)."}
+      clearance_m: {type: number, description: "Bases from the products' boxes (default: the robot's own clearance_m, see robot_describe)."}
+      pedestal_mm: {type: number}
+      coverage: {type: integer, minimum: 1, maximum: 4, description: "Robots that must reach each weld (default 1)."}
+      comfort:
+        type: object
+        description: "What counts as comfortable (defaults: ratio 0.45-0.80, target 0.62; align_max_deg 50; height band: the robot's own dome band, or +- height_band_m about its sweet height when given)."
+        properties:
+          ratio_min: {type: number}
+          ratio_target: {type: number}
+          ratio_max: {type: number}
+          align_max_deg: {type: number}
+          height_band_m: {type: number}
+      verify: {type: string, enum: [quick, full], description: "Check the chosen layout with the planner's IK (default: domes only)."}
+      write_as: {type: string, description: "Write the best layout as this new scene (a new name; never overwrites)."}
+  description: |
+    Place robots where they reach the welds comfortably, not just within reach: bases on a 0.2 m grid around the
+    products, chosen to minimise how cramped (wrist close to A1), stretched (near the reach limit), twisted (gun far
+    off the robot's line) or off-height each weld is for the robot that does it best, kept apart and clear of the
+    products, each facing its welds. Exactly N robots (min = max), or the fewest (min..max) that do every weld
+    comfortably. Answers every layout with per robot its welds by fit, reach ratios, spread, and advice; the best
+    as a scene. Nothing is written without write_as. Read skill robot-cell-layout before placing robots.
+
+- name: scene_layout_quality
+  title: Rate how comfortably the robots reach the welds
+  path: /api/v1/reach/quality
+  read_only: true
+  body:
+    type: object
+    properties:
+      scene_file: {type: string, description: "The scene's name."}
+      cell: {type: string}
+      comfort:
+        type: object
+        properties:
+          ratio_min: {type: number}
+          ratio_target: {type: number}
+          ratio_max: {type: number}
+          align_max_deg: {type: number}
+          height_band_m: {type: number}
+  description: |
+    For a scene's own robots (also hand-placed ones): each weld with the robot that does it best and its fit
+    (comfortable, cramped, stretched, twisted, too_high, too_low, unreachable), reach ratio, approach angle and
+    height; per robot its welds by fit, spread about A1, and advice with a suggested base (behind its welds along
+    their approach at the target reach); the closest pair of bases. Seconds, no IK: use it after every placement
+    or move, before scene_reach_check.
+
+- name: scene_reach_check
+  title: Check which robot reaches which weld
+  path: /api/v1/reach/check
+  read_only: true
+  body:
+    type: object
+    properties:
+      scene_file: {type: string, description: "The scene's name."}
+      cell: {type: string}
+      mode: {type: string, enum: [quick, full], description: "quick: IK at the weld; full: with the approach stroke (slower)."}
+      source: {type: string, enum: [auto, product, cell_program], description: "Where the welds come from."}
+      show_in_fitter: {type: boolean, description: "Also show the report in the Robo Fitter."}
+  description: |
+    Every robot on every weld with the cell planner's IK: per weld the robots that reach it (joints) and why
+    the others don't (out of reach, joint limits, self collision, floor, inside the product, tool hits the
+    product, approach blocked). Synchronous, up to 10 minutes.
+
+- name: scene_suggest_layout
+  title: Suggest robot moves
+  path: /api/v1/reach/suggest
+  body:
+    type: object
+    properties:
+      scene_file: {type: string, description: "The scene's name."}
+      cell: {type: string}
+      max_move_m: {type: number, description: "The farthest a robot moves (default 1)."}
+      write_as: {type: string, description: "Write the moved scene as this new scene (a new name; never overwrites)."}
+  description: The smallest moves of the scene's robots (and pedestal raises) that bring unreached welds into reach.
+
+- name: scene_create_cell
+  title: Make a cell from a scene
+  path: /api/v1/cell/create
+  body:
+    type: object
+    properties:
+      scene: {type: string, description: "The scene's name."}
+      name: {type: string, description: "The cell's folder name (letters, digits, _); default: the scene's."}
+    required: [scene]
+  description: |
+    Make (or reuse) the cell of a scene and make it the active cell; Prepare Cell then readies it for planning
+    (agentic_status shows progress). The cell's task programs come from its products' welds.
+
+- name: cell_list
+  title: List cells
+  method: GET
+  path: /api/v1/cell/cells
+  description: The cells and which one is active.
+
+- name: cell_set_active
+  title: Make a cell the active one
+  path: /api/v1/cell/active
+  body:
+    type: object
+    properties:
+      cell: {type: string}
+    required: [cell]
+  description: Make a cell the active cell (the one the behaviour tree, control code and virtual cell steps use).
+
+- name: scene_current
+  title: The scene open in the Robo Fitter
+  method: GET
+  path: /api/v1/scene/current
+  description: |
+    What the Robo Fitter shows now, in brief: its scene file, the cell it is linked to (read-only while linked),
+    the robots (dressed robot, position, yaw, pedestal), the fixtures (products, supports), the welds and their
+    reach (dome estimate counts; the last reach check with the unreached welds). Start here when the user talks
+    about "the open scene" or "this cell".

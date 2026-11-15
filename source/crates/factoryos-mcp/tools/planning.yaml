@@ -1,0 +1,58 @@
+# Planning: the planners themselves are the factoryos-planner-router's tools (recommend_planner, plan,
+# plan_status, …). These are the active cell's plans and task programs, and Prepare Cell.
+
+- name: cell_plans
+  title: The active cell's plans and task programs
+  method: GET
+  path: /api/v1/cell/plans
+  description: |
+    The active cell: its saved plans (behaviour trees; newest first, with planner, status ok/unverified, and
+    whether each is stale), its task programs (and whether each comes from a product), whether it is prepared
+    for planning, and its products with their weld count.
+
+- name: cell_get_task
+  title: Read a task program
+  method: GET
+  path: /api/v1/cell/task
+  query:
+    name: {type: string, required: true, description: "The task program's file stem (cell_plans `tasks`)."}
+  description: A task program of the active cell (operations, targets, approach, groups, strategy).
+
+- name: cell_put_task
+  title: Save a hand-written task program
+  method: PUT
+  path: /api/v1/cell/task
+  body:
+    type: object
+    description: A whole task program (as cell_get_task returns it), saved under its name.
+  description: |
+    Save an extra, hand-written task program in the active cell. Never overwrite a task program derived from a
+    product (cell_plans task_sources): change the product's welds instead (product_* tools).
+
+- name: agentic_status
+  title: Planning stack and Prepare Cell status
+  method: GET
+  path: /api/v1/agentic/status
+  description: Whether the umarell planner stack runs and the state of the last Prepare Cell (and its error).
+
+- name: agentic_prepare
+  title: Prepare a cell for planning
+  path: /api/v1/agentic/prepare
+  body:
+    type: object
+    properties:
+      cell: {type: string, description: "A cell folder name (default: the active cell)."}
+  description: |
+    Prepare Cell: build the planner's model of the cell (SRDFs, collision model, task programs from its
+    products). Needed after the scene or the dressed robots changed (cell_plans says prepared / stale). Runs in
+    the background: follow it with agentic_status.
+
+- name: agentic_start
+  title: Start the umarell planner stack
+  path: /api/v1/agentic/start
+  description: Start the umarell planner (the router starts it itself when it needs it).
+
+- name: agentic_stop
+  title: Stop the umarell planner stack
+  path: /api/v1/agentic/stop
+  description: Stop the umarell planner stack.

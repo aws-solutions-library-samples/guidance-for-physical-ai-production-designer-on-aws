@@ -1,0 +1,679 @@
+diff --git a/agents/trajectory/backends/ompl/planner.py b/agents/trajectory/backends/ompl/planner.py
+index fdbf3a3..9f472d2 100644
+--- a/agents/trajectory/backends/ompl/planner.py
++++ b/agents/trajectory/backends/ompl/planner.py
+@@ -728,11 +728,15 @@ def _parameterize_two_phase(
+             max_deviation_rad=max_deviation_rad,
+             position_limits=position_limits,
+             velocity_scale=transit_velocity_scale,
++            # its start may follow a lift-off in the same goal (_concat_timed)
++            still_ends=(True, False),
+         )
+         for pt in traj:
+             pt["phase"] = "transit"
+         return traj
+ 
++    # The seam is a stop inside the leg's one goal: the driver holds the arm
++    # still there (issue 23 checks each phase's command in that context).
+     transit = parameterize(
+         waypoints[:seam_index + 1],
+         vel_limits=vel_limits,
+@@ -740,6 +744,7 @@ def _parameterize_two_phase(
+         max_deviation_rad=max_deviation_rad,
+         position_limits=position_limits,
+         velocity_scale=transit_velocity_scale,
++        still_ends=(True, True),
+     )
+     approach = parameterize(
+         waypoints[seam_index:],
+@@ -748,6 +753,7 @@ def _parameterize_two_phase(
+         max_deviation_rad=max_deviation_rad,
+         position_limits=position_limits,
+         velocity_scale=approach_velocity_scale,
++        still_ends=(True, False),
+     )
+     if not transit:
+         for pt in approach:
+diff --git a/agents/trajectory/backends/ompl_compound/planner.py b/agents/trajectory/backends/ompl_compound/planner.py
+index d9951b0..4b1fcd6 100644
+--- a/agents/trajectory/backends/ompl_compound/planner.py
++++ b/agents/trajectory/backends/ompl_compound/planner.py
+@@ -751,13 +751,17 @@ def plan_trajectories_ompl_compound(
+                    max_deviation_rad=path_deviation_rad(a["rcfg"]),
+                    position_limits=(a["jl"], a["ju"]))
+         # The lift-off is the on-axis stroke out of the seam: timed exactly.
++        # still_ends (issue 23): each piece is joined to the next at a stop
++        # inside the arm's one goal; the goal starts with the lift-off and ends
++        # with the descent.
+         retracts[a["ns"]] = (parameterize(a["lift"], velocity_scale=velocity_scale,
++                                          still_ends=(False, True),
+                                           **{**lim, "max_deviation_rad": None})
+                              if len(a["lift"]) > 1 else [])
+         if a["descent"]:
+             vs = a["app_vs"] if a["use_approach"] else velocity_scale
+             descents[a["ns"]] = parameterize([a["transit_goal"]] + list(a["descent"]),
+-                                             velocity_scale=vs, **lim)
++                                             velocity_scale=vs, still_ends=(True, False), **lim)
+             phases[a["ns"]] = "approach" if a["use_approach"] else "transit"
+     joint = compose_timelines(retracts, transit, {a["ns"]: a["nq"] for a in arms},
+                               descents, phases)
+diff --git a/agents/trajectory/tools/time_parameterization.py b/agents/trajectory/tools/time_parameterization.py
+index 3c63ae7..286df3b 100644
+--- a/agents/trajectory/tools/time_parameterization.py
++++ b/agents/trajectory/tools/time_parameterization.py
+@@ -21,6 +21,7 @@ Import-safe: ``toppra``/``numpy`` are imported lazily inside the functions.
+ """
+ from __future__ import annotations
+ 
++import os
+ from typing import Optional, Sequence
+ 
+ _TOPPRA_OK: Optional[bool] = None
+@@ -106,6 +107,7 @@ def parameterize(
+     dt: float = 0.05,
+     max_deviation_rad: Optional[float] = None,
+     position_limits: Optional[tuple] = None,
++    still_ends: tuple = (True, True),
+ ) -> list[dict]:
+     """Time-parameterize a joint-space path.
+ 
+@@ -128,6 +130,14 @@ def parameterize(
+                         exact candidate (straight segments) never leaves a convex
+                         box its waypoints are in. The Hermite fallback then stops
+                         at every waypoint, for the same reason.
++        still_ends:     ``(start, end)``: whether the driver may hold the arm
++                        still (acceleration 0) at that end, because the caller
++                        joins this timing to another one there (a two-phase
++                        leg's seam, a lift-off, a staging stop). The command
++                        the driver makes of the samples is kept within the
++                        acceleration limits (issue 23) as a goal of its own
++                        and, at those ends, also in that context. The default
++                        assumes both. Ignored with ``TOPP_COMMANDED_LIMITS=0``.
+ 
+     The timed path follows the polyline. A cubic spline through a few knots at a
+     uniform parameter does not: it overshoots between them (umarell issue 18,
+@@ -215,6 +225,20 @@ def parameterize(
+                 return fallback()
+         if not candidates:
+             return fallback()
++        if _commanded_limits_on():
++            # Issue 23: emit the fastest candidate whose command, as the driver
++            # will send it, stays within the limits (re-timed where it would
++            # not). Re-timing keeps the path but moves the samples along it, so
++            # a candidate that is not the exact one is box-checked again.
++            ends = (bool(still_ends[0]), bool(still_ends[1]))
++            for cand in sorted(candidates, key=lambda c: sum(float(p.duration) for p in c)):
++                out = _commanded_pieces(constraint, algo, cand, vl, al, dt, ends)
++                if out is None:
++                    continue
++                if boxed and cand is not exact and not _samples_inside(out, position_limits):
++                    continue
++                return out
++            return fallback()
+         pieces = min(candidates, key=lambda c: sum(float(p.duration) for p in c))
+ 
+         out: list = []
+@@ -272,16 +296,26 @@ def _timed_path(ta, constraint, algo, knots, vl, al):
+     ss = ss / ss[-1]
+     path = ta.SplineInterpolator(ss, knots)
+     grid = np.union1d(ss, (ss[:-1] + ss[1:]) / 2) if len(ss) > 2 else None
++    return _toppra_within(constraint, algo, path, grid, vl, al, len(knots))
++
++
++def _toppra_within(constraint, algo, path, grid, vl, al, n_knots: int, accel_scale=None):
++    """:func:`_timed_path`'s loop: TOPP-RA on ``path``, limits measured on the
++    timed path and tightened by the excess. ``accel_scale`` (gridpoints x dof,
++    issue 23) lowers the acceleration limit locally (``grid`` required)."""
++    import numpy as np
++
+     v_use, a_use = vl.copy(), al.copy()
+     best = None
+     for _ in range(len(vl) + 8):              # converges in a few; bounded loop
+         kw = {"gridpoints": grid} if grid is not None else {}
+-        jt = algo.TOPPRA([constraint.JointVelocityConstraint(np.vstack([-v_use, v_use]).T),
+-                          constraint.JointAccelerationConstraint(np.vstack([-a_use, a_use]).T)],
++        acc = (constraint.JointAccelerationConstraint(np.vstack([-a_use, a_use]).T)
++               if accel_scale is None else _scaled_acceleration_constraint(a_use, accel_scale))
++        jt = algo.TOPPRA([constraint.JointVelocityConstraint(np.vstack([-v_use, v_use]).T), acc],
+                          path, parametrizer="ParametrizeConstAccel", **kw).compute_trajectory()
+         if jt is None or not float(jt.duration) > 0:
+             return best
+-        ts = np.linspace(0.0, float(jt.duration), max(1000, 40 * len(knots)))
++        ts = np.linspace(0.0, float(jt.duration), max(1000, 40 * n_knots))
+         rv = float(np.max(np.abs(jt(ts, 1)) / vl))
+         ra = float(np.max(np.abs(jt(ts, 2)) / al))
+         best = jt
+@@ -291,6 +325,229 @@ def _timed_path(ta, constraint, algo, knots, vl, al):
+     return None
+ 
+ 
++# ─── Limits as the driver commands them (issue 23) ───────────────────────────
++# TOPP-RA's timing is bang-bang: its acceleration is piecewise constant and
++# jumps between the limits (at rest, at every accelerate / brake switch, at a
++# rest-to-rest corner of the exact candidate). The driver (utils.fjt_trajectory,
++# issue 20) sends joint_trajectory_controller one smooth (C2) curve through the
++# emitted samples, and no smooth curve through 50 ms samples follows a jump:
++# its acceleration overshoots next to every switch by about 0.13 x the jump
++# (the cubic spline's 2 - sqrt(3) ringing), so the command peaked at 1.3-1.5 x
++# the limit the leg was timed to, at any speed scale. The fix keeps the path
++# and TOPP-RA, and checks each piece the way it will be commanded
++# (``commanded_acceleration_ratio``: the driver's own derivatives of the
++# emitted samples, both curves it may choose between, then the exact peak of
++# the controller's quintic on every segment). Where that exceeds a joint's
++# limit, that joint's acceleration limit is lowered locally (a bump in time
++# around the offending segments, falling to nothing over _CMD_WINDOW_SAMPLES
++# samples, so the lowered limit itself causes no new jump) and TOPP-RA is
++# solved again on the same path and grid; the rest of the piece keeps its
++# time-optimal timing. A uniform time stretch is the last resort, so the
++# result always meets the limits. Samples are evenly spaced and carry 9
++# decimals (``_emit_uniform``). ``TOPP_COMMANDED_LIMITS=0`` restores the
++# previous timing exactly.
++
++_CMD_TARGET = 0.995         # aim for this fraction of the limit where it is exceeded
++_CMD_WINDOW_SAMPLES = 2.0   # half-width of the local reduction, in output samples
++_CMD_MIN_SCALE = 0.2        # never lower a local limit below this fraction
++_CMD_DIGITS = 9             # decimals of the emitted positions / velocities
++_CMD_ROUNDING_TOL = 0.0     # rad/s^2 slack for rounding (1e-9 rad: < 5e-6 rad/s^2 over >= 25 ms): none
++
++
++def _commanded_limits_on() -> bool:
++    return os.environ.get("TOPP_COMMANDED_LIMITS", "1").strip().lower() not in ("0", "false", "no", "off")
++
++
++def _commanded_max_iter() -> int:
++    try:
++        return max(0, int(os.environ.get("TOPP_COMMANDED_MAX_ITER", "16")))
++    except ValueError:
++        return 16
++
++
++def _emit_uniform(jnt_traj, dt: float, k: float = 1.0, digits: int = _CMD_DIGITS) -> list[dict]:
++    """Samples of a TOPP-RA result after a uniform time stretch ``k``: the same
++    number as every ``dt`` s, but evenly spaced (T / ceil(T / dt) <= dt), each
++    sampled at its rounded time; positions and the velocities of that timing
++    with ``digits`` decimals, at rest at both ends. A last sample 0-``dt`` after
++    the one before turns position rounding into acceleration spikes in the
++    driver's command; 1e-6 rad over 50 ms is ~2e-3 rad/s^2, a fifth of a slow
++    approach's acceleration limit."""
++    import numpy as np
++
++    duration = float(jnt_traj.duration)
++    duration_out = duration * k
++    n = max(1, int(np.ceil(duration_out / dt - 1e-9)))
++    ts = np.round(np.arange(n + 1) * (duration_out / n), 4)
++    tau = np.minimum(ts / k, duration)
++    tau[-1] = duration
++    qs = np.asarray(jnt_traj(tau), float)
++    qds = np.asarray(jnt_traj(tau, 1), float) / k
++    qds[0] = qds[-1] = 0.0                           # TOPP-RA starts and ends at rest
++    return [{"positions": [round(float(v), digits) for v in qs[i]],
++             "velocities": [round(float(v), digits) for v in qds[i]],
++             "time_s": round(float(ts[i]), 4)} for i in range(len(ts))]
++
++
++def commanded_acceleration_ratio(traj: Sequence[dict], accel_limits: Sequence[float],
++                                 still_ends: tuple = (True, True), rounding_tol: float = 0.0):
++    """How far the command a driver sends for ``traj`` goes past the limits.
++
++    ``traj``: timed samples ``[{"positions", "velocities"?, "time_s"}]``;
++    ``accel_limits``: per joint (rad/s^2), the limit the leg was timed to.
++    Returns ``(t0, t1, ratio)``: segment start / end times and an (N-1, dof)
++    array of the segment's peak |acceleration| / limit, for the command of
++    ``utils.fjt_trajectory`` (the robot agent / ros2_control driver),
++    interpolated by joint_trajectory_controller (quintic), exact (continuous,
++    so it bounds the per-cycle value at any controller rate). Each segment gets
++    the largest of the curves the driver may send: with the samples'
++    velocities or with the spline's (its choice between them depends on the
++    execution ``velocity_scale``), each as a goal of its own (end points at
++    rest with the curve's acceleration) and, at the ends flagged in
++    ``still_ends`` (start, end), embedded in a longer goal (that end held
++    still). Both curves are exact time scalings of themselves, so a ratio <= 1
++    holds at every execution scale. ``rounding_tol`` (rad/s^2) is subtracted
++    from every peak first. ``None`` when ``utils.fjt_trajectory`` cannot be
++    imported.
++    """
++    import numpy as np
++    try:
++        from utils import fjt_trajectory as F
++    except Exception:
++        return None
++    pts = list(traj)
++    if len(pts) < 2:
++        return None
++    dof = min(len(pts[0]["positions"]), len(accel_limits))
++    t = np.array([float(p["time_s"]) for p in pts])
++    q = np.array([[float(x) for x in p["positions"][:dof]] for p in pts])
++    vg = F._given(pts, "velocities", dof)
++    if vg is not None and not np.any(vg):
++        vg = None
++    rests = F.timing_rests(pts, use_velocities=vg is not None)
++    al = np.asarray(accel_limits, float)[:dof]
++    tol = float(rounding_tol)
++    ratio = np.zeros((len(t) - 1, dof))
++    for cand in F.derivative_candidates(t, q, vg, rests):
++        if cand is None:
++            continue
++        v, a = cand
++        ratio = np.maximum(ratio, (F.segment_peak_accelerations(t, q, v, a) - tol) / al)
++        if still_ends[0] or still_ends[1]:
++            a = a.copy()                             # embedded: those ends held still
++            if still_ends[0]:
++                a[0] = 0.0
++            if still_ends[1]:
++                a[-1] = 0.0
++            ratio = np.maximum(ratio, (F.segment_peak_accelerations(t, q, v, a) - tol) / al)
++    return t[:-1], t[1:], ratio
++
++
++def _scaled_acceleration_constraint(al, scale):
++    """TOPP-RA joint acceleration constraint whose limit at gridpoint i, joint j
++    is ``al[j] * scale[i, j]`` (rows of the canonical constraint divided by the
++    scale; same F, g at every gridpoint)."""
++    import numpy as np
++    import toppra.constraint as constraint
++    from toppra.constraint.linear_constraint import canlinear_colloc_to_interpolate
++
++    class _Scaled(constraint.JointAccelerationConstraint):
++        def compute_constraint_params(self, path, gridpoints, *args, **kwargs):
++            ps = path(gridpoints, 1) / scale
++            pss = path(gridpoints, 2) / scale
++            dof = path.dof
++            F_ = np.vstack([np.eye(dof), -np.eye(dof)])
++            g = np.concatenate([self.alim[:, 1], -self.alim[:, 0]])
++            return canlinear_colloc_to_interpolate(ps, pss, np.zeros_like(ps), F_, g, None, None,
++                                                   gridpoints, identical=True)
++
++    return _Scaled(np.vstack([-al, al]).T)
++
++
++def _within_commanded_limits(constraint, algo, jnt_traj, vl, al, dt: float,
++                             still_ends=(True, True)) -> list[dict]:
++    """One TOPP-RA piece emitted (``_emit_uniform``) and re-timed until the
++    driver's command stays within ``al``; see the comment block above."""
++    import numpy as np
++
++    out = _emit_uniform(jnt_traj, dt)
++    chk = commanded_acceleration_ratio(out, al, still_ends, _CMD_ROUNDING_TOL)
++    if chk is None:
++        return out
++    t0, t1, r = chk
++    if not len(r) or float(r.max()) <= 1.0:
++        return out
++    path = jnt_traj._path
++    grid = np.asarray(jnt_traj._ss, float)          # the gridpoints it was solved on
++    n_knots = len(getattr(path, "ss_waypoints", ())) or 2
++    scale = np.ones((len(grid), len(al)))
++    half = _CMD_WINDOW_SAMPLES * dt
++    for _ in range(_commanded_max_iter()):
++        tg = np.asarray(jnt_traj._ts, float)        # gridpoint times
++        fac = np.ones_like(scale)
++        for j in range(len(al)):
++            bad = np.flatnonzero(r[:, j] > _CMD_TARGET)
++            if not len(bad):
++                continue
++            # 1 on the offending segment, falling linearly to 0 at +- half
++            d = np.maximum(np.maximum(t0[bad][None, :] - tg[:, None], tg[:, None] - t1[bad][None, :]), 0.0)
++            bump = np.clip(1.0 - d / half, 0.0, 1.0)
++            fac[:, j] = np.min(1.0 - bump * (1.0 - _CMD_TARGET / r[bad, j])[None, :], axis=1)
++        scale = np.maximum(scale * fac, _CMD_MIN_SCALE)
++        try:
++            jt = _toppra_within(constraint, algo, path, grid, vl, al, n_knots, accel_scale=scale)
++        except Exception:
++            jt = None
++        if jt is None or not (float(jt.duration) > 0):
++            break
++        cand = _emit_uniform(jt, dt)
++        jnt_traj, out = jt, cand
++        t0, t1, r = commanded_acceleration_ratio(cand, al, still_ends, _CMD_ROUNDING_TOL)
++        if float(r.max()) <= 1.0:
++            return out
++    # Last resort: stretch the last timing uniformly (acceleration ~ 1/k^2).
++    k = 1.0
++    for _ in range(12):
++        k *= float(np.sqrt(max(float(r.max()), 1.0))) * 1.002
++        out = _emit_uniform(jnt_traj, dt, k)
++        t0, t1, r = commanded_acceleration_ratio(out, al, still_ends, _CMD_ROUNDING_TOL)
++        if float(r.max()) <= 1.0:
++            break
++    return out
++
++
++def _commanded_pieces(constraint, algo, pieces, vl, al, dt: float, still_ends=(True, True)):
++    """``pieces`` (TOPP-RA results, each from rest to rest) emitted one after
++    the other on one clock, each within the commanded limits. The junction
++    between two pieces is a stop the driver holds still (an exact 0 velocity),
++    so each piece is checked with that end held still; ``still_ends`` are the
++    outer ends'. ``None`` if a piece has no duration."""
++    out: list = []
++    t0 = 0.0
++    m = len(pieces)
++    for i, jt in enumerate(pieces):
++        if not (float(jt.duration) > 0):
++            return None
++        ends = (i > 0 or still_ends[0], i < m - 1 or still_ends[1])
++        seg = _within_commanded_limits(constraint, algo, jt, vl, al, dt, ends)
++        first = 1 if out else 0                  # the junction point once
++        out += [{**p, "time_s": round(t0 + float(p["time_s"]), 4)} for p in seg[first:]]
++        t0 = float(out[-1]["time_s"])
++    return out
++
++
++def _samples_inside(traj: Sequence[dict], box) -> bool:
++    """Whether every emitted sample is in the joint box (``joint_limits`` tolerance)."""
++    import numpy as np
++    from agents.trajectory.tools.joint_limits import JOINT_LIMIT_TOL_RAD
++
++    lo, hi = (np.asarray(b, float) for b in box)
++    qs = np.array([p["positions"] for p in traj], float)
++    n = min(qs.shape[1], len(lo), len(hi))
++    return not ((qs[:, :n] > hi[:n] + JOINT_LIMIT_TOL_RAD).any()
++                or (qs[:, :n] < lo[:n] - JOINT_LIMIT_TOL_RAD).any())
++
++
+ def _off_polyline(P, Q):
+     """Per-sample max-joint distance of ``Q`` from the polyline through ``P``."""
+     import numpy as np
+diff --git a/tests/test_commanded_limits.py b/tests/test_commanded_limits.py
+new file mode 100644
+index 0000000..1aece38
+--- /dev/null
++++ b/tests/test_commanded_limits.py
+@@ -0,0 +1,194 @@
++"""TOPP-RA legs are timed so that the command the driver makes of them meets the limits (issue 23).
++
++TOPP-RA's timing is bang-bang (piecewise-constant acceleration). The robot agent / ros2_control driver
++(``utils.fjt_trajectory``) sends joint_trajectory_controller one smooth curve through the 50 ms samples, and no
++smooth curve through such samples follows an acceleration jump: the command peaked at about 1.3 x the limit the leg
++was timed to. These tests pin the fix in ``time_parameterization``: the command (both curves the driver may choose,
++as a goal of its own and, where flagged, with its ends held still) stays within the limits at every execution
++scale, the path is unchanged, and ``TOPP_COMMANDED_LIMITS=0`` restores the previous timing. At umarell 76ea13a a
++path without ``max_deviation_rad`` is timed exactly, one rest-to-rest TOPP-RA piece per straight segment: each piece is
++checked with its junctions held still. Pure numpy + toppra.
++"""
++from __future__ import annotations
++
++import numpy as np
++import pytest
++
++from utils import fjt_trajectory as F
++
++toppra = pytest.importorskip("toppra")
++
++from agents.trajectory.tools import time_parameterization as TP  # noqa: E402
++
++VEL = np.array([2.722714, 2.722714, 2.722714, 5.759586, 5.759586, 10.73377])
++ACC = np.array([3.0, 3.0, 3.0, 6.0, 6.0, 8.0])
++PATH = [[0.0, -1.5708, 1.5708, 0.0, 0.0, 0.0], [0.6, -1.4, 1.5, 0.4, 0.3, 0.2],
++        [1.5, -1.2, 1.3, 1.6, -0.6, 1.2], [1.98, -1.46, 1.68, 2.43, -1.69, 2.02]]
++
++
++def _arrays(points):
++    t = np.array([p["time_s"] for p in points])
++    q = np.array([p["positions"] for p in points])
++    v = np.array([p["velocities"] for p in points])
++    a = np.array([p["accelerations"] for p in points])
++    return t, q, v, a
++
++
++def _peaks(traj, limit, scale=1.0):
++    """(per-cycle, continuous) peak of the driver's command / (limit x scale^2)."""
++    t, q, v, a = _arrays(F.fjt_points(traj, velocity_scale=scale))
++    lim = np.asarray(limit) * scale * scale
++    cyc = float((F.cycle_accelerations(t, q, v, a) / lim).max())
++    cont = float((F.segment_peak_accelerations(t, q, v, a).max(axis=0) / lim).max())
++    return cyc, cont
++
++
++@pytest.fixture
++def previous_timing(monkeypatch):
++    monkeypatch.setenv("TOPP_COMMANDED_LIMITS", "0")
++
++
++@pytest.mark.parametrize("vs", [1.0, 0.7, 0.3])
++def test_the_command_stays_within_the_limit_at_every_execution_scale(vs):
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=vs)
++    for scale in (1.0, 0.5, 0.25):
++        cyc, cont = _peaks(traj, ACC * vs * vs, scale)
++        assert cyc <= 1.0 + 1e-6, (vs, scale, cyc)
++        assert cont <= 1.0 + 1e-6, (vs, scale, cont)
++
++
++def test_the_previous_timing_overshoots(previous_timing):
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=1.0)
++    cyc, _ = _peaks(traj, ACC)
++    assert cyc > 1.15                     # the issue: about 1.3 x the limit
++
++
++def test_the_path_is_kept(monkeypatch):
++    """Every sample lies on the path the previous timing follows (TOPP-RA's spline through the same knots)."""
++    new = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7)
++    monkeypatch.setenv("TOPP_COMMANDED_LIMITS", "0")
++    dense = np.array([p["positions"] for p in TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC,
++                                                                velocity_scale=0.7, dt=0.0005)])
++    for p in new:
++        x = np.asarray(p["positions"])
++        i = int(np.argmin(np.linalg.norm(dense - x, axis=1)))
++        best = np.linalg.norm(dense[i] - x)
++        for a, b in ((i - 1, i), (i, i + 1)):
++            if 0 <= a and b < len(dense):
++                d = dense[b] - dense[a]
++                u = np.clip((x - dense[a]) @ d / max(d @ d, 1e-300), 0.0, 1.0)
++                best = min(best, np.linalg.norm(dense[a] + u * d - x))
++        assert best < 2e-6, best
++
++
++def _runs(traj):
++    """Index ranges between the stops (exact zero velocity): the TOPP-RA pieces."""
++    stops = [i for i, p in enumerate(traj) if not any(p["velocities"])]
++    return list(zip(stops[:-1], stops[1:]))
++
++
++def test_samples_are_evenly_spaced_and_end_on_the_goal():
++    # At 76ea13a a path without max_deviation_rad is timed exactly: one rest-to-rest piece per straight
++    # segment. Each piece is sampled evenly; it ends on its waypoint.
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7, dt=0.05)
++    t = np.array([p["time_s"] for p in traj])
++    runs = _runs(traj)
++    assert len(runs) == len(PATH) - 1
++    for k, (i, j) in enumerate(runs):
++        h = np.diff(t[i:j + 1])
++        assert h.max() <= 0.05 + 1e-4 and (h.min() >= 0.025 or j - i == 1)
++        assert np.ptp(h) <= 2e-4                       # one spacing, times rounded to 0.1 ms
++        assert np.allclose(traj[j]["positions"], PATH[k + 1], atol=1e-9)
++    assert np.allclose(traj[0]["positions"], PATH[0], atol=1e-9)
++    assert traj[0]["velocities"] == [0.0] * 6 and traj[-1]["velocities"] == [0.0] * 6
++
++
++def test_a_blended_path_is_within_the_limits():
++    """With a path-following tolerance the spline / corner-blended candidates compete; whichever is emitted, its
++    command meets the limits."""
++    for vs in (1.0, 0.3):
++        traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=vs, max_deviation_rad=0.05)
++        assert len(_runs(traj)) < len(PATH) - 1            # not the exact (stop-at-every-corner) candidate
++        for scale in (1.0, 0.5):
++            cyc, cont = _peaks(traj, ACC * vs * vs, scale)
++            assert cyc <= 1.0 + 1e-6 and cont <= 1.0 + 1e-6, (vs, scale, cyc, cont)
++
++
++def test_velocity_limits_hold_and_the_driver_forwards_the_timing():
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7)
++    v = np.array([p["velocities"] for p in traj])
++    assert (np.abs(v) <= 0.7 * VEL * 1.001 + 1e-6).all()
++    sent = np.array([p["velocities"] for p in F.fjt_points(traj)])
++    assert np.allclose(sent[1:-1], v[1:-1], atol=1e-8)
++
++
++def test_ends_held_still_are_checked_when_flagged():
++    for ends in ((True, True), (False, True), (True, False)):
++        traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.5, still_ends=ends)
++        _t0, _t1, r = TP.commanded_acceleration_ratio(traj, ACC * 0.25, still_ends=ends)
++        assert r.max() <= 1.0 + 1e-6, (ends, r.max())
++
++
++def test_a_two_phase_leg_is_within_each_phases_limit_as_one_goal():
++    from agents.trajectory.tools.ompl_planner import _parameterize_two_phase
++    wps = [np.asarray(w) for w in PATH]
++    wps[-1] = wps[-2] + np.array([0.02, -0.01, 0.015, 0.0, 0.01, -0.02])
++    traj = _parameterize_two_phase(wps, len(wps) - 2, VEL, ACC, 0.7, 0.2)
++    t, q, v, a = _arrays(F.fjt_points(traj))
++    seg = F.segment_peak_accelerations(t, q, v, a)
++    phase = [p["phase"] for p in traj]
++    seam = max(i for i, ph in enumerate(phase) if ph == "transit")
++    assert (seg[:seam] <= ACC * 0.49 * (1 + 1e-6)).all()
++    assert (seg[seam:] <= ACC * 0.04 * (1 + 1e-6)).all()
++
++
++def test_a_retimed_candidate_that_leaves_the_joint_box_gives_way_to_the_exact_one(monkeypatch):
++    """Re-timing moves the samples along the path, so a non-exact candidate is box-checked again; when it fails,
++    the exact candidate (straight segments, a stop at each knot) is emitted, within the limits too."""
++    monkeypatch.setattr(TP, "_samples_inside", lambda traj, box: False)
++    path = [[0.0] * 6, [1.0, 0.4, -0.3, 0.2, 0.1, 0.0], [0.2, 0.8, -0.6, 0.4, 0.2, 0.1]]
++    traj = TP.parameterize(path, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7, max_deviation_rad=0.05,
++                           position_limits=([-3.0] * 6, [3.0] * 6))
++    stops = [i for i, p in enumerate(traj) if not any(p["velocities"])]
++    assert len(stops) == 3 and np.allclose(traj[stops[1]]["positions"], path[1], atol=1e-9)
++    t, q, v, a = _arrays(F.fjt_points(traj))
++    assert (F.segment_peak_accelerations(t, q, v, a) <= ACC * 0.49 * (1 + 1e-6)).all()
++
++
++def test_off_switch_restores_the_previous_samples(previous_timing):
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7, dt=0.05)
++    t = np.array([p["time_s"] for p in traj])
++    for i, j in _runs(traj):                                       # each piece on a fixed 50 ms grid
++        assert np.allclose(np.diff(t[i:j + 1])[:-1], 0.05, atol=2e-4)
++    assert all(abs(round(x, 6) - x) < 1e-12 for p in traj for x in p["positions"])
++
++
++def test_segment_peak_accelerations_is_the_exact_peak_of_the_quintic():
++    rng = np.random.default_rng(3)
++    t = np.cumsum(np.r_[0.0, rng.uniform(0.02, 0.08, 12)])
++    q = np.cumsum(rng.normal(size=(13, 3)) * 0.02, axis=0)
++    v = rng.normal(size=(13, 3)) * 0.3
++    a = rng.normal(size=(13, 3)) * 2.0
++    peak = F.segment_peak_accelerations(t, q, v, a)
++    pts = [{"positions": list(q[i]), "velocities": list(v[i]), "accelerations": list(a[i]), "t": t[i]}
++           for i in range(len(t))]
++    for i in range(len(t) - 1):
++        xs = np.linspace(t[i], t[i + 1], 2001)[1:-1]
++        dense = np.abs(np.array([F.sample(pts, x)[2] for x in xs])).max(axis=0)
++        ends = np.maximum(np.abs(a[i]), np.abs(a[i + 1]))
++        assert np.allclose(peak[i], np.maximum(dense, ends), rtol=1e-4, atol=1e-9)
++        assert (peak[i] >= np.maximum(dense, ends) - 1e-9).all()
++
++
++def test_derivative_candidates_are_what_estimate_derivatives_chooses_between():
++    traj = TP.parameterize(PATH, vel_limits=VEL, accel_limits=ACC, velocity_scale=0.7)
++    t = np.array([p["time_s"] for p in traj])
++    q = np.array([p["positions"] for p in traj])
++    vg = np.array([p["velocities"] for p in traj])
++    rests = F.timing_rests(traj)
++    v, a = F.estimate_derivatives(t, q, vg, rests)
++    spline, given = F.derivative_candidates(t, q, vg, rests)
++    assert any(np.array_equal(v, c[0]) and np.array_equal(a, c[1]) for c in (spline, given))
++    v0, a0 = F.estimate_derivatives(t, q, None, rests)
++    s0, g0 = F.derivative_candidates(t, q, None, rests)
++    assert g0 is None and np.array_equal(v0, s0[0]) and np.array_equal(a0, s0[1])
+diff --git a/utils/fjt_trajectory.py b/utils/fjt_trajectory.py
+index d912ea3..23cf158 100644
+--- a/utils/fjt_trajectory.py
++++ b/utils/fjt_trajectory.py
+@@ -251,6 +251,54 @@ def cycle_accelerations(times, positions, velocities, accelerations, cycle: floa
+     return np.abs(np.diff(Q, 2, axis=0)).max(axis=0) / cycle ** 2
+ 
+ 
++def segment_peak_accelerations(times, positions, velocities, accelerations):
++    """(N-1, dof) array: the largest |acceleration| of joint_trajectory_controller's
++    quintic command on each segment between consecutive points (exact: the
++    acceleration of a quintic is a cubic, its extremes are at the segment ends
++    or where the jerk vanishes). A segment of zero duration gives 0.
++
++    This is the continuous command, so it bounds ``cycle_accelerations`` at any
++    controller cycle and any uniform time scaling (a per-cycle second difference
++    is an average of the continuous acceleration). The planner uses it to time
++    legs whose command stays within the limits (time_parameterization).
++    """
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
++    if len(t) < 2:
++        return np.zeros((0, q.shape[1] if q.ndim == 2 else 0))
++    v = np.asarray(velocities, float)
++    a = np.asarray(accelerations, float)
++    h = np.diff(t)
++    ok = h > _MIN_DT_S
++    T = np.where(ok, h, 1.0)[:, None]
++    p0, p1, v0, v1, a0, a1 = q[:-1], q[1:], v[:-1], v[1:], a[:-1], a[1:]
++    c3 = (-20 * p0 + 20 * p1 - 3 * a0 * T ** 2 + a1 * T ** 2 - 12 * v0 * T - 8 * v1 * T) / (2 * T ** 3)
++    c4 = (30 * p0 - 30 * p1 + 3 * a0 * T ** 2 - 2 * a1 * T ** 2 + 16 * v0 * T + 14 * v1 * T) / (2 * T ** 4)
++    c5 = (-12 * p0 + 12 * p1 - a0 * T ** 2 + a1 * T ** 2 - 6 * v0 * T - 6 * v1 * T) / (2 * T ** 5)
++
++    def acc(x):
++        return np.abs(a0 + x * (6 * c3 + x * (12 * c4 + x * 20 * c5)))
++
++    peak = np.maximum(np.abs(a0), np.abs(a1))
++    # jerk 6 c3 + 24 c4 x + 60 c5 x^2 = 0 inside (0, T)
++    A, B, C = 60 * c5, 24 * c4, 6 * c3
++    scale = np.abs(A) * T ** 2 + np.abs(B) * T + np.abs(C) + 1e-300
++    quad = np.abs(A) * T ** 2 > 1e-12 * scale
++    disc = np.where(quad, B * B - 4 * A * C, 0.0)
++    sq = np.sqrt(np.maximum(disc, 0.0))
++    A_ = np.where(quad, A, 1.0)
++    B_ = np.where(np.abs(B) > 0, B, 1.0)
++    roots = (np.where(quad & (disc >= 0), (-B - sq) / (2 * A_), -1.0),
++             np.where(quad & (disc >= 0), (-B + sq) / (2 * A_), -1.0),
++             np.where(~quad & (np.abs(B) > 0), -C / B_, -1.0))
++    for x in roots:
++        inside = (x > 0) & (x < T)
++        peak = np.where(inside, np.maximum(peak, acc(np.where(inside, x, 0.0))), peak)
++    peak[~ok] = 0.0
++    return peak
++
++
+ def estimate_derivatives(times, positions, velocities=None, rests=None):
+     """(velocities, accelerations) as (N, dof) arrays for a timed path.
+ 
+@@ -275,6 +323,27 @@ def estimate_derivatives(times, positions, velocities=None, rests=None):
+     import numpy as np
+     t = np.asarray(times, float)
+     q = np.asarray(positions, float)
++    (v, a), given = derivative_candidates(t, q, velocities, rests)
++    if given is not None:
++        vg, ag = given
++        if np.all(cycle_accelerations(t, q, vg, ag)
++                  <= _ROUGHER_OK * cycle_accelerations(t, q, v, a) + _ROUGH_FLOOR):
++            v, a = vg, ag
++    return v, a
++
++
++def derivative_candidates(times, positions, velocities=None, rests=None):
++    """The two curves ``estimate_derivatives`` chooses between, as
++    ``((v, a), (v, a) | None)``: first with the C2 spline's knot velocities,
++    second with the given ``velocities`` (None when there are none). Same knots,
++    rests and accelerations rule as there. Which one the driver sends depends on
++    a roughness comparison that can come out differently at another
++    ``velocity_scale``; a timing whose two curves both stay within a limit is
++    commanded within it at any scale.
++    """
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
+     n = len(t)
+     rest, still = rest_masks(t, q)
+     if rests is not None:
+@@ -303,13 +372,9 @@ def estimate_derivatives(times, positions, velocities=None, rests=None):
+         a[still] = 0.0
+         return v, a
+ 
+-    v, a = curve(_spline_velocities(tk, qk, rest_k))
+-    if velocities is not None and n >= 2:
+-        vg, ag = curve(np.asarray(velocities, float)[k])
+-        if np.all(cycle_accelerations(t, q, vg, ag)
+-                  <= _ROUGHER_OK * cycle_accelerations(t, q, v, a) + _ROUGH_FLOOR):
+-            v, a = vg, ag
+-    return v, a
++    spline = curve(_spline_velocities(tk, qk, rest_k))
++    given = curve(np.asarray(velocities, float)[k]) if velocities is not None and n >= 2 else None
++    return spline, given
+ 
+ 
+ def timing_rests(points: Sequence[dict], use_velocities: bool = True):

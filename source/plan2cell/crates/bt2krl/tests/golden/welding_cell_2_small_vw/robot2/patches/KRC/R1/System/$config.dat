@@ -1,0 +1,11 @@
+; OPTIONAL PATCH, do not copy over the controller's $config.dat as a whole:
+; the controller's file carries cell-specific VW content that bt2krl does not know.
+; Paste the fold below into the USER GLOBALS fold of KRC/R1/System/$config.dat.
+; bt2krl vw-ks24: merge into KRC/R1/System/$config.dat (fold USER GLOBALS), robot robot2 plan 16#F77E
+; The VW KS24 standard already declares PRG_NR, PRG_NR_REFL, SEL_RES, INT10, VALCYCFL30,
+; N_VW and the interlock signals A41-56 / A81-96; only what bt2krl adds is listed here.
+;FOLD BT2KRL robot2 16#F77E
+   SIGNAL BT_PKTNR $OUT[97] TO $OUT[112] ; op index (the outputs of the VW P_PktNr_SPS, which is local to vw_usr_r)
+   SIGNAL BT_PLANID $IN[97] TO $IN[112] ; PLAN_ID (free telegram byte 12-13)
+   DECL INT PLAN_ID=63358
+;ENDFOLD

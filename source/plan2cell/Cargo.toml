@@ -1,0 +1,103 @@
+# plan2cell: behaviour-tree plans -> code for the machines of a robot cell.
+#
+# crates/bt-core  bt-exec  bt-cell  bt-view  btgui   BT.CPP model, interpreter, cell simulation, Groot-style viewer
+# crates/bt2plc   head-PLC code (CODESYS), robot simulators, project/hardware manifests
+# crates/bt2krl   KUKA KRL robot programs
+# crates/plan2cell      the combined pipeline (plan -> PLC + robot code, consistent options)
+# crates/plan2cell-mcp  the pipeline as MCP tools, over stdio and streamable HTTP
+# crates/plan2cell-cell the cell orchestrator (PLC host runtimes, CODESYS projects over MCP, deploy, verify)
+# crates/plan2cell-cli  the `plan2cell` command (build, check, zones, simulate, mcp, cell)
+# crates/kuka-krl-parser  copy of krl-runner's lenient KRL parser; krl-parser-smoke checks bt2krl output with it
+
+[workspace]
+resolver = "3"
+members = [
+  "crates/bt-core",
+  "crates/bt-exec",
+  "crates/bt-cell",
+  "crates/bt-view",
+  "crates/btgui",
+  "crates/bt2plc",
+  "crates/bt2krl",
+  "crates/plan2cell",
+  "crates/plan2cell-mcp",
+  "crates/plan2cell-cell",
+  "crates/plan2cell-cli",
+  "crates/kuka-krl-parser",
+  "crates/krl-parser-smoke",
+]
+# Built by `cargo build` / `cargo test` at the root: everything but the GUI shell, which needs a
+# display stack (build it with `cargo build -p btgui`).
+default-members = [
+  "crates/bt-core",
+  "crates/bt-exec",
+  "crates/bt-cell",
+  "crates/bt-view",
+  "crates/bt2plc",
+  "crates/bt2krl",
+  "crates/plan2cell",
+  "crates/plan2cell-mcp",
+  "crates/plan2cell-cell",
+  "crates/plan2cell-cli",
+  "crates/kuka-krl-parser",
+  "crates/krl-parser-smoke",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+rust-version = "1.96"
+
+[workspace.dependencies]
+bt-core = { path = "crates/bt-core" }
+bt-exec = { path = "crates/bt-exec" }
+bt-cell = { path = "crates/bt-cell" }
+bt-view = { path = "crates/bt-view" }
+bt2plc = { path = "crates/bt2plc", default-features = false }
+bt2krl = { path = "crates/bt2krl" }
+plan2cell = { path = "crates/plan2cell", default-features = false }
+plan2cell-mcp = { path = "crates/plan2cell-mcp", default-features = false }
+plan2cell-cell = { path = "crates/plan2cell-cell" }
+
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }  # same parse in every feature set
+toml = "0.8.23"
+clap = { version = "4.6.1", features = ["derive", "env"] }
+thiserror = "2.0.19"
+anyhow = "1.0.104"
+roxmltree = "0.20"
+proptest = "1.11.0"
+pretty_assertions = "1.4.1"
+tempfile = "3.27.0"
+
+# btgui: pinned to what factoryos-orchestrator's rerun checkout (0.38.1) resolves. Without egui's
+# `default_fonts` (Ubuntu-Light's licence): bt-view bundles the fonts (bt_view::fonts).
+egui = { version = "0.36.2", default-features = false }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11"] }
+web-time = "1.1"
+rfd = "0.17"
+
+# trust-platform tag v0.24.70: the first on salsa 0.28.5 (RUSTSEC-2026-0308 fixed; v0.24.69 had 0.26).
+trust-syntax = { git = "https://github.com/johannesPettersson80/trust-platform", rev = "ecbcb08ddd12360d057c8e25b6502b9f9d6772c3" }
+trust-hir = { git = "https://github.com/johannesPettersson80/trust-platform", rev = "ecbcb08ddd12360d057c8e25b6502b9f9d6772c3" }
+trust-runtime = { git = "https://github.com/johannesPettersson80/trust-platform", rev = "ecbcb08ddd12360d057c8e25b6502b9f9d6772c3", default-features = false, features = ["debug", "openot-database-sqlite"] }
+
+# Required whenever trust-runtime is in the graph: tiverse-mmap 1.0.0 on crates.io does not
+# compile on macOS; trust-platform vendors a fixed copy.
+[patch.crates-io]
+tiverse-mmap = { git = "https://github.com/johannesPettersson80/trust-platform", rev = "ecbcb08ddd12360d057c8e25b6502b9f9d6772c3" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+# The bytecode VM runs the co-simulation: keep it fast in test builds.
+[profile.dev.package.trust-runtime]
+opt-level = 3
+
+[profile.dev.package.trust-runtime-core]
+opt-level = 3

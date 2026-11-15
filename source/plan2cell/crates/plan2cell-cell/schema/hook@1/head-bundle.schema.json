@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/head-bundle@1 (copied to /var/lib/factoryos/inbox/head-bundle.json; at most 4 MiB per file and 32 MiB in total)",
+  "type": "object",
+  "required": [
+    "schema",
+    "plan_id",
+    "key",
+    "files"
+  ],
+  "properties": {
+    "schema": {
+      "const": "factoryos/head-bundle@1"
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^16#[0-9A-F]{4}$"
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "object",
+      "required": [
+        "plc/project.json",
+        "plc/cell_plan.json"
+      ],
+      "propertyNames": {
+        "pattern": "^(plc/project\\.json|plc/cell_plan\\.json|plan2cell-build\\.json|wiring\\.json|plc/trust/[^/]+/src/[A-Za-z_][A-Za-z0-9_]{0,63}\\.st)$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "contentEncoding": "base64"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,397 @@
+diff --git a/scripts/convert_isaac_scene.py b/scripts/convert_isaac_scene.py
+index 5543b27d9441a35bde6cddf9ce42a464698fa191..d1ddf901b2d0556a5c645cca52f9c3b84f6d853b 100644
+--- a/scripts/convert_isaac_scene.py
++++ b/scripts/convert_isaac_scene.py
+@@ -436,10 +436,93 @@ def _parse_int_array(text: str, key: str) -> Optional[list]:
+ # the same pipeline serves USD point arrays and OBJ meshes reached through a
+ # fixture URDF.
+ 
+-# A voxel is the half-open cell [i*v, (i+1)*v): a surface lying exactly on a cell
+-# boundary belongs to the cell above it, never to both and never to neither. The
+-# exact test below enforces that by shifting each cell down by this much.
+-_VOXEL_EPS = 1e-9
++# A voxel is the cell [i*v, (i+1)*v). A surface lying exactly on a cell boundary
++# (a grid plane) belongs to ONE of the two cells: the one on its mesh's inner side
++# (``_cell_index``), never to both and never to neither. A coordinate within this
++# fraction of a voxel of a grid plane counts as ON the plane (covers float32 mesh
++# exports up to ~8 m from the origin).
++_BOUNDARY_TOL = 1e-5
++
++
++def _side(x: float, c: float, tol: float) -> int:
++    """-1 / +1 when ``x`` lies below / above the plane coordinate ``c``, else 0."""
++    return -1 if x < c - tol else (1 if x > c + tol else 0)
++
++
++def _cell_index(x: float, voxel: float, side) -> int:
++    """Voxel index of coordinate ``x`` along one axis: ``floor(x / voxel)``,
++    except for a coordinate ON a grid plane (within ``_BOUNDARY_TOL`` voxel).
++    There the plane is shared by two cells and ``floor`` picks the one above,
++    so every face of a mesh lying on a +x / +y / +z grid plane grew a voxel
++    lid outside the mesh. ``side(c)`` names the cell on the mesh's inner side
++    of the plane at ``c``: -1 the cell below, +1 above, 0 floor (as before).
++    """
++    q = x / voxel
++    r = round(q)
++    if abs(q - r) > _BOUNDARY_TOL:
++        return math.floor(q)
++    s = side(r * voxel)
++    return r - 1 if s < 0 else r
++
++
++def _mesh_frame(triangles: list) -> tuple:
++    """(mins, maxs, orient) of one mesh: its bounds and its winding sign (+1
++    when its signed volume is >= 0, i.e. counter-clockwise seen from outside;
++    -1 for a mesh wound the other way round, e.g. mirrored by a negative scale)."""
++    mins = [math.inf, math.inf, math.inf]
++    maxs = [-math.inf, -math.inf, -math.inf]
++    vol = 0.0
++    for (a, b, c) in triangles:
++        for v in (a, b, c):
++            for d in range(3):
++                if v[d] < mins[d]: mins[d] = v[d]
++                if v[d] > maxs[d]: maxs[d] = v[d]
++        vol += (a[0] * (b[1] * c[2] - b[2] * c[1])
++                - a[1] * (b[0] * c[2] - b[2] * c[0])
++                + a[2] * (b[0] * c[1] - b[1] * c[0]))
++    return tuple(mins), tuple(maxs), (1.0 if vol >= 0.0 else -1.0)
++
++
++def _triangle_sides(v0: tuple, v1: tuple, v2: tuple, voxel: float,
++                    frame: Optional[tuple]) -> tuple:
++    """Per axis ``d``, ``side(c)`` for a grid plane ``c`` the triangle touches
++    (see :func:`_cell_index`):
++
++    * the triangle does not lie in the plane: the side its centroid is on (the
++      side the surface continues to; 0 when the triangle crosses the plane);
++    * the triangle lies in the plane (a face ON the grid): when the plane is the
++      mesh's minimum / maximum along ``d`` (``frame`` bounds) the mesh is above /
++      below it -- winding-independent, which is the box-lid case; otherwise the
++      side opposite the outward normal (winding times the mesh's orientation
++      sign, see ``_mesh_frame``). A mesh with inconsistent per-face winding can
++      still put such an interior face on its outer side: one voxel of extra
++      (conservative) obstacle.
++
++    ``frame`` = ``_mesh_frame`` of the mesh the triangle belongs to; None: the
++    triangle's own bounds and +1 orientation."""
++    if frame is None:
++        frame = _mesh_frame([(v0, v1, v2)])[:2] + (1.0,)
++    mins, maxs, orient = frame
++    tol = _BOUNDARY_TOL * voxel
++    e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
++    e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
++    nrm = (orient * (e1[1] * e2[2] - e1[2] * e2[1]),
++           orient * (e1[2] * e2[0] - e1[0] * e2[2]),
++           orient * (e1[0] * e2[1] - e1[1] * e2[0]))
++    cen = tuple((v0[d] + v1[d] + v2[d]) / 3.0 for d in range(3))
++
++    def side_fn(d: int):
++        def side(c: float) -> int:
++            if any(abs(v[d] - c) > tol for v in (v0, v1, v2)):
++                return _side(cen[d], c, tol)         # surface continues to that side
++            if abs(c - maxs[d]) <= tol and maxs[d] - mins[d] > tol:
++                return -1                            # top face: mesh below
++            if abs(c - mins[d]) <= tol and maxs[d] - mins[d] > tol:
++                return 1                             # bottom face: mesh above
++            return -1 if nrm[d] > 0 else (1 if nrm[d] < 0 else 0)
++        return side
++
++    return side_fn(0), side_fn(1), side_fn(2)
+ 
+ 
+ def _tri_box_overlap(c: tuple, h: float, v0: tuple, v1: tuple, v2: tuple) -> bool:
+@@ -474,7 +557,7 @@ def _tri_box_overlap(c: tuple, h: float, v0: tuple, v1: tuple, v2: tuple) -> boo
+ 
+ 
+ def _rasterize_triangle(v0: tuple, v1: tuple, v2: tuple, voxel: float,
+-                        occupied: set, keep=None) -> None:
++                        occupied: set, keep=None, frame: Optional[tuple] = None) -> None:
+     """
+     Mark every voxel the triangle surface passes through — EXACTLY: each cell of
+     the triangle's bounding range is tested with :func:`_tri_box_overlap`. The
+@@ -483,25 +566,39 @@ def _rasterize_triangle(v0: tuple, v1: tuple, v2: tuple, voxel: float,
+     cells (1.1%) had no box, 11 of them within 0.15 m of a weld. Grid origin is the
+     world origin, so cell key = floor(coord / voxel). ``keep(i, j, k)``, when
+     given, limits the marking to the cells it accepts.
++
++    A triangle touching a grid plane with its extreme along an axis (a face ON the
++    grid, or an edge / vertex ending on it) marks only the cell on its mesh's inner
++    side of that plane (``_cell_index`` with :func:`_triangle_sides`; ``frame`` =
++    ``_mesh_frame`` of its mesh): the shared-boundary rule "the cell above" gave
++    every mesh face on a +x / +y / +z grid plane a one-voxel lid outside the mesh
++    (a unit box at 0.05 m became 1.05 m). Off the grid nothing changes.
+     """
+     h = voxel / 2.0
+-    lo = [math.floor((min(v0[k], v1[k], v2[k]) + _VOXEL_EPS) / voxel) for k in range(3)]
+-    hi = [math.floor((max(v0[k], v1[k], v2[k]) + _VOXEL_EPS) / voxel) for k in range(3)]
++    sides = _triangle_sides(v0, v1, v2, voxel, frame)
++    lo = [_cell_index(min(v0[k], v1[k], v2[k]), voxel, sides[k]) for k in range(3)]
++    hi = [_cell_index(max(v0[k], v1[k], v2[k]), voxel, sides[k]) for k in range(3)]
++    # The range above already decides every on-plane case, so the cells are tested
++    # unshifted and a hair larger (a face lying in a cell's boundary plane must
++    # count as touching it despite rounding).
++    ht = h + _BOUNDARY_TOL * voxel
+     for i in range(lo[0], hi[0] + 1):
+-        cx = (i + 0.5) * voxel - _VOXEL_EPS
++        cx = (i + 0.5) * voxel
+         for j in range(lo[1], hi[1] + 1):
+-            cy = (j + 0.5) * voxel - _VOXEL_EPS
++            cy = (j + 0.5) * voxel
+             for k in range(lo[2], hi[2] + 1):
+                 if (i, j, k) in occupied:
+                     continue
+                 if keep is not None and not keep(i, j, k):
+                     continue
+-                if _tri_box_overlap((cx, cy, (k + 0.5) * voxel - _VOXEL_EPS), h, v0, v1, v2):
++                if _tri_box_overlap((cx, cy, (k + 0.5) * voxel), ht, v0, v1, v2):
+                     occupied.add((i, j, k))
+ 
+ 
+-def voxelise_triangles(triangles: Iterator[tuple], voxel: float) -> Optional[dict]:
+-    """Rasterise world-space triangles into an occupancy set + its bounds.
++def voxelise_meshes(meshes: Iterator[list], voxel: float) -> Optional[dict]:
++    """Rasterise world-space meshes (each a list of triangles) into an
++    occupancy set + its bounds. Each mesh is its own frame for the on-plane
++    rule of ``_rasterize_triangle`` (its bounds and winding sign).
+ 
+     Returns the same shape :func:`fixture_voxels_from_usd` does, so the writer
+     does not care which geometry source produced it.
+@@ -509,21 +606,28 @@ def voxelise_triangles(triangles: Iterator[tuple], voxel: float) -> Optional[dic
+     occupied: set = set()
+     mins = [math.inf, math.inf, math.inf]
+     maxs = [-math.inf, -math.inf, -math.inf]
+-    for (a, b, c) in triangles:
+-        for v in (a, b, c):
+-            if v[0] < mins[0]: mins[0] = v[0]
+-            if v[1] < mins[1]: mins[1] = v[1]
+-            if v[2] < mins[2]: mins[2] = v[2]
+-            if v[0] > maxs[0]: maxs[0] = v[0]
+-            if v[1] > maxs[1]: maxs[1] = v[1]
+-            if v[2] > maxs[2]: maxs[2] = v[2]
+-        _rasterize_triangle(a, b, c, voxel, occupied)
++    for tris in meshes:
++        tris = list(tris)
++        if not tris:
++            continue
++        frame = _mesh_frame(tris)
++        for d in range(3):
++            mins[d] = min(mins[d], frame[0][d])
++            maxs[d] = max(maxs[d], frame[1][d])
++        for (a, b, c) in tris:
++            _rasterize_triangle(a, b, c, voxel, occupied, frame=frame)
+     if not occupied:
+         return None
+     return {"voxels": occupied, "voxel": voxel, "approx": False,
+             "min": tuple(mins), "max": tuple(maxs)}
+ 
+ 
++def voxelise_triangles(triangles: Iterator[tuple], voxel: float) -> Optional[dict]:
++    """Rasterise world-space triangles (one mesh) into an occupancy set + its
++    bounds; see :func:`voxelise_meshes`."""
++    return voxelise_meshes([list(triangles)], voxel)
++
++
+ def aabb_of_triangles(triangles: Iterator[tuple]) -> Optional[dict]:
+     """World-space axis-aligned bounds of a triangle stream, or None if empty."""
+     mins = [math.inf, math.inf, math.inf]
+@@ -619,6 +723,7 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+         if fvi and fvc:
+             idx = 0
+             nverts = len(verts)
++            tris = []
+             for c in fvc:
+                 if c < 3 or idx + c > len(fvi):
+                     idx += c
+@@ -630,13 +735,21 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+                     a, b, d = face[0], face[k], face[k + 1]
+                     if a >= nverts or b >= nverts or d >= nverts:
+                         continue
+-                    _rasterize_triangle(verts[a], verts[b], verts[d], voxel, occupied)
++                    tris.append((verts[a], verts[b], verts[d]))
++            frame = _mesh_frame(tris) if tris else None
++            for (a, b, d) in tris:
++                _rasterize_triangle(a, b, d, voxel, occupied, frame=frame)
+         else:
+             # No connectivity: fall back to marking vertices (dense meshes only).
++            # A vertex on a grid plane goes to the cell toward the mesh's vertex
++            # centroid (the inner side for a convex-ish mesh).
++            cen = [sum(w[d] for w in verts) / len(verts) for d in range(3)]
++            tol = _BOUNDARY_TOL * voxel
++            sides = [(lambda c, d=d: _side(cen[d], c, tol)) for d in range(3)]
+             for w in verts:
+-                occupied.add((math.floor(w[0] / voxel),
+-                              math.floor(w[1] / voxel),
+-                              math.floor(w[2] / voxel)))
++                occupied.add((_cell_index(w[0], voxel, sides[0]),
++                              _cell_index(w[1], voxel, sides[1]),
++                              _cell_index(w[2], voxel, sides[2])))
+ 
+     if not occupied:
+         return None
+@@ -705,9 +818,13 @@ def _voxel_boxes_world(merged: list, voxel: float) -> list:
+ # Each class is merged on its own, so a contact box never extends past its weld.
+ 
+ def weld_aware_voxels(triangles: list, coarse: float, fine: float, welds: list,
+-                      refine_radius: float) -> dict:
++                      refine_radius: float, frames: Optional[list] = None) -> dict:
+     """``{"coarse": set, "fine": set, "contact": set, ...}`` voxel index sets.
+ 
++    ``frames``: per triangle, the ``_mesh_frame`` of the mesh it belongs to (the
++    on-plane rule of ``_rasterize_triangle``; :func:`mesh_triangles_and_frames`);
++    None: ``triangles`` is one mesh.
++
+     ``welds``: ``[{"p": (x,y,z), "out": unit vector toward the tool, "reach": m,
+     "corridor": m, "stroke": m, "clear": bool}]`` — ``stroke`` the standoff the
+     TCP comes in from, ``clear`` whether the electrode's corridor is free of metal.
+@@ -718,9 +835,15 @@ def weld_aware_voxels(triangles: list, coarse: float, fine: float, welds: list,
+     ratio = int(round(ratio))
+     # The contact cells must all be fine cells: never refine less than the reach.
+     refine_radius = max([refine_radius] + [w["reach"] + fine for w in welds])
++    if frames is None or len(frames) != len(triangles):
++        frames = [_mesh_frame(triangles)] * len(triangles) if triangles else []
+     # The stroke's far end is covered by the coarse cells it reaches (labelled below).
+-    shell = voxelise_triangles(iter(triangles), coarse)
+-    coarse_set = set(shell["voxels"]) if shell else set()
++    coarse_set: set = set()
++    for (a, b, c), frame in zip(triangles, frames):
++        _rasterize_triangle(a, b, c, coarse, coarse_set, frame=frame)
++    shell = ({"min": tuple(min(f[0][k] for f in frames) for k in range(3)),
++              "max": tuple(max(f[1][k] for f in frames) for k in range(3))}
++             if coarse_set else None)
+     half_diag = coarse * math.sqrt(3) / 2
+     pts = [w["p"] for w in welds]
+ 
+@@ -735,12 +858,12 @@ def weld_aware_voxels(triangles: list, coarse: float, fine: float, welds: list,
+     if refined:
+         keep = (lambda i, j, k: (i // ratio, j // ratio, k // ratio) in refined)
+         r2 = refine_radius + 2 * half_diag
+-        for (a, b, c) in triangles:
++        for (a, b, c), frame in zip(triangles, frames):
+             lo = [min(a[k], b[k], c[k]) for k in range(3)]
+             hi = [max(a[k], b[k], c[k]) for k in range(3)]
+             if not any(all(lo[k] - r2 <= p[k] <= hi[k] + r2 for k in range(3)) for p in pts):
+                 continue
+-            _rasterize_triangle(a, b, c, fine, fine_set, keep)
++            _rasterize_triangle(a, b, c, fine, fine_set, keep, frame=frame)
+     def touched(c: tuple, slack: float) -> bool:
+         """Whether a cell centred at ``c`` is the tool's to touch at some weld."""
+         for w in welds:
+@@ -1073,7 +1196,31 @@ def _link_poses(root: ET.Element) -> dict:
+ 
+ def urdf_geometry_triangles(urdf_path: Path, world_pose: tuple,
+                             report_every: int = 200) -> Iterator[tuple]:
+-    """World-space triangles for every mesh a URDF references.
++    """World-space triangles for every mesh a URDF references (all entries of
++    :func:`urdf_geometry_meshes` as one stream)."""
++    for tris in urdf_geometry_meshes(urdf_path, world_pose, report_every):
++        yield from tris
++
++
++def mesh_triangles_and_frames(meshes: Iterator[list]) -> tuple:
++    """``(triangles, frames)``: the meshes' triangles as one list and, per
++    triangle, the ``_mesh_frame`` of its mesh (for :func:`weld_aware_voxels`)."""
++    tris: list = []
++    frames: list = []
++    for m in meshes:
++        m = list(m)
++        if not m:
++            continue
++        f = _mesh_frame(m)
++        tris.extend(m)
++        frames.extend([f] * len(m))
++    return tris, frames
++
++
++def urdf_geometry_meshes(urdf_path: Path, world_pose: tuple,
++                         report_every: int = 200) -> Iterator[list]:
++    """World-space triangles for every mesh a URDF references, one list per
++    mesh entry.
+ 
+     ``<collision>`` entries are used when the URDF has any (that is the geometry
+     authored for collision); otherwise ``<visual>``. Each entry contributes its
+@@ -1125,13 +1272,15 @@ def urdf_geometry_triangles(urdf_path: Path, world_pose: tuple,
+         if report_every and n % report_every == 0:
+             _info(f"    …{n}/{len(entries)} meshes")
+         sx, sy, sz = scale
++        tris = []
+         for tri in read_obj_triangles(mesh_path):
+             out = []
+             for v in tri:
+                 s = (v[0] * sx, v[1] * sy, v[2] * sz)
+                 r = _mat_apply(rot, s)
+                 out.append((r[0] + off[0], r[1] + off[1], r[2] + off[2]))
+-            yield (out[0], out[1], out[2])
++            tris.append((out[0], out[1], out[2]))
++        yield tris
+ 
+ 
+ def tool_triangles(urdf_path: Path, tip_link: str) -> list:
+@@ -2388,11 +2537,12 @@ def main() -> None:
+                           f"takes a while)")
+                     source = f"{fixture_urdf.name} meshes"
+                     if weld_ctx is not None and weld_ctx.ops:
+-                        tris = list(urdf_geometry_triangles(fixture_urdf, world_pose))
++                        meshes = list(urdf_geometry_meshes(fixture_urdf, world_pose))
++                        tris, frames = mesh_triangles_and_frames(meshes)
+                         welds = weld_ctx.correct(fid, tris)
+                         if welds:
+                             wv = weld_aware_voxels(tris, args.voxel_size, args.weld_voxel_size,
+-                                                   welds, args.weld_refine_radius)
++                                                   welds, args.weld_refine_radius, frames=frames)
+                             boxes = weld_aware_boxes(wv, args.voxel_size, args.weld_voxel_size)
+                             nvox = (len(wv["coarse"]) + len(wv["fine"]) + len(wv["contact"])
+                                 + len(wv["coarse_contact"]))
+@@ -2412,10 +2562,10 @@ def main() -> None:
+                                   f"{len(wv['fine'])} + {len(wv['contact'])} (contact) at "
+                                   f"{_fmt(args.weld_voxel_size)} m around {len(welds)} weld(s)")
+                             continue
+-                        vox = voxelise_triangles(iter(tris), args.voxel_size)
++                        vox = voxelise_meshes(meshes, args.voxel_size)
+                     else:
+-                        vox = voxelise_triangles(
+-                            urdf_geometry_triangles(fixture_urdf, world_pose),
++                        vox = voxelise_meshes(
++                            urdf_geometry_meshes(fixture_urdf, world_pose),
+                             args.voxel_size)
+                 if vox is None and usd_text:
+                     vox = fixture_voxels_from_usd(usd_text, fid, args.voxel_size)
+diff --git a/tests/test_weld_aware_obstacles.py b/tests/test_weld_aware_obstacles.py
+index dfb2957a1774a36e08ad9543f1e725b12ebe5b8c..3028670091929e13d7da96d92e72fdc1de95dace 100644
+--- a/tests/test_weld_aware_obstacles.py
++++ b/tests/test_weld_aware_obstacles.py
+@@ -74,11 +74,33 @@ def test_a_long_thin_triangle_keeps_every_cell_it_crosses():
+         assert cv._tri_box_overlap(centre, 0.025 + 1e-9, *sliver)
+ 
+ 
+-def test_a_face_on_a_cell_boundary_belongs_to_the_cell_above_only():
++def test_a_face_on_a_cell_boundary_belongs_to_one_cell_only():
++    # A lone sheet on a grid plane: one layer of cells, on the side opposite its
++    # normal (the inner side of a mesh, umarell_fast patch 24); the other winding
++    # puts it above.
+     cells: set = set()
+     for tri in _plate(0.0, 0.1, 0.0, 0.1, 0.5):
+         cv._rasterize_triangle(*tri, 0.1, cells)
+-    assert {c[2] for c in cells} == {5}
++    assert {c[2] for c in cells} == {4}
++    flipped: set = set()
++    for (a, b, c) in _plate(0.0, 0.1, 0.0, 0.1, 0.5):
++        cv._rasterize_triangle(a, c, b, 0.1, flipped)
++    assert {c[2] for c in flipped} == {5}
++
++
++def test_a_box_on_the_grid_has_no_voxel_lid():
++    # A closed unit box at 0.05 m: the +x / +y / +z faces stay inside the box
++    # (cells 0..19), whatever the winding (umarell_fast patch 24).
++    def box(flip):
++        q = lambda a, b, c, d: [(a, c, b), (a, d, c)] if flip else [(a, b, c), (a, c, d)]
++        P = lambda x, y, z: (float(x), float(y), float(z))
++        return (q(P(0, 0, 0), P(0, 1, 0), P(1, 1, 0), P(1, 0, 0)) + q(P(0, 0, 1), P(1, 0, 1), P(1, 1, 1), P(0, 1, 1))
++                + q(P(0, 0, 0), P(1, 0, 0), P(1, 0, 1), P(0, 0, 1)) + q(P(0, 1, 0), P(0, 1, 1), P(1, 1, 1), P(1, 1, 0))
++                + q(P(0, 0, 0), P(0, 0, 1), P(0, 1, 1), P(0, 1, 0)) + q(P(1, 0, 0), P(1, 1, 0), P(1, 1, 1), P(1, 0, 1)))
++    for flip in (False, True):
++        vox = cv.voxelise_triangles(iter(box(flip)), 0.05)["voxels"]
++        for k in range(3):
++            assert {c[k] for c in vox} == set(range(20)), (flip, k)
+ 
+ 
+ # ── weld points and approaches against the mesh ───────────────────────────────

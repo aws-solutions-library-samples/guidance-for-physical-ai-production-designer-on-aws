@@ -1,0 +1,260 @@
+{
+  "training_cells": {
+    "welding_cell_2_small": {
+      "agentic_planner/tasks/car_door_spot_welding.json": "e44a9073d79b66fc8ee6440a6d106966f4f30f8bd09d4bd89b7ad6c03aab2dd8",
+      "agentic_planner/config/robots.yaml": "b543a5f42fdcec67f7ad41d7dfa83678077a97d6820375796ae2e024f1e834bf",
+      "agentic_planner/config/obstacles.yaml": "e29d82d058325decdddb8f0e088b1b669b75dcb1794cccf1742cc1adb1e87e86",
+      "agentic_planner/cell.yaml": "a9fb83a15ed29e84ad39ec0084707e25f7e3fbdaec4ca99a3bbc80323409eb34",
+      "robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf": "8bae8b8389f0f40d6b7d6921eb3450ee084d067c3ee9ba9f42d59bfc11ae0aa0",
+      "scene.yaml": "00e018ba18124ce8622e69d7501d9aec4a31b1831332df017f9e55080d80d943"
+    },
+    "welding_cell_2t": {
+      "agentic_planner/tasks/car_door_spot_welding.json": "a8ba336231a9e41828b002bfaf49ecd4d4a2273362931a9aa5f7552d4ed1c25d",
+      "agentic_planner/config/robots.yaml": "dd2c0813637f54e643e3aa86faa9c17e462e22aeb6f64eafa557c01610fcfcd4",
+      "agentic_planner/config/obstacles.yaml": "e3a323001bcf1036e75739a7876c9c5405adb8687055463f336dc7add04f05c4",
+      "agentic_planner/cell.yaml": "05ba691303a2e7bc0040c560570d7665cafb410ef7b52c65b4dd11396401db19",
+      "robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf": "8bae8b8389f0f40d6b7d6921eb3450ee084d067c3ee9ba9f42d59bfc11ae0aa0",
+      "scene.yaml": "0365415b6a60a6df1cafe2a83b8482346dfcb7ae9a953c7dbb86541828db48f2"
+    }
+  },
+  "canonical_task": "car_door_spot_welding",
+  "planners": [
+    {
+      "name": "hier_la_fu",
+      "kind": "policy",
+      "title": "Hierarchical RL scheduler with the learned lookahead field",
+      "from": "hier_la:runs/hier_la_fu/selected_75250.pt,la=field:runs/hier_la_models/frozen",
+      "checkpoint": "runs/hier_la_fu/selected_75250.pt",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 30,
+      "timeout_s": 600,
+      "verified": {
+        "end_s": 53.76,
+        "profile": "umarell",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.27
+      }
+    },
+    {
+      "name": "hier_q",
+      "kind": "policy",
+      "title": "Hierarchical RL scheduler (Q head) with the geometric lookahead",
+      "from": "hier:runs/hier_q/selected_q76500.pt",
+      "checkpoint": "runs/hier_q/selected_q76500.pt",
+      "profile": "full",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 30,
+      "timeout_s": 600,
+      "verified": {
+        "end_s": 46.04,
+        "profile": "full",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.218
+      }
+    },
+    {
+      "name": "ppo_pure",
+      "kind": "policy",
+      "title": "PPO joint-space policy (pure RL)",
+      "from": "ppo:runs/ppo_pure_h/selected_snap500.pt",
+      "checkpoint": "runs/ppo_pure_h/selected_snap500.pt",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 20,
+      "timeout_s": 600,
+      "verified": {
+        "end_s": 66.5,
+        "profile": "umarell",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.703
+      }
+    },
+    {
+      "name": "ppo_v3",
+      "kind": "policy",
+      "title": "PPO v3 policy",
+      "from": "ppo:runs/ppo_v3h/selected_snap500.pt",
+      "checkpoint": "runs/ppo_v3h/selected_snap500.pt",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 20,
+      "timeout_s": 600,
+      "verified": {
+        "end_s": 68.22,
+        "profile": "umarell",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.471
+      }
+    },
+    {
+      "name": "ppo_v4",
+      "kind": "policy",
+      "title": "PPO v4 policy (selected snapshot U_b7)",
+      "from": "ppo:runs/ppo_v4_sel/U_b7_snap525.pt",
+      "checkpoint": "runs/ppo_v4_sel/U_b7_snap525.pt",
+      "profile": "umarell",
+      "flags": [
+        "--home-tail",
+        "off",
+        "--home-tol",
+        "0.03",
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 25,
+      "timeout_s": 600,
+      "verified": {
+        "end_s": 80.24,
+        "profile": "umarell",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.379
+      }
+    },
+    {
+      "name": "ppo_2t",
+      "kind": "policy",
+      "title": "PPO policy for the two-robot fixture cell",
+      "from": "ppo:runs/ppo_2t_u/selected_snap175.pt",
+      "checkpoint": "runs/ppo_2t_u/selected_snap175.pt",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2t"
+      ],
+      "robots": 2,
+      "fixture": true,
+      "typical_s": 25,
+      "timeout_s": 600,
+      "verified": {}
+    },
+    {
+      "name": "trajgen",
+      "kind": "scripted",
+      "title": "trajgen (scripted multi-robot generator): its precomputed sample for the cell",
+      "from": "plan:trajgen/samples/{cell_id}/expected/plan.json",
+      "from_full": "plan:trajgen/samples/{cell_id}/expected_full/plan.json",
+      "from_live": "trajgen:{cell_id}",
+      "checkpoint": "",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small"
+      ],
+      "robots": 2,
+      "fixture": false,
+      "typical_s": 10,
+      "timeout_s": 300,
+      "live_typical_s": 1500,
+      "live_timeout_s": 2700,
+      "verified": {
+        "end_s": 76.85,
+        "profile": "umarell",
+        "export_pass": true,
+        "dense_valid": true,
+        "min_clearance_m": 0.246
+      }
+    },
+    {
+      "name": "umarell_u3",
+      "kind": "rules",
+      "title": "umarell U3: umarell's own planning tools (OMPL, its gates and assembler) with the cell planner's upstream fixes (v9 on umarell dc60669), driven by a deterministic parallel orchestrator (no LLM)",
+      "from": "plan:{u3_plan}",
+      "checkpoint": "",
+      "profile": "full",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small",
+        "welding_cell_2t"
+      ],
+      "robots": "1-4",
+      "fixture": true,
+      "typical_s": 1600,
+      "timeout_s": 4800,
+      "ref_workers": 8,
+      "timeout_max_s": 14400,
+      "remote_setup_s": 420,
+      "verified": {}
+    },
+    {
+      "name": "umarell_jam",
+      "kind": "rules",
+      "title": "umarell jam: umarell U3's planning (umarell 76ea13a + fix set v8 + U3's hooks) from a prepared cache of certified weld primitives, transfers and phase schedules: seconds where the cache is warm, falls back to umarell_u3 on a miss",
+      "from": "plan:{jam_plan}",
+      "checkpoint": "",
+      "profile": "umarell",
+      "flags": [
+        "--dense-check"
+      ],
+      "cells": [
+        "welding_cell_2_small",
+        "welding_cell_2t"
+      ],
+      "robots": "1-4",
+      "fixture": true,
+      "typical_s": 30,
+      "timeout_s": 900,
+      "plan_timeout_s": 2100,
+      "repair_budget_s": 300,
+      "progress_timeout_s": 300,
+      "fallback": true,
+      "verified": {},
+      "prepare_budget_s": 1200
+    },
+    {
+      "name": "umarell",
+      "kind": "llm",
+      "title": "umarell agentic planner (LLM allocation + OMPL motion planning)",
+      "cells": [
+        "*"
+      ],
+      "robots": "1-4",
+      "fixture": true,
+      "typical_s": 300,
+      "verified": {}
+    }
+  ]
+}

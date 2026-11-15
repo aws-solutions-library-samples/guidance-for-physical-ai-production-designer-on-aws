@@ -1,0 +1,44 @@
+# Written by Factory OS (Hardware Configuration): /var/lib/factoryos/cell/cell.toml with the KUKA VC controllers' kli_ip / station
+# from plan2cell/hardware.json. Rewritten on every save and before every Start production; edit those instead.
+
+[address_map]
+"192.168.100.10" = "198.51.100.10"
+"192.168.100.11" = "198.51.100.11"
+"192.168.100.12" = "198.51.100.12"
+
+[codesys_mcp]
+install = "SP22 Patch 1"
+io_csv = "mirror"
+timeout_s = 1800
+
+url = "http://198.51.100.20:8766/mcp"
+windows_project_dir = 'C:\ProgramData\plan2cell\projects\{cell}'
+
+[kuka_vc]
+region = "eu-central-1"
+
+[[kuka_vc.controller]]
+instance = "iiQKA.OS2_KSS_9.2.0_vass"
+kli_ip = "192.168.100.11"
+netns = "krc1"
+robot_ns = "robot1"
+sps_base = "iiQKA.OS2_KSS_9.2.0"
+ssm_instance = "i-0123456789abcdef0"
+station = "kuka-robi1"
+
+[[kuka_vc.controller]]
+instance = "iiQKA.OS2_KSS_9.2.0_vass"
+kli_ip = "192.168.100.12"
+netns = "krc1"
+robot_ns = "robot2"
+sps_base = "iiQKA.OS2_KSS_9.2.0"
+ssm_instance = "i-1234567890abcdef0"
+station = "kuka-robi2"
+
+[plc_host]
+bucket = "plan2cell-software-111122223333-eu-central-1"
+compose_dir = "/opt/plan2cell/plc-host"
+region = "eu-central-1"
+setup = "/opt/plan2cell/plc-host/setup.sh"
+ssh_host = "plc-host"
+ssm_instance = "i-02573cafcfEXAMPLE"

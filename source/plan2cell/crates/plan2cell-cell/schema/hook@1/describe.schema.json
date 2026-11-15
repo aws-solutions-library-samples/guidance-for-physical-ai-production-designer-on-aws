@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook@1 describe answer (static: never contacts the workload, exit 0 without one)",
+  "type": "object",
+  "required": [
+    "contract",
+    "role",
+    "runtime",
+    "verbs",
+    "versions"
+  ],
+  "properties": {
+    "contract": {
+      "const": "factoryos/hook@1"
+    },
+    "role": {
+      "enum": [
+        "head-plc",
+        "robot-controller"
+      ]
+    },
+    "runtime": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verbs": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "describe",
+          "ready",
+          "health",
+          "deploy",
+          "verify",
+          "prepare",
+          "start",
+          "stop",
+          "read",
+          "write",
+          "op",
+          "globals",
+          "watch"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "versions": {
+      "type": "object"
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "args",
+          "changes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "changes": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "bundle_schemas": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inbox": {
+      "const": "/var/lib/factoryos/inbox"
+    },
+    "identity": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "if": {
+    "properties": {
+      "role": {
+        "const": "robot-controller"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "ops",
+      "bundle_schemas",
+      "inbox"
+    ]
+  }
+}

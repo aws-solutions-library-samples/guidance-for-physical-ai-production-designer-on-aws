@@ -1,0 +1,10 @@
+[package]
+name = "bt-core"
+description = "BehaviorTree.CPP XML model, builtin node manifest, Groot layout and status traces (no UI)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+roxmltree.workspace = true
+serde.workspace = true

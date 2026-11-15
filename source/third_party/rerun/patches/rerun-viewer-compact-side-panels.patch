@@ -1,0 +1,356 @@
+--- a/crates/top/re_viewer/src/app_state.rs
++++ b/crates/top/re_viewer/src/app_state.rs
+@@ -642,10 +642,24 @@
+                     app_blueprint.toggle_time_panel(command_sender);
+                 }
+ 
+-                let selection_was_expanded = app_blueprint.selection_panel_state().is_expanded();
+-                let mut selection_expanded = selection_was_expanded;
+                 let right_sections = &startup_options.right_panel_sections;
+-                let right_sections_ui = |ui: &mut egui::Ui| custom_panel_sections_ui(ui, right_sections);
++                let compact_selection = startup_options.compact_selection_panel;
++                // Compact, the right panel holds the host's sections (the selection is a bar below
++                // them): while none of them is visible, it is collapsed, whatever its saved state.
++                let right_panel_shown = !compact_selection
++                    || right_sections
++                        .iter()
++                        .any(|section| section.is_visible.as_ref().is_none_or(|is_visible| is_visible()));
++                let selection_was_expanded =
++                    app_blueprint.selection_panel_state().is_expanded() && right_panel_shown;
++                let mut selection_expanded = selection_was_expanded;
++                let right_sections_ui = |ui: &mut egui::Ui| {
++                    if compact_selection {
++                        custom_panel_sections_fill_ui(ui, right_sections);
++                    } else {
++                        custom_panel_sections_ui(ui, right_sections);
++                    }
++                };
+                 selection_panel.show_panel(
+                     &ctx,
+                     &viewport_ui.blueprint,
+@@ -654,8 +668,9 @@
+                     &mut selection_expanded,
+                     selection_histories.entry(recording_id.clone()).or_default(),
+                     (!right_sections.is_empty()).then_some(&right_sections_ui as &dyn Fn(&mut egui::Ui)),
++                    compact_selection,
+                 );
+-                if selection_expanded != selection_was_expanded {
++                if right_panel_shown && selection_expanded != selection_was_expanded {
+                     // The user dragged the resize handle past the panel's limits to collapse/expand it:
+                     app_blueprint.toggle_selection_panel(command_sender);
+                 }
+@@ -676,6 +691,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &ctx.app_ctx,
+                     Some((&viewport_ui, &ctx)),
+                 );
+@@ -714,6 +730,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &app_ctx,
+                     None,
+                 );
+@@ -752,6 +769,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &app_ctx,
+                     None,
+                 );
+@@ -792,6 +810,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &app_ctx,
+                     None,
+                 );
+@@ -857,6 +876,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &app_ctx,
+                     None,
+                 );
+@@ -888,6 +908,7 @@
+                     app_blueprint,
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
++                    startup_options.compact_sources_panel,
+                     &app_ctx,
+                     None,
+                 );
+@@ -1023,41 +1044,20 @@
+     /// Takes the individual fields rather than `&mut self` so that it can be called with an
+     /// [`AppContext`] (or [`ViewerContext`]) borrowed from `self` alive at the call site.
+     #[expect(clippy::too_many_arguments)]
+-    fn left_panel_ui(
++    /// The recordings panel and, for a recording, the blueprint tree below it.
++    #[expect(clippy::too_many_arguments)]
++    fn sources_ui(
+         recording_panel: &mut re_recording_panel::RecordingPanel,
+         blueprint_tree: &mut re_blueprint_tree::BlueprintTree,
+         redap_servers: &RedapServers,
+         view_states: &ViewStates,
+         ui: &mut Ui,
+-        app_blueprint: &AppBlueprint<'_>,
+         welcome_screen_state: &WelcomeScreenState,
+-        left_panel_sections: &[crate::startup_options::CustomLeftPanelSection],
+         app_ctx: &AppContext<'_>,
+-        // Present only for `Route::LocalRecording`: the blueprint tree is shown below the
+-        // recordings panel and needs a full `ViewerContext`.
+         viewport: Option<(&ViewportUi, &ViewerContext<'_>)>,
+     ) {
+         let route = app_ctx.route();
+-        let left_panel = egui::Panel::left("blueprint_panel")
+-            .resizable(true)
+-            .frame(egui::Frame {
+-                fill: ui.visuals().panel_fill,
+-                ..Default::default()
+-            })
+-            .min_size(120.0)
+-            .default_size(default_blueprint_panel_width(ui.content_rect().width()));
+-
+-        let was_expanded = app_blueprint.blueprint_panel_state().is_expanded();
+-        let mut blueprint_panel_expanded = was_expanded;
+-        let left_panel_response =
+-            left_panel.show_collapsible(ui, &mut blueprint_panel_expanded, |ui: &mut egui::Ui| {
+-                custom_panel_sections_ui(ui, left_panel_sections);
+-
+-                // ListItem don't need vertical spacing so we disable it, but restore it
+-                // before drawing the blueprint panel.
+-                ui.spacing_mut().item_spacing.y = 0.0;
+-
+-                match route {
++        match route {
+                     Route::LocalRecording { .. }
+                     | Route::LocalTable(..)
+                     | Route::RedapEntry { .. }
+@@ -1106,6 +1106,90 @@
+ 
+                     Route::ChunkStoreBrowser { .. } | Route::Settings { .. } => {} // handled above
+                 }
++    }
++
++    fn left_panel_ui(
++        recording_panel: &mut re_recording_panel::RecordingPanel,
++        blueprint_tree: &mut re_blueprint_tree::BlueprintTree,
++        redap_servers: &RedapServers,
++        view_states: &ViewStates,
++        ui: &mut Ui,
++        app_blueprint: &AppBlueprint<'_>,
++        welcome_screen_state: &WelcomeScreenState,
++        left_panel_sections: &[crate::startup_options::CustomLeftPanelSection],
++        compact_sources: bool,
++        app_ctx: &AppContext<'_>,
++        // Present only for `Route::LocalRecording`: the blueprint tree is shown below the
++        // recordings panel and needs a full `ViewerContext`.
++        viewport: Option<(&ViewportUi, &ViewerContext<'_>)>,
++    ) {
++        let left_panel = egui::Panel::left("blueprint_panel")
++            .resizable(true)
++            .frame(egui::Frame {
++                fill: ui.visuals().panel_fill,
++                ..Default::default()
++            })
++            .min_size(120.0)
++            .default_size(default_blueprint_panel_width(ui.content_rect().width()));
++
++        let was_expanded = app_blueprint.blueprint_panel_state().is_expanded();
++        let mut blueprint_panel_expanded = was_expanded;
++        let left_panel_response =
++            left_panel.show_collapsible(ui, &mut blueprint_panel_expanded, |ui: &mut egui::Ui| {
++                if compact_sources {
++                    // The sources and blueprint go into a bar at the bottom, opened by a click;
++                    // the host's sections fill the rest.
++                    let open_id = egui::Id::new("compact_sources_open");
++                    let mut open = ui.data_mut(|d| d.get_persisted(open_id)).unwrap_or(false);
++                    let height = ui.available_height();
++                    egui::Panel::bottom("compact_sources")
++                        .frame(egui::Frame::new())
++                        .resizable(false)
++                        .exact_size(if open { (height * 0.45).max(160.0) } else { 28.0 })
++                        .show(ui, |ui| {
++                            let icon = if open { &re_ui::icons::ARROW_DOWN } else { &re_ui::icons::ARROW_RIGHT };
++                            let header = ui.add_sized(
++                                [ui.available_width(), 24.0],
++                                egui::Button::image_and_text(icon.as_image(), egui::RichText::new("Sources").small().strong())
++                                    .frame(false),
++                            );
++                            if header
++                                .on_hover_text(if open { "Hide the sources and blueprint" } else { "Show the sources and blueprint" })
++                                .clicked()
++                            {
++                                open = !open;
++                                ui.data_mut(|d| d.insert_persisted(open_id, open));
++                            }
++                            if open {
++                                ui.spacing_mut().item_spacing.y = 0.0;
++                                Self::sources_ui(
++                                    recording_panel,
++                                    blueprint_tree,
++                                    redap_servers,
++                                    view_states,
++                                    ui,
++                                    welcome_screen_state,
++                                    app_ctx,
++                                    viewport,
++                                );
++                            }
++                        });
++                    custom_panel_sections_fill_ui(ui, left_panel_sections);
++                    return;
++                }
++
++                custom_panel_sections_ui(ui, left_panel_sections);
++                ui.spacing_mut().item_spacing.y = 0.0;
++                Self::sources_ui(
++                    recording_panel,
++                    blueprint_tree,
++                    redap_servers,
++                    view_states,
++                    ui,
++                    welcome_screen_state,
++                    app_ctx,
++                    viewport,
++                );
+             });
+         if let Some(left_panel_response) = left_panel_response {
+             left_panel_response.response.widget_info(|| {
+@@ -1319,9 +1403,30 @@
+             .resizable(true)
+             .min_size(60.0)
+             .max_size(max_size)
++            .default_size(panel_height * section.default_height_fraction)
++            .show(ui, |ui| (section.ui)(ui));
++    }
++}
++
++/// The host's sections filling the panel: all but the last at their default size (resizable),
++/// the last taking the rest.
++fn custom_panel_sections_fill_ui(ui: &mut egui::Ui, sections: &[crate::startup_options::CustomLeftPanelSection]) {
++    let panel_height = ui.available_height();
++    let visible: Vec<_> = sections
++        .iter()
++        .filter(|section| section.is_visible.as_ref().is_none_or(|is_visible| is_visible()))
++        .collect();
++    let Some((last, others)) = visible.split_last() else { return };
++    for section in others {
++        egui::Panel::top(section.id)
++            .frame(egui::Frame::new())
++            .resizable(true)
++            .min_size(60.0)
++            .max_size((ui.available_height() - 60.0).max(60.0))
+             .default_size(panel_height * section.default_height_fraction)
+             .show(ui, |ui| (section.ui)(ui));
+     }
++    (last.ui)(ui);
+ }
+ 
+ pub fn default_blueprint_panel_width(screen_width: f32) -> f32 {
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -126,6 +126,14 @@
+     /// The host's own buttons at the right end of the top bar, right of the agent panel button.
+     /// Laid out right to left: the first one added is the rightmost.
+     pub top_bar_buttons: Option<CustomPanelUi>,
++
++    /// Shrink the left panel's Sources (recordings) and Blueprint panes to a one-line bar at its
++    /// bottom, opened by a click, so `left_panel_sections` get the panel's full height.
++    pub compact_sources_panel: bool,
++
++    /// Likewise for the right panel: while `right_panel_sections` are shown, the selection view
++    /// is a bar at its bottom, opened by a click.
++    pub compact_selection_panel: bool,
+ }
+ 
+ /// UI callback that draws a custom welcome screen, see [`StartupOptions::custom_welcome_screen`].
+@@ -252,6 +260,8 @@
+             right_panel_sections: Vec::new(),
+             outer_panels: None,
+             top_bar_buttons: None,
++            compact_sources_panel: false,
++            compact_selection_panel: false,
+         }
+     }
+ }
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -873,6 +873,8 @@
+         right_panel_sections: Vec::new(),
+         outer_panels: None,
+         top_bar_buttons: None,
++        compact_sources_panel: false,
++        compact_selection_panel: false,
+     };
+     crate::customize_eframe_and_setup_renderer(cc)?;
+ 
+--- a/crates/panels/re_selection_panel/src/selection_panel.rs
++++ b/crates/panels/re_selection_panel/src/selection_panel.rs
+@@ -63,6 +63,9 @@
+         expanded: &mut bool,
+         selection_history: &mut SelectionHistory,
+         extra_top_ui: Option<&dyn Fn(&mut egui::Ui)>,
++        // With `extra_top_ui`: shrink the selection view to a bar at the bottom, opened by a click,
++        // so the host's panes get the panel's height.
++        compact: bool,
+     ) {
+         let screen_width = ui.content_rect().width();
+ 
+@@ -84,6 +87,40 @@
+         panel.show_collapsible(ui, expanded, |ui: &mut egui::Ui| {
+             // Host-provided panes stacked above the selection view.
+             if let Some(extra_top_ui) = extra_top_ui {
++                if compact {
++                    let open_id = egui::Id::new("compact_selection_open");
++                    let mut open = ui.data_mut(|d| d.get_persisted(open_id)).unwrap_or(false);
++                    let height = ui.available_height();
++                    egui::Panel::bottom("compact_selection")
++                        .frame(egui::Frame::new())
++                        .resizable(false)
++                        .exact_size(if open { (height * 0.4).max(160.0) } else { 28.0 })
++                        .show(ui, |ui| {
++                            let icon = if open { &re_ui::icons::ARROW_DOWN } else { &re_ui::icons::ARROW_RIGHT };
++                            let header = ui.add_sized(
++                                [ui.available_width(), 24.0],
++                                egui::Button::image_and_text(
++                                    icon.as_image(),
++                                    egui::RichText::new("Selection").small().strong(),
++                                )
++                                .frame(false),
++                            );
++                            if header
++                                .on_hover_text(if open { "Hide the selection details" } else { "Show the selection details" })
++                                .clicked()
++                            {
++                                open = !open;
++                                ui.data_mut(|d| d.insert_persisted(open_id, open));
++                            }
++                            if open {
++                                egui::ScrollArea::both().auto_shrink([false; 2]).show(ui, |ui| {
++                                    ui.panel_content(|ui| self.contents(ctx, viewport, view_states, ui));
++                                });
++                            }
++                        });
++                    extra_top_ui(ui);
++                    return;
++                }
+                 extra_top_ui(ui);
+             }
+ 
+@@ -117,7 +154,7 @@
+                         self.contents(ctx, viewport, view_states, ui);
+                     });
+                 });
+-            r.state
++            let _ = r;
+         });
+ 
+         // run modals (these are noop if the modals are not active)

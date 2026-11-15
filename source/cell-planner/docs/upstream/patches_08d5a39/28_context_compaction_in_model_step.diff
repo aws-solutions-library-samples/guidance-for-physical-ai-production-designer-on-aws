@@ -1,0 +1,89 @@
+diff --git a/agents/trajectory/agent.py b/agents/trajectory/agent.py
+index 564d887..000a83e 100644
+--- a/agents/trajectory/agent.py
++++ b/agents/trajectory/agent.py
+@@ -968,12 +968,14 @@ def create_trajectory_agent(model: str | None = None, cell_id: str | None = None
+     # The model sees old turns as digests (context_compaction): the input used to
+     # grow ~5k tokens per turn to 400k+, and every turn re-read all of it. The
+     # agent's state keeps the full history (tree extraction, trace, live feed).
+-    from agents.trajectory.context_compaction import compact_for_model
++    # Done in the PROMPT callable, not a pre_model_hook: a hook is a graph node of
++    # its own, so every turn cost 3 steps of the recursion budget instead of 2 —
++    # welding_cell_2_small (15 ops, budget 160) stopped at turn 53.
++    from agents.trajectory.context_compaction import compacting_prompt
+     return create_react_agent(
+         model=llm,
+         tools=tools,
+-        prompt=system_prompt_for(cell_id, mode),
+-        pre_model_hook=compact_for_model,
++        prompt=compacting_prompt(system_prompt_for(cell_id, mode)),
+     )
+ 
+ 
+diff --git a/agents/trajectory/context_compaction.py b/agents/trajectory/context_compaction.py
+index 0cac52d..3cc3c51 100644
+--- a/agents/trajectory/context_compaction.py
++++ b/agents/trajectory/context_compaction.py
+@@ -6,8 +6,10 @@ body_weld_2 (bt_1793826556, 76 turns) the input grew ~5.2k tokens per turn, from
+ step's gate report), every planner result's failure list, and the model's own
+ reasoning, all re-read on every later turn. A turn then takes 15-40 s.
+ 
+-``pre_model_hook`` (:func:`compact_for_model`) gives the model a COMPACTED copy
+-of the history; the agent's state keeps every message in full, so the tree
++The agent's ``prompt`` (:func:`compacting_prompt`) gives the model a COMPACTED copy
++of the history, inside the model step (a ``pre_model_hook`` would be a graph node
++of its own and cost each turn a third step of the recursion budget); the agent's
++state keeps every message in full, so the tree
+ extraction, the trace and the live feed are unaffected. A message is compacted
+ once it is older than the last :data:`KEEP_RECENT` messages:
+ 
+@@ -213,8 +215,24 @@ def compact_messages(messages: list) -> list:
+ 
+ 
+ def compact_for_model(state: dict) -> dict:
+-    """``pre_model_hook`` for ``create_react_agent``: the history the MODEL sees."""
++    """The history the MODEL sees, as ``{"llm_input_messages": [...]}``."""
+     messages = list(state.get("messages") or [])
+     if not enabled():
+         return {"llm_input_messages": messages}
+     return {"llm_input_messages": compact_messages(messages)}
++
++
++def compacting_prompt(system_prompt: str):
++    """A ``prompt`` callable for ``create_react_agent``: the system prompt, then the
++    compacted history. It runs INSIDE the model step — a ``pre_model_hook`` is a
++    graph node of its own and would cost every turn a third step of the recursion
++    budget."""
++    from langchain_core.messages import SystemMessage
++    system = SystemMessage(content=system_prompt)
++
++    def prompt(state) -> list:
++        messages = state.get("messages") if isinstance(state, dict) else getattr(
++            state, "messages", None)
++        return [system, *compact_for_model({"messages": messages or []})["llm_input_messages"]]
++
++    return prompt
+diff --git a/tests/trajectory/test_context_compaction.py b/tests/trajectory/test_context_compaction.py
+index 65e7f8f..2d5e49f 100644
+--- a/tests/trajectory/test_context_compaction.py
++++ b/tests/trajectory/test_context_compaction.py
+@@ -151,3 +151,19 @@ def test_only_the_newest_assembly_result_is_sent_whole():
+     out = cc.compact_messages(h)
+     asm = [m for m in out if m.type == "tool" and m.name == "assemble_behaviour_tree"]
+     assert [json.loads(m.content).get("compacted") for m in asm] == [True, True, None]
++
++
++def test_the_prompt_callable_sends_the_system_prompt_then_the_compacted_history():
++    prompt = cc.compacting_prompt("SYSTEM")
++    h = _history(20)
++    out = prompt({"messages": h})
++    assert out[0].type == "system" and out[0].content == "SYSTEM"
++    assert [m.content for m in out[1:]] == [m.content for m in cc.compact_messages(h)]
++
++
++def test_compaction_adds_no_graph_step():
++    """A pre_model_hook is its own node: 3 recursion steps per turn instead of 2,
++    which stopped welding_cell_2_small at turn 53 of a 160-step budget."""
++    src = (PROJECT_ROOT / "agents/trajectory/agent.py").read_text()
++    assert "pre_model_hook=" not in src.split("def create_trajectory_agent", 1)[1].split("\ndef ", 1)[0]
++    assert "prompt=compacting_prompt(" in src

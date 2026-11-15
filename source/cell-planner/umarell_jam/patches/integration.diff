@@ -1,0 +1,233 @@
+--- a/agents/trajectory/agent.py
++++ b/agents/trajectory/agent.py
+@@ -26,7 +26,7 @@
+ from pathlib import Path
+ 
+ from langchain_core.messages import HumanMessage
+-from langgraph.prebuilt import create_react_agent
++# LangGraph is imported when the LLM planning path is selected.
+ from langchain_core.tools import tool
+ 
+ from agents.llm_model import (
+--- a/agents/trajectory/agent.py
++++ b/agents/trajectory/agent.py
+@@ -963,6 +963,7 @@
+     # Tools bound HERE, with a rolling prompt-cache point on Bedrock, so each turn
+     # reuses the previous turn's prefix; create_react_agent keeps this binding.
+     llm = bind_tools_for_agent(llm, tools)
++    from langgraph.prebuilt import create_react_agent
+     return create_react_agent(
+         model=llm,
+         tools=tools,
+--- a/agents/trajectory/agent.py
++++ b/agents/trajectory/agent.py
+@@ -1071,6 +1071,9 @@
+ def _plan(cell_id: str, operations: list[dict], constraints: dict | None = None,
+           tree_id: str | None = None, resume: bool = False) -> dict:
+     """The planning run itself. See :func:`plan`, which binds the model first."""
++    if (constraints or {}).get("weld_request") is not None:
++        from umarell_jam.service import native_entry
++        return native_entry(cell_id, operations, constraints, tree_id)
+     import json, time
+     from agents.trajectory.tools.planner_backend import (
+         resolve_planning_backend, set_planning_backend, reset_planning_backend,
+--- a/agents/trajectory/tools/btcpp.py
++++ b/agents/trajectory/tools/btcpp.py
+@@ -80,6 +80,8 @@
+ #: Our custom leaves and the ports they declare. Order is the declaration order
+ #: emitted into ``<TreeNodesModel>``; ``None`` default means the port is required.
+ LEAF_PORTS: dict[str, dict[str, Any]] = {
++    "WeldPhase": {"_kind": "Action", "robot_ns": None, "weld_id": None,
++                  "phase": None, "duration_s": None, "settings": ""},
+     "ExecuteTrajectory": {
+         "_kind": "Action",
+         "robot_ns":             None,
+--- a/agents/trajectory/tools/btcpp.py
++++ b/agents/trajectory/tools/btcpp.py
+@@ -89,6 +89,7 @@
+         "operation_type":       "weld",
+         "trajectory":           None,
+         "hold_duration_s":      0.5,
++        "controller_exact":     False,
+         "velocity_scale":       1.0,
+         "has_interlock":        False,
+         "interlock_target":     "",
+--- a/agents/trajectory/tools/btcpp.py
++++ b/agents/trajectory/tools/btcpp.py
+@@ -90,6 +90,8 @@
+         "trajectory":           None,
+         "hold_duration_s":      0.5,
+         "controller_exact":     False,
++        "independent_clocks":   False,
++        "initial_velocity":     None,
+         "velocity_scale":       1.0,
+         "has_interlock":        False,
+         "interlock_target":     "",
+--- a/agents/trajectory/tools/btcpp.py
++++ b/agents/trajectory/tools/btcpp.py
+@@ -80,6 +80,7 @@
+ #: Our custom leaves and the ports they declare. Order is the declaration order
+ #: emitted into ``<TreeNodesModel>``; ``None`` default means the port is required.
+ LEAF_PORTS: dict[str, dict[str, Any]] = {
++    "WeldBoundary": {"_kind": "Action", "boundary_id": None},
+     "WeldPhase": {"_kind": "Action", "robot_ns": None, "weld_id": None,
+                   "phase": None, "duration_s": None, "settings": ""},
+     "ExecuteTrajectory": {
+--- a/agents/trajectory/tools/behaviour_tree.py
++++ b/agents/trajectory/tools/behaviour_tree.py
+@@ -222,7 +222,7 @@
+ _KNOWN_KINDS = frozenset({
+     "Sequence", "SequenceWithMemory", "Parallel", "Delay",
+     "ExecuteTrajectory", "MoveHome", "WaitForRobot", "CheckSafety",
+-    "RequestInterlock", "ReleaseInterlock",
++    "RequestInterlock", "ReleaseInterlock", "WeldPhase",
+ })
+ 
+ 
+--- a/agents/trajectory/tools/behaviour_tree.py
++++ b/agents/trajectory/tools/behaviour_tree.py
+@@ -222,7 +222,7 @@
+ _KNOWN_KINDS = frozenset({
+     "Sequence", "SequenceWithMemory", "Parallel", "Delay",
+     "ExecuteTrajectory", "MoveHome", "WaitForRobot", "CheckSafety",
+-    "RequestInterlock", "ReleaseInterlock", "WeldPhase",
++    "RequestInterlock", "ReleaseInterlock", "WeldPhase", "WeldBoundary",
+ })
+ 
+ 
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -461,6 +461,7 @@
+             "Parallel":          self._exec_parallel,
+             "Delay":             self._exec_delay,
+             "ExecuteTrajectory": self._exec_execute,
++            "WeldPhase": self._exec_weld_phase,
+             "WaitForRobot":      self._exec_interlock_wait,
+             "CheckSafety":       self._exec_safety_gate,
+             "MoveHome":          self._exec_home,
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -462,6 +462,7 @@
+             "Delay":             self._exec_delay,
+             "ExecuteTrajectory": self._exec_execute,
+             "WeldPhase": self._exec_weld_phase,
++            "WeldBoundary": self._exec_weld_boundary,
+             "WaitForRobot":      self._exec_interlock_wait,
+             "CheckSafety":       self._exec_safety_gate,
+             "MoveHome":          self._exec_home,
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -478,6 +478,10 @@
+                            f"ExecuteTrajectory, MoveHome, WaitForRobot, CheckSafety"),
+             }
+         return handler(node)
++
++    def _exec_weld_phase(self, node):
++        from umarell_jam.execution import execute_phase
++        return execute_phase(self, node)
+ 
+     def _exec_sequence(self, node: dict) -> "tuple[bool, Optional[dict]]":
+         for child in bt_children(node):
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -478,6 +478,10 @@
+                            f"ExecuteTrajectory, MoveHome, WaitForRobot, CheckSafety"),
+             }
+         return handler(node)
++
++    def _exec_weld_boundary(self, node):
++        from umarell_jam.execution import execute_boundary
++        return execute_boundary(self, node)
+ 
+     def _exec_weld_phase(self, node):
+         from umarell_jam.execution import execute_phase
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -620,6 +620,7 @@
+             "operation_id": op_id,
+             "operation_type": bt_port(node, "operation_type", "weld"),
+             "trajectory": traj, "hold_duration_s": hold_s, "velocity_scale": vscale,
++            "controller_exact": bool(bt_port(node, "controller_exact", False)),
+         })
+         self._executed += 1
+ 
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -410,7 +410,13 @@
+                 return True, None
+             err = _max_joint_error(target, actual)
+             if err <= tol:
+-                return True, None
++                if not bt_port(node, "controller_exact", False):
++                    return True, None
++                status = self._rt.latest_status(robot_id) or {}
++                velocities = status.get("joint_velocities")
++                if velocities is not None and len(velocities) == len(target) and all(
++                        abs(float(v)) <= 1e-8 for v in velocities):
++                    return True, None
+             if self._rt.now() >= deadline:
+                 return False, {
+                     "failed_node_id": node.get("id"), "node_type": node.get("type"),
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -414,8 +414,11 @@
+                     return True, None
+                 status = self._rt.latest_status(robot_id) or {}
+                 velocities = status.get("joint_velocities")
++                from umarell_jam.execution import initial_velocity
++                expected_v = ([0.0] * len(target) if reason_code != "start_pose_mismatch"
++                              else initial_velocity(self, node, len(target)))
+                 if velocities is not None and len(velocities) == len(target) and all(
+-                        abs(float(v)) <= 1e-8 for v in velocities):
++                        abs(float(v) - float(w)) <= 1e-8 for v, w in zip(velocities, expected_v)):
+                     return True, None
+             if self._rt.now() >= deadline:
+                 return False, {
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -407,6 +407,8 @@
+                 return False, fail
+             actual = self._joints(robot_id)
+             if actual is None:
++                if bt_port(node, "controller_exact", False):
++                    return False, {"reason_code": "joint_feedback_missing", "robot_ns": robot_id}
+                 return True, None
+             err = _max_joint_error(target, actual)
+             if err <= tol:
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -394,6 +394,8 @@
+         No joint feedback at all → True (nothing to confirm with; the monitor's
+         health already refuses a cell whose arms it cannot see). Collisions and
+         aborts end the wait like any gate."""
++        if bt_port(node, "controller_exact", False):
++            tol = min(tol, 1e-8)
+         deadline = self._rt.now() + timeout_s
+         err = None
+         while True:
+--- a/agents/cell/bt_executor.py
++++ b/agents/cell/bt_executor.py
+@@ -670,6 +670,12 @@
+                 vtrack.update(actual, elapsed * vscale)
+             if expected is not None and actual and elapsed >= self._cfg.schedule_check_warmup_s:
+                 err = _max_joint_error(expected, actual)
++                if bt_port(node, "independent_clocks", False):
++                    from umarell_jam.tracking import path_error
++                    err = path_error(traj, actual, status)
++                    if err > 1e-7:
++                        deviating_since = now - self._cfg.schedule_deviation_grace_s
++                        err = float("inf")
+                 if err > self._cfg.schedule_deviation_rad:
+                     deviating_since = deviating_since or now
+                     if now - deviating_since >= self._cfg.schedule_deviation_grace_s:
+--- a/agents/robot/robot_agent.py
++++ b/agents/robot/robot_agent.py
+@@ -139,7 +139,7 @@
+ 
+ def _exact_points(task: dict, traj: list) -> bool:
+     """A VASS re-timed goal whose points carry exact velocities and accelerations."""
+-    return bool(task.get("vass")) and bool(traj) and all(
++    return bool(task.get("vass") or task.get("controller_exact")) and bool(traj) and all(
+         p.get("velocities") is not None and p.get("accelerations") is not None for p in traj)
+ 
+ 

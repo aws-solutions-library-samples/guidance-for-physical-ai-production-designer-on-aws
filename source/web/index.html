@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Physical AI Production Designer</title>
+    <link rel="icon" type="image/png" href="./app_icon.png" />
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--page-bg, #19161d); }
+      canvas { position: absolute; inset: 0; width: 100%; height: 100%; outline: none; }
+      #loader {
+        position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 14px; color: #dcdadf; font: 15px system-ui, sans-serif; text-align: center;
+      }
+      #loader h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+      .line { min-height: 1.3em; white-space: pre-wrap; max-width: 46em; }
+      .weak { color: #938f9b; font-size: 13px; }
+      .warn { color: #e0b94d; }
+      .error { color: #f94359; }
+      .bar { width: 340px; height: 6px; background: #28242e; border-radius: 3px; overflow: hidden; }
+      .bar > div { height: 100%; width: 0; background: #8e48ff; transition: width 0.15s; }
+      .bar.indeterminate > div { width: 30%; animation: slide 1.2s infinite ease-in-out; }
+      @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+      button { background: #211d25; color: #dcdadf; border: 1px solid #352f3d; border-radius: 6px; padding: 5px 12px; font: inherit; cursor: pointer; }
+      button:hover { background: #28242e; }
+      #others button { margin: 0 4px; }
+      /* Kiro light, when the viewer last ran in it (the script below). */
+      html.light #loader { color: #4a464f; }
+      html.light .weak { color: #5e5966; }
+      html.light .bar { background: #f0f0f0; }
+      html.light button { background: #ffffff; color: #4a464f; border-color: #e4e4e7; }
+      html.light button:hover { background: #f0f0f0; }
+    </style>
+    <script>
+      // The theme the viewer last ran in (it stores its background, see web.rs
+      // set_page_background), before the first paint.
+      try {
+        // First visit after the landing site (fos_theme, its choice for the whole site): the viewer starts in it.
+        if (!localStorage.getItem("factoryos.theme")) {
+          const m = document.cookie.match(/(?:^|;\s*)fos_theme=(dark|light)(?:;|$)/);
+          if (m) {
+            localStorage.setItem("factoryos.theme", m[1]);
+            localStorage.setItem("factoryos.page-bg", m[1] === "light" ? "#ffffff" : "#19161d");
+          }
+        }
+        const bg = localStorage.getItem("factoryos.page-bg");
+        if (bg) document.documentElement.style.setProperty("--page-bg", bg);
+        if (bg === "#ffffff") document.documentElement.classList.add("light");
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <canvas id="factory_os_canvas"></canvas>
+    <div id="loader">
+      <h1>Physical AI Production Designer</h1>
+      <div class="line" id="viewer-line">Loading…</div>
+      <div class="bar" id="viewer-bar"><div></div></div>
+      <div class="line" id="workspace-line"></div>
+      <div class="line weak" id="workspace-hint"></div>
+      <div class="line" id="others"></div>
+      <div class="line" id="actions"></div>
+    </div>
+    <!--
+      The loader, a classic script so it can set the import map before any module loads. Behind
+      the workspace edge's login the page is `/`: it asks the provisioner for the selected
+      workspace (cookie fos_ws, else the user's own), starts it if needed and
+      waits for it, while it downloads the wasm viewer of the release that workspace runs
+      (releases/<release>/), so viewer and backend always match. Served by a factoryos-backend
+      directly (no provisioner), the viewer next to this page is used, as before.
+    -->
+    <script>
+      (function () {
+        const POLL_MS = 3000;
+        const $ = (id) => document.getElementById(id);
+        const viewerLine = $("viewer-line"), viewerBar = $("viewer-bar");
+        const wsLine = $("workspace-line"), wsHint = $("workspace-hint");
+        const STEPS = {
+          launching: "Launching a new instance",
+          restoring: "Restoring your workspace from its backup",
+          installing: "Installing Physical AI Production Designer",
+          starting: "Starting the backend",
+          "backing-up": "Backing up the workspace",
+          archiving: "Archiving the backup",
+          terminating: "Removing the old instance",
+        };
+        const STATES = {
+          none: "No workspace yet", launching: "Launching a new instance", starting: "Starting the instance",
+          booting: "Starting the backend", ready: "Ready", stopping: "Waiting for the instance to stop",
+          stopped: "Stopped (idle)", replacing: "Replacing the instance", error: "Error",
+        };
+        const COMING_UP = ["none", "launching", "starting", "booting", "stopping", "stopped", "replacing"];
+
+        function describe(status) {
+          const what = (status.step && STEPS[status.step]) || STATES[status.state] || status.state;
+          return status.message ? `${what}: ${status.message}` : what;
+        }
+
+        function progress(fraction) {
+          viewerBar.classList.toggle("indeterminate", fraction === null);
+          viewerBar.firstElementChild.style.width = fraction === null ? "" : `${Math.round(fraction * 100)}%`;
+        }
+
+        function fail(message) {
+          viewerLine.textContent = message;
+          viewerLine.className = "line error";
+          progress(0);
+          const actions = $("actions");
+          actions.textContent = "";
+          const retry = document.createElement("button");
+          retry.textContent = "Retry";
+          retry.onclick = () => location.reload();
+          actions.append(retry);
+        }
+
+        async function getJson(url) {
+          const response = await fetch(url, { credentials: "same-origin", headers: { Accept: "application/json" } });
+          const json = (response.headers.get("content-type") || "").startsWith("application/json");
+          return { response, body: json ? await response.json() : null };
+        }
+
+        function mb(bytes) { return (bytes / 1048576).toFixed(1); }
+
+        // --- the wasm viewer, from `base` (ends in `/`), downloaded with progress ----------------
+        const downloads = new Map();
+        function download(base) {
+          if (!downloads.has(base)) {
+            downloads.set(base, (async () => {
+              let total = 0;
+              try {
+                const manifest = await fetch(`${base}pkg/manifest.json`, { credentials: "same-origin" });
+                if (manifest.ok) total = (await manifest.json()).bytes || 0;
+              } catch (_) { /* older builds have none */ }
+              const response = await fetch(`${base}pkg/factoryos_viewer_bg.wasm`, { credentials: "same-origin" });
+              if (!response.ok) throw new Error(`viewer download failed: HTTP ${response.status}`);
+              // Content-Length is the compressed size; the manifest has what the stream yields.
+              if (!total && !response.headers.get("content-encoding")) total = Number(response.headers.get("content-length")) || 0;
+              const reader = response.body.getReader();
+              const chunks = [];
+              let received = 0;
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.length;
+                viewerLine.textContent = total
+                  ? `Downloading the viewer… ${mb(received)} / ${mb(total)} MB`
+                  : `Downloading the viewer… ${mb(received)} MB`;
+                progress(total ? Math.min(received / total, 1) : null);
+              }
+              const bytes = new Uint8Array(received);
+              let offset = 0;
+              for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+              viewerLine.textContent = `Viewer downloaded (${mb(received)} MB)`;
+              progress(1);
+              return bytes;
+            })());
+          }
+          return downloads.get(base);
+        }
+
+        // Ready per the provisioner, the load balancer may still take a few seconds to route to it:
+        // wait until the backend itself answers (the provisioner's fallback answers 503 meanwhile).
+        async function waitForBackend() {
+          for (let attempt = 0; attempt < 60; attempt++) {
+            try {
+              const { response, body } = await getJson("/api/v1/health");
+              if (response.ok && body && body.protocolVersion !== undefined) return;
+            } catch (_) { /* not routed yet */ }
+            wsHint.textContent = "Connecting to the workspace…";
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          throw new Error("the workspace is up but does not answer; press Retry");
+        }
+
+        // --- automation (?automation=1, for scripts/browser_e2e.py; see automation.rs) -------
+        // window.__factoryos.automation({cmd: "state"}) -> Promise of the reply (JSON).
+        const automationOn = new URLSearchParams(location.search).getAll("automation").includes("1");
+        function installAutomation(viewer) {
+          const PREFIX = "@@automation ";
+          const pending = new Map();
+          let next = 1;
+          const api = { ready: false, unanswered: [], automation: null };
+          globalThis.__factoryosAutomationReply = (line) => {
+            const reply = JSON.parse(line.startsWith(PREFIX) ? line.slice(PREFIX.length) : line);
+            const waiting = reply.id !== undefined && pending.get(reply.id);
+            if (waiting) {
+              pending.delete(reply.id);
+              waiting(reply);
+            } else {
+              api.unanswered.push(reply);
+            }
+          };
+          api.automation = (command) => new Promise((resolve) => {
+            const id = `js-${next++}`;
+            pending.set(id, resolve);
+            viewer.automation(JSON.stringify({ ...command, id }));
+          });
+          window.__factoryos = api;
+        }
+
+        async function run(base, waitForRoute = false) {
+          const bytes = await download(base);
+          if (waitForRoute) await waitForBackend();
+          // Before the first module: js/zenoh_bridge.js imports zenoh-ts by its package name.
+          const map = document.createElement("script");
+          map.type = "importmap";
+          map.textContent = JSON.stringify({ imports: { "@eclipse-zenoh/zenoh-ts": new URL(`${base}vendor/zenoh-ts.js`, location.href).href } });
+          document.head.append(map);
+          viewerLine.textContent = "Starting the viewer…";
+          progress(null);
+          const viewer = await import(new URL(`${base}pkg/factoryos_viewer.js`, location.href).href);
+          await viewer.default({ module_or_path: bytes });
+          wsHint.textContent = "Connecting…";
+          if (automationOn) installAutomation(viewer);
+          await viewer.start("factory_os_canvas");
+          $("loader").remove();
+          if (automationOn) window.__factoryos.ready = true;
+        }
+
+        // --- the workspace ---------------------------------------------------------------------
+        function select(name) {
+          document.cookie = `fos_ws=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; Secure; SameSite=Lax`;
+          location.reload();
+        }
+
+        function showOthers(list) {
+          const others = $("others");
+          others.textContent = "";
+          const rest = list.workspaces.filter((entry) => entry.name !== list.selected);
+          if (!rest.length) return;
+          others.append("Or open: ");
+          for (const entry of rest) {
+            const button = document.createElement("button");
+            button.textContent = entry.kind === "shared" ? `${entry.name} (shared)` : entry.name;
+            button.onclick = () => select(entry.name);
+            others.append(button);
+          }
+        }
+
+        async function main() {
+          let list = null;
+          try {
+            const { response, body } = await getJson("/_workspace/list");
+            if (response.ok && body && Array.isArray(body.workspaces)) {
+              list = body;
+            } else if (body || response.status >= 500) {
+              // The provisioner is there but failed: say so (a backend serving this page has no
+              // /_workspace/ and answers with its page, not JSON).
+              const why = (body && body.message) || `HTTP ${response.status}`;
+              return fail(`The workspace service failed: ${why}`);
+            }
+          } catch (_) { /* no provisioner */ }
+          if (!list) {
+            // Served by a factoryos-backend itself: its own viewer, next to this page.
+            return run("./");
+          }
+
+          const shared = (list.workspaces.find((entry) => entry.name === list.selected) || {}).kind === "shared";
+          const since = Date.now();
+          for (;;) {
+            let status;
+            try {
+              const { response, body } = await getJson("/_workspace/status");
+              if (!body) throw new Error(`HTTP ${response.status}`);
+              status = body;
+            } catch (err) {
+              wsLine.textContent = `Workspace ${list.selected}: the provisioner is not reachable (${err.message || err}); retrying…`;
+              wsLine.className = "line warn";
+              await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+              continue;
+            }
+            const base = status.release ? `/releases/${encodeURIComponent(status.release)}/` : "./";
+            if (status.state === "ready") {
+              wsLine.textContent = `Workspace ${list.selected}${shared ? " (shared)" : ""}: ready`;
+              wsLine.className = "line";
+              wsHint.textContent = "";
+              $("others").textContent = "";
+              return run(base, true);
+            }
+            if (!COMING_UP.includes(status.state)) {
+              showOthers(list);
+              return fail(`Workspace ${list.selected}: ${describe(status)}`);
+            }
+            // Fetch the viewer while the workspace comes up: it is the release it will run.
+            if (status.release) download(base).catch(() => downloads.delete(base));
+            const waited = Math.round((Date.now() - since) / 1000);
+            wsLine.textContent = `Workspace ${list.selected}: ${describe(status)} (${Math.floor(waited / 60)}:${String(waited % 60).padStart(2, "0")})`;
+            wsLine.className = "line warn";
+            wsHint.textContent = status.state === "launching" || status.state === "replacing"
+              ? "A new workspace takes a few minutes: instance, restore from backup, install."
+              : "A stopped workspace takes about a minute to start.";
+            showOthers(list);
+            await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+          }
+        }
+
+        main().catch((err) => {
+          console.error(err);
+          fail(`Physical AI Production Designer failed to start:\n${(err && err.message) || err}`);
+        });
+      })();
+    </script>
+  </body>
+</html>

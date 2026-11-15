@@ -1,0 +1,16 @@
+[package]
+name = "bt-view"
+description = "egui panel that draws a behaviour tree like Groot2 and drives bt-exec."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+bt-core.workspace = true
+bt-exec.workspace = true
+# The cell leaves and plan formats of factoryos cell-runner (pure Rust, wasm-clean).
+bt-cell.workspace = true
+egui.workspace = true
+serde_json.workspace = true
+# `std::time::Instant` panics on wasm32; this is the same type natively.
+web-time.workspace = true

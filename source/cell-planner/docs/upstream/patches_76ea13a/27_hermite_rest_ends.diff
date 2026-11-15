@@ -1,0 +1,148 @@
+diff --git a/agents/trajectory/tools/time_parameterization.py b/agents/trajectory/tools/time_parameterization.py
+index 286df3b..37e5b03 100644
+--- a/agents/trajectory/tools/time_parameterization.py
++++ b/agents/trajectory/tools/time_parameterization.py
+@@ -90,13 +90,122 @@ def _hermite_spline(waypoints, dt: float = 0.1, at_rest: bool = False) -> list[d
+     return traj
+ 
+ 
+-def _hermite_fallback(waypoints, velocity_scale: float, at_rest: bool = False) -> list[dict]:
+-    """Fixed-dt cubic-Hermite timing (the original scheme)."""
++def _hermite_fallback(waypoints, velocity_scale: float, at_rest: bool = False,
++                      accel_limits=None) -> list[dict]:
++    """Fixed-dt cubic-Hermite timing (the original scheme), started and ended
++    at rest by :func:`_rest_ramps` (``accel_limits``: the ramps' per-joint
++    acceleration, rad/s^2, already scaled for the leg's speed)."""
+     traj = _hermite_spline(waypoints, dt=0.08, at_rest=at_rest)
+     if velocity_scale and velocity_scale != 1.0 and velocity_scale > 0:
+         for pt in traj:
+             pt["time_s"] = round(pt["time_s"] / velocity_scale, 4)
+-    return traj
++    return _rest_ramps(traj, accel_limits)
++
++
++#: Longest step between the samples of a rest ramp (s).
++REST_RAMP_DT = 0.05
++
++
++def _rest_ramps(traj: list, accel_limits=None, dt: float = REST_RAMP_DT) -> list[dict]:
++    """``traj`` (timed samples, executed by linear interpolation between them)
++    re-timed to start and end at rest: the speed along the same polyline ramps
++    up from 0 and back down to 0 with every joint's acceleration within
++    ``accel_limits`` (default: 2.5 x the fastest speed each joint has in
++    ``traj``, the module's default ratio). Only the time changes: every output
++    sample lies on the polyline of ``traj`` and every input sample is kept, so
++    the path is the one that was checked. Between the ramps the input timing
++    is kept (shifted).
++
++    Why (umarell issue 27): without TOPP-RA (no arm64 wheel) the Hermite
++    fallback gives a knot-to-knot segment shorter than 0.16 rad (a lift-off or
++    descent step) two samples. The spline's zero end velocity falls between
++    them, so the samples -- what the driver and the executor interpolate -- run
++    at full segment speed into the leg's last pose and out of its first: a
++    weld approach arrived at 0.083 rad/s and a lift-off left a weld at
++    0.11 rad/s (3-4 % of v_max) on body_weld_3."""
++    import numpy as np
++
++    if len(traj) < 2:
++        return traj
++    t = np.array([float(p["time_s"]) for p in traj])
++    q = np.array([[float(x) for x in p["positions"]] for p in traj])
++    keep = np.concatenate([[True], np.diff(t) > 1e-9])
++    t, q = t[keep], q[keep]
++    if len(t) < 2:
++        return traj
++    T = float(t[-1] - t[0])
++    t = t - t[0]
++    v = np.abs(np.diff(q, axis=0)) / np.diff(t)[:, None]       # per-segment joint speed (N-1, dof)
++    if not np.any(v > 1e-12):
++        return traj
++    if accel_limits is None:
++        al = 2.5 * np.maximum(v.max(axis=0), 1e-3)
++    else:
++        al = np.asarray(accel_limits, float)[:q.shape[1]]
++        al = np.where(al > 0, al, 2.5 * np.maximum(v.max(axis=0), 1e-3))
++
++    def rate(lo: float, hi: float) -> float:
++        """Largest ramp rate (1/s^2 of the speed fraction) whose acceleration
++        stays within ``al`` on every segment overlapping input time [lo, hi]."""
++        on = (t[:-1] <= hi) & (t[1:] >= lo)
++        vv = v[on].max(axis=0) if on.any() else v.max(axis=0)
++        return float((al / np.maximum(vv, 1e-12)).min())
++
++    # ramp rate alpha (speed fraction per s): the ramp covers 1 / (2 alpha) s of
++    # the input clock; shrink alpha until the segments it covers allow it
++    a0 = rate(0.0, 0.0)
++    for _ in range(12):
++        a1 = rate(0.0, min(T, 0.5 / a0))
++        if a1 >= a0 - 1e-12:
++            break
++        a0 = a1
++    b0 = rate(T, T)
++    for _ in range(12):
++        b1 = rate(max(0.0, T - 0.5 / b0), T)
++        if b1 >= b0 - 1e-12:
++            break
++        b0 = b1
++    peak = 1.0
++    if 0.5 / a0 + 0.5 / b0 > T:                                # too short: never reaches the input speed
++        peak = float(np.sqrt(T / (0.5 / a0 + 0.5 / b0)))
++    ta, tb = peak / a0, peak / b0                              # ramp durations (output clock)
++    sa, sb = peak * peak / (2 * a0), peak * peak / (2 * b0)    # input time covered by the ramps
++    tc = (T - sa - sb) / peak                                  # cruise duration (output clock)
++    Tn = ta + tc + tb
++
++    def tau(u):
++        """Input time at output time u."""
++        u = np.asarray(u, float)
++        up = a0 * np.minimum(u, ta) ** 2 / 2
++        mid = peak * np.clip(u - ta, 0.0, tc)
++        r = np.clip(Tn - u, 0.0, tb)
++        down = sb - b0 * r ** 2 / 2
++        return np.where(u <= ta, up, np.where(u <= ta + tc, sa + mid, sa + peak * tc + down))
++
++    def u_of(s):
++        """Output time of input time s (inverse of tau)."""
++        s = np.asarray(s, float)
++        up = np.sqrt(2 * np.clip(s, 0.0, sa) / a0)
++        mid = ta + (s - sa) / peak
++        rem = np.clip(T - s, 0.0, sb)
++        down = Tn - np.sqrt(2 * rem / b0)
++        return np.where(s <= sa, up, np.where(s <= sa + peak * tc, mid, down))
++
++    n_a = max(4, int(np.ceil(ta / dt - 1e-9)))
++    n_b = max(4, int(np.ceil(tb / dt - 1e-9)))
++    us = np.concatenate([u_of(t), np.linspace(0.0, ta, n_a + 1), np.linspace(Tn - tb, Tn, n_b + 1)])
++    us = np.unique(np.round(us, 4))
++    us = us[(us >= 0.0) & (us <= round(Tn, 4))]
++    if us[-1] < round(Tn, 4):
++        us = np.append(us, round(Tn, 4))
++    ss = np.clip(tau(us), 0.0, T)
++    ss[0], ss[-1] = 0.0, T
++    qs = np.stack([np.interp(ss, t, q[:, j]) for j in range(q.shape[1])], axis=1)
++    qs[0], qs[-1] = q[0], q[-1]
++    out = []
++    for i in range(len(us)):
++        out.append({"positions": [float(x) for x in qs[i]], "time_s": round(float(us[i]), 4)})
++    return out
+ 
+ 
+ def parameterize(
+@@ -164,8 +273,16 @@ def parameterize(
+     vscale = float(velocity_scale) if velocity_scale and velocity_scale > 0 else 1.0
+     boxed = position_limits is not None
+ 
++    if accel_limits is not None:
++        al_fallback = np.asarray(accel_limits, dtype=float) * (vscale ** 2)
++    elif vel_limits is not None:
++        al_fallback = 2.5 * np.asarray(vel_limits, dtype=float) * vscale
++    else:
++        al_fallback = None
++
+     def fallback():
+-        return _hermite_fallback([np.array(q) for q in wp], vscale, at_rest=boxed)
++        return _hermite_fallback([np.array(q) for q in wp], vscale, at_rest=boxed,
++                                 accel_limits=al_fallback)
+ 
+     if not (vel_limits is not None and _toppra_available()):
+         return fallback()

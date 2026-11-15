@@ -1,0 +1,24 @@
+//CoDeSys Mapping Export V1.2
+//Mapped variable,//Parameter name @ counter in device,//Unit,//Description,//IEC address,//Device name
+//Important: change only first, third or fourth column in Excel or add variable name before first
+//
+// R2 robot2 (kuka-robi2, 192.168.100.12)
+//
+Application.GVL_IO.bySafeOut0,8 safe digital outputs,,safe commands from head PLC byte 0,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut1,8 safe digital outputs@1,,safe commands from head PLC byte 1,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut2,8 safe digital outputs@2,,safe commands from head PLC byte 2,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut3,8 safe digital outputs@3,,safe commands from head PLC byte 3,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut4,8 safe digital outputs@4,,safe commands from head PLC byte 4,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut5,8 safe digital outputs@5,,safe commands from head PLC byte 5,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut6,8 safe digital outputs@6,,safe commands from head PLC byte 6,,SafeIO_FDIO64
+Application.GVL_IO.bySafeOut7,8 safe digital outputs@7,,safe commands from head PLC byte 7,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn0,8 safe digital inputs,,safe status to head PLC byte 0,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn1,8 safe digital inputs@1,,safe status to head PLC byte 1,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn2,8 safe digital inputs@2,,safe status to head PLC byte 2,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn3,8 safe digital inputs@3,,safe status to head PLC byte 3,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn4,8 safe digital inputs@4,,safe status to head PLC byte 4,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn5,8 safe digital inputs@5,,safe status to head PLC byte 5,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn6,8 safe digital inputs@6,,safe status to head PLC byte 6,,SafeIO_FDIO64
+Application.GVL_IO.bySafeIn7,8 safe digital inputs@7,,safe status to head PLC byte 7,,SafeIO_FDIO64
+Application.GVL_IO.aVassOutputData,Output Data,,VASS commands from head PLC,,VASS_DIO256
+Application.GVL_IO.aVassInputData,Input Data,,VASS status to head PLC,,VASS_DIO256

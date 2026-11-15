@@ -1,0 +1,34 @@
+[package]
+name = "factoryos-urdf-materials"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# The colors of URDF OBJ meshes from their .mtl files (see src/lib.rs). Formerly a separate crate
+# (docs/UPSTREAM.md); now always built in.
+
+[lib]
+# No doctests; rustdoc does not find the release-profile rerun rlib.
+doctest = false
+
+[dependencies]
+# The repo's rerun checkout (scripts/fetch-rerun.sh), so the types match the viewer's.
+re_log = { path = "../../third_party/rerun/src/crates/utils/re_log" }
+re_sdk_types = { path = "../../third_party/rerun/src/crates/store/re_sdk_types", features = ["glam"] }
+
+anyhow = "1"
+tobj = "4.0"
+
+# The URDF importer and `emit` read the mesh files from disk; on wasm only `obj_to_mesh3d`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+re_chunk = { path = "../../third_party/rerun/src/crates/store/re_chunk" }
+re_importer = { path = "../../third_party/rerun/src/crates/data_flow/re_importer", default-features = false, features = ["urdf"] }
+re_quota_channel = { path = "../../third_party/rerun/src/crates/utils/re_quota_channel" }
+
+crossbeam = "0.8"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# .cargo/config.toml selects getrandom's `wasm_js` backend (arrow's ahash needs getrandom), which
+# needs this feature; the viewer gets it through re_viewer, this is for building the crate alone.
+getrandom = { version = "0.3", features = ["wasm_js"] }

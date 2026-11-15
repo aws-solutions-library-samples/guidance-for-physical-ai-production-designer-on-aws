@@ -1,0 +1,20 @@
+# Test config for profile vw-ks24: the two example robots mapped onto two controllers (placeholder
+# ids), with the interlock indices that pair two controllers of a KS24 cell (V1).
+[vw_ks24]
+plan_id_byte = 12
+
+[[robot]]
+ns = "robot1"
+controller = "000001R01"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+tool_no = 1
+interlocks = { IL01 = 1, IL02 = 11 }
+
+[[robot]]
+ns = "robot2"
+controller = "000002R01"
+model = "KR210R2700_EXTRA"
+e_axes = "none"
+tool_no = 1
+interlocks = { IL01 = 1, IL02 = 11 }

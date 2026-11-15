@@ -1,0 +1,17 @@
+# Fix set v10 = set v9 (patches_dc60669) rebased onto umarell HEAD 08d5a39
+# (08d5a39, "Merge pull request #13 from aws-samples/perf/body-weld-2-planning", 2026-11-04); apply in this order on
+# 08d5a39 (git apply or patch -p1 --forward --batch: no offset, no fuzz; umarell_fast/apply.py --base 08d5a39
+# --with-upstream-fixes, base third_party/sample-umarell-08d5a39). Same file names and order as v9; what changed is
+# README.md here: 22v3 adjusted (the Numba box kernel), 21v5's source-order test adjusted, every other
+# patch only regenerated (context / line numbers).
+04v3_hull_backstop.diff
+22v3_no_workpiece_dip.diff
+20v2_driver_continuous.diff
+# 23 and 21 come after 20 (23 needs 20 for fjt_trajectory, 21 for robot_agent.py)
+23v2_commanded_acceleration.diff
+21v5_vass_interlocks.diff
+24v2_voxel_boundary_inward.diff
+25v2_near_weld_refinement.diff
+27_hermite_rest_ends.diff
+# upstream d749dc5 (not in main): the context compaction in the model step, not a graph node (recursion limit)
+28_context_compaction_in_model_step.diff

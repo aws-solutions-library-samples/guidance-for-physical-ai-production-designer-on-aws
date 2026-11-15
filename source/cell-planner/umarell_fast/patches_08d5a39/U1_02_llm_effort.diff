@@ -1,0 +1,51 @@
+diff --git a/agents/llm_model.py b/agents/llm_model.py
+index c58344283a6a1705ee4c279dceab8aaecae40225..7e32aa9bad0b4b4a69d501841ac35272cea9a52a 100644
+--- a/agents/llm_model.py
++++ b/agents/llm_model.py
+@@ -354,10 +354,26 @@ def bind_tools_for_agent(llm, tools: list):
+     """
+     from langchain_aws import ChatBedrockConverse
+     if prompt_cache_enabled() and isinstance(llm, ChatBedrockConverse):
+-        return llm.bind_tools(tools, cache_control={"ttl": "5m"})
++        return llm.bind_tools(tools, cache_control={"ttl": prompt_cache_ttl()})
+     return llm.bind_tools(tools)
+ 
+ 
++def prompt_cache_ttl() -> str:
++    """umarell-fast U1 (patch U1_02): ``LLM_PROMPT_CACHE=1h`` (or ``60m`` / ``3600``) selects the
++    1-hour cache TTL; any other "on" value keeps the 5-minute default. A long ReAct turn (a slow
++    planner call) can outlive 5 minutes, after which the next turn re-writes the whole prefix."""
++    v = (os.environ.get("LLM_PROMPT_CACHE") or "").strip().lower()
++    return "1h" if v in ("1h", "60m", "3600") else "5m"
++
++
++def reasoning_effort() -> Optional[str]:
++    """umarell-fast U1 (patch U1_02): ``LLM_EFFORT``, the Claude ``output_config.effort`` level
++    (low/medium/high/xhigh/max) with adaptive thinking; unset / empty = model default (no thinking
++    fields sent)."""
++    v = (os.environ.get("LLM_EFFORT") or "").strip().lower()
++    return v or None
++
++
+ # The response-length ceiling MUST be stated, not inherited.
+ #
+ # ``ChatBedrockConverse`` leaves ``max_tokens=None`` unless told otherwise, which
+@@ -465,6 +481,10 @@ def build_llm(model: Optional[str] = None):
+         # throttle mid-run costs the whole plan, and a truncated ReAct loop cannot
+         # be resumed from where it stopped.
+         from botocore.config import Config as _BotoConfig
++        effort = reasoning_effort()  # umarell-fast U1 (patch U1_02): LLM_EFFORT, default off
++        extra = ({"additional_model_request_fields": {
++            "thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}}
++            if effort and "anthropic" in model_id else {})
+         return ChatBedrockConverse(
+             model_id=model_id, region_name=bedrock_region(), max_tokens=limit,
+             config=_BotoConfig(
+@@ -472,6 +492,7 @@ def build_llm(model: Optional[str] = None):
+                 connect_timeout=_DEFAULT_CONNECT_TIMEOUT_S,
+                 retries={"max_attempts": 4, "mode": "adaptive"},
+             ),
++            **extra,
+         )
+     if provider == "openai":
+         from langchain_openai import ChatOpenAI

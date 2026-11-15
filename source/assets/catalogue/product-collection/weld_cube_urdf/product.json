@@ -1,0 +1,91 @@
+{
+  "name": "weld_cube_urdf",
+  "description": "The catalogue's 1 m weld_cube fixture as a URDF product, with four spot welds on its top face.",
+  "geometry": {
+    "kind": "urdf",
+    "path": "urdf/weld_cube.urdf"
+  },
+  "tasks": [
+    {
+      "name": "top_spots",
+      "process": "spotWeld",
+      "tool": "",
+      "params": {
+        "approachOffset": 0.05,
+        "current": 9.0,
+        "force": 3.0,
+        "weldTime": 0.3
+      },
+      "operations": [
+        {
+          "id": "W01",
+          "target": {
+            "kind": "point",
+            "position": [
+              -0.3,
+              -0.3,
+              1.0
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W02",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.3,
+              -0.3,
+              1.0
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W03",
+          "target": {
+            "kind": "point",
+            "position": [
+              0.3,
+              0.3,
+              1.0
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        },
+        {
+          "id": "W04",
+          "target": {
+            "kind": "point",
+            "position": [
+              -0.3,
+              0.3,
+              1.0
+            ],
+            "normal": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "group": "structural"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "factoryos-deployment",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FactoryOS public deployment: the CDK app (VPC, instance, Cognito, CloudFront + Lambda@Edge gate)",
+  "license": "MIT-0",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --noEmit && vitest run",
+    "synth": "rm -rf cdk.out && env CDK_DEFAULT_ACCOUNT=111122223333 CDK_DEFAULT_REGION=eu-central-1 CDK_OUTDIR=cdk.out CDK_CONTEXT_JSON='{\"amiId\":\"ami-0123456789abcdef0\"}' tsx bin/app.ts && echo synthesized: cdk.out",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "aws-cdk": "2.1148.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.275.0",
+    "cdk-nag": "3.0.2",
+    "constructs": "10.8.1"
+  }
+}

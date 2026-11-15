@@ -1,0 +1,32 @@
+[package]
+name = "factoryos-terminal-agent"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# Shells of this machine (Isaac Sim, the PLC / cell host, the Windows IDE / KUKA VCs) in the Workspace
+# IDE of a factoryos workspace: one WebSocket per workspace, dialled out through the edge with this
+# machine's IAM identity (no inbound port). See src/main.rs.
+
+[dependencies]
+anyhow = "1"
+# The wire types only: none of the internal deployment's defaults (its `internal` feature).
+factoryos-protocol = { path = "../factoryos-protocol", default-features = false }
+factoryos-pty = { path = "../factoryos-pty" }
+futures-util = "0.3.34"
+serde_json = "1"
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+# Picks rustls' crypto provider explicitly (the AWS SDK brings aws-lc-rs, tokio-tungstenite ring).
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# The link's identity: this machine's role assumes factoryos-terminal-<name>, whose credentials presign
+# sts:GetCallerIdentity for the edge (as plan2cell's isaac_tunnel.py).
+aws-config = { version = "1.13", features = ["behavior-version-latest"] }
+# Without the default `rustls` feature: that is the SDK's legacy hyper 0.14 / rustls 0.21 connector (h2 0.3,
+# rustls-webpki 0.101, both with open advisories), which the default HTTPS client below replaces anyway.
+aws-sdk-sts = { version = "1.120", default-features = false, features = ["default-https-client", "rt-tokio", "sigv4a"] }
+aws-sigv4 = "1.6"
+aws-credential-types = "1.3"

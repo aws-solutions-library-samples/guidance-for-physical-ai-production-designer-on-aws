@@ -1,0 +1,140 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1792156523_scene_fit",
+  "cell_id": "scene_fit",
+  "plan_id": "16#A1BE",
+  "profile": "vw-ks24",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot2",
+    "tag": "R2",
+    "controller": "robot2",
+    "model": "unknown",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "c94dd00dc87fefd0"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "fa9d2410488da811"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "861ef3a6df3e1b11"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "597b413d6e766556"
+    },
+    {
+      "path": "patches/KRC/R1/Folgen/cell.src",
+      "fnv1a64": "15451ee7266e79be"
+    },
+    {
+      "path": "patches/KRC/R1/System/$config.dat",
+      "fnv1a64": "6d70680e0eb283d7"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "W01",
+      "zone_mask": "16#00000002",
+      "waypoints": 51,
+      "points": 17,
+      "est_s": 11.329,
+      "est_motion_s": 10.829,
+      "planned_motion_s": 11.82,
+      "expected_s": 12.32,
+      "limit_s": 23.48
+    },
+    {
+      "index": 2,
+      "operation_id": "W03",
+      "zone_mask": "16#00000001",
+      "waypoints": 40,
+      "points": 10,
+      "est_s": 4.998,
+      "est_motion_s": 4.498,
+      "planned_motion_s": 4.617,
+      "expected_s": 5.117,
+      "limit_s": 12.676
+    },
+    {
+      "index": 3,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000002",
+      "waypoints": 60,
+      "points": 14,
+      "est_s": 9.898,
+      "est_motion_s": 9.898,
+      "planned_motion_s": 10.293,
+      "expected_s": 10.293,
+      "limit_s": 20.44
+    }
+  ],
+  "warnings": [
+    "robot robot2: model unknown: software limits are not checked and the time estimate assumes the fastest axis speeds of the model table"
+  ],
+  "check": {
+    "profile": "vw-ks24",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      4096
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [
+      [
+        33,
+        40
+      ],
+      [
+        57,
+        80
+      ],
+      [
+        225,
+        240
+      ]
+    ],
+    "reserved_in": [
+      [
+        249,
+        250
+      ]
+    ],
+    "request_base": 81,
+    "grant_base": 81,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "P_PktNr_SPS=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 3,
+        "mask": 2,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

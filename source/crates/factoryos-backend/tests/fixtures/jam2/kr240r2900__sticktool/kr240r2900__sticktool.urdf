@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Trimmed from the Fitter-dressed kr240r2900__sticktool (release catalogue; its TCP frame removed, as robots dressed before the Dresser wrote one): the chain and the tool visuals only, no meshes. -->
+<robot name="robot__tool">
+  <reach_envelope max_radius_2d="3.4947343589" volume_3d="108.0569455674" hull_mesh="./meshes/3dreach/reach_envelope.obj"/>
+  <link name="World"/>
+  <link name="like_kr240r2900_base_link">
+  </link>
+  <link name="like_kr240r2900_link_1">
+  </link>
+  <link name="like_kr240r2900_link_2">
+  </link>
+  <link name="like_kr240r2900_link_3">
+  </link>
+  <link name="like_kr240r2900_link_4">
+  </link>
+  <link name="like_kr240r2900_link_5">
+  </link>
+  <link name="like_kr240r2900_link_6">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.1415927"/>
+      <geometry>
+        <mesh filename="./meshes/robot/like_kr240r2900_link_6_visuals_link_6_Scene_mesh.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.867559091 0.0051023 0.0014709" rpy="1.5707965025 -0.7755733268 1.570796255"/>
+      <geometry>
+        <mesh filename="./meshes/tool/World_sticktool_sticktool__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.856391991 -0.2856815 1.4456149" rpy="1.5707962804 0.7853982 3.1415926536"/>
+      <geometry>
+        <mesh filename="./meshes/tool/World_sticktool_sticktool__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.913136791 -0.2816375 1.4413774" rpy="1.5707962804 0.7853982 3.1415926536"/>
+      <geometry>
+        <mesh filename="./meshes/tool/_2_30D_355619_________0301_________K00_11_59D_323327_001_SWV_01__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.288610291 0.0063185 0.0038173" rpy="-1.5707963268 0.0198828268 1.5707963253"/>
+      <geometry>
+        <mesh filename="./meshes/tool/World_sticktool_sticktool__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.859359291 0.0052451 -0.0008329" rpy="-3.1415890179 -1.5509135268 1.5707926454"/>
+      <geometry>
+        <mesh filename="./meshes/tool/World_sticktool_sticktool__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538.obj" scale="1 1 1"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="joint_a1" type="revolute">
+    <origin xyz="0 0 0.860625" rpy="3.1415927 0 3.1415927"/>
+    <parent link="like_kr240r2900_base_link"/>
+    <child link="like_kr240r2900_link_1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.2288591" upper="3.2288591" effort="340282346638528859811704183484516925440" velocity="2.7227136"/>
+  </joint>
+  <joint name="joint_a2" type="revolute">
+    <origin xyz="-0.44625 0 0" rpy="3.1415927 0 3.1415927"/>
+    <parent link="like_kr240r2900_link_1"/>
+    <child link="like_kr240r2900_link_2"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.7052601" upper="0.6108652" effort="340282346638528859811704183484516925440" velocity="2.7227136"/>
+  </joint>
+  <joint name="joint_a3" type="revolute">
+    <origin xyz="1.46625 0 0" rpy="0 0 0"/>
+    <parent link="like_kr240r2900_link_2"/>
+    <child link="like_kr240r2900_link_3"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.268928" upper="2.687807" effort="340282346638528859811704183484516925440" velocity="2.7227136"/>
+  </joint>
+  <joint name="joint_a4" type="revolute">
+    <origin xyz="1.2750001 0 -0.052275" rpy="0 0 3.1415927"/>
+    <parent link="like_kr240r2900_link_3"/>
+    <child link="like_kr240r2900_link_4"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-6.1086524" upper="6.1086524" effort="340282346638528859811704183484516925440" velocity="5.759586"/>
+  </joint>
+  <joint name="joint_a5" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 3.1415927"/>
+    <parent link="like_kr240r2900_link_4"/>
+    <child link="like_kr240r2900_link_5"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-2.268928" upper="2.268928" effort="340282346638528859811704183484516925440" velocity="5.759586"/>
+  </joint>
+  <joint name="joint_a6" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 3.1415927"/>
+    <parent link="like_kr240r2900_link_5"/>
+    <child link="like_kr240r2900_link_6"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-6.1086524" upper="6.1086524" effort="340282346638528859811704183484516925440" velocity="10.7337749"/>
+  </joint>
+  <joint name="root_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="World"/>
+    <child link="like_kr240r2900_base_link"/>
+    <axis xyz="0 0 1"/>
+  </joint>
+</robot>
+

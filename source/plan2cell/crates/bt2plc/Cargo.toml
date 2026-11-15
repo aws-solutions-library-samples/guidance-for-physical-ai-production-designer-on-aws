@@ -1,0 +1,43 @@
+[package]
+name = "bt2plc"
+description = "umarell BT.CPP v4 plan -> head-PLC code (CODESYS), robot simulators and build manifests"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "bt2plc"
+path = "src/main.rs"
+
+[features]
+default = ["check"]
+# Parse + type-check generated ST with trust-platform (light).
+check = ["dep:trust-syntax", "dep:trust-hir"]
+# Co-simulate the generated ST with trust-runtime (heavy build).
+sim = ["check", "dep:trust-runtime"]
+
+[dependencies]
+bt-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+trust-syntax = { workspace = true, optional = true }
+trust-hir = { workspace = true, optional = true }
+trust-runtime = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+pretty_assertions.workspace = true
+tempfile.workspace = true
+
+[[test]]
+name = "cosim"
+required-features = ["sim"]

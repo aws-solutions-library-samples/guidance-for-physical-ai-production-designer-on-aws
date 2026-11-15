@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="">
+  <link name="World">
+    <visual>
+      <origin xyz="0.6278846 -0.0014709 -0.0051023" rpy="1.5707964 0.795223 -1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.6167175 -1.4456149 0.2856815" rpy="-3.1415927 0. 0.7853982"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.6734623 -1.4413774 0.2816375" rpy="-3.1415927 0. 0.7853982"/>
+      <geometry>
+        <mesh filename="./meshes/_2_30D_355619_________0301_________K00_11_59D_323327_001_SWV_01__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.0489358 -0.0038173 -0.0063185" rpy="1.5707964 1.5509135 1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.6196848 0.0008329 -0.0052451" rpy="-3.1415927 0.0198828 -1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.6278846 -0.0014709 -0.0051023" rpy="1.5707964 0.795223 -1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB__2_30D_355619_________0903_________K00_21_38D_600748_POS_103_BLZN_KLB.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.6167175 -1.4456149 0.2856815" rpy="-3.1415927 0. 0.7853982"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.6734623 -1.4413774 0.2816375" rpy="-3.1415927 0. 0.7853982"/>
+      <geometry>
+        <mesh filename="./meshes/_2_30D_355619_________0301_________K00_11_59D_323327_001_SWV_01__2_30D_355619_________0301_________K00_11_59D_323327_001_SWV.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.0489358 -0.0038173 -0.0063185" rpy="1.5707964 1.5509135 1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80__2_30D_355619_________0500_________K00_EGT016_1_H_RAH_300X450_SW80.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.6196848 0.0008329 -0.0052451" rpy="-3.1415927 0.0198828 -1.5707964"/>
+      <geometry>
+        <mesh filename="./meshes/World_sticktool_sticktool__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538__2_30D_355619_________0456_________K00_EGT001_8KT_PROFIL_SW80_538.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <!-- Tool centre point: the electrode tip, in the docking-interface frame (the tool's origin).
+       The Robo Dresser carries it into the dressed robot as a fixed `tcp` frame on the flange.
+       Measured on the training cell welding_cell_2_small: [-0.9092, 0.0005, -0.0056] in link_6,
+       with this tool mounted 0.2396745 m out along the flange axis and turned 180 deg about z. -->
+  <link name="tcp"/>
+  <joint name="tcp_joint" type="fixed">
+    <origin xyz="0.6695255 -0.0005 -0.0056" rpy="0 0 0"/>
+    <parent link="World"/>
+    <child link="tcp"/>
+  </joint>
+</robot>

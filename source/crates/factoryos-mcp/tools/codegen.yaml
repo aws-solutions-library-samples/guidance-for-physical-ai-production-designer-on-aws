@@ -1,0 +1,117 @@
+# Control code: the Control Code Export (plan2cell: the head PLC's code and the robots' KRL from a plan),
+# the cell's Hardware Configuration and its process definition (the IOs). The plan2cell MCP server
+# (plan2cell_* tools) explains, checks and simulates exports in depth.
+
+- name: codegen_options
+  title: Export options
+  method: GET
+  path: /api/v1/codegen/options
+  description: The export's choices (profiles sim / vw-ks24, PLC dialects, robot languages) and their defaults.
+
+- name: codegen_build
+  title: Export PLC and robot code
+  path: /api/v1/codegen/build
+  body:
+    type: object
+    properties:
+      plan: {type: string, description: "A plan of the active cell (cell_plans path, or its name)."}
+      profile: {type: string, description: "sim or vw-ks24."}
+      plcDialect: {type: string, description: "codesys, tia-scl or plcopen-xml."}
+      robotLanguage: {type: string, description: "krl."}
+      robotSim: {type: boolean, description: "Also the CODESYS robot simulators."}
+      jobNumber: {type: string}
+      opcuaSymbols: {type: boolean}
+      stCheck: {type: boolean, description: "Check the generated ST."}
+      strict: {type: boolean, description: "Warnings fail the build."}
+    required: [plan]
+  description: |
+    Generate the head PLC's code and every robot's KRL for a plan (plan2cell build), with the cell's Hardware
+    Configuration and process definition. Runs in the background (409 while another runs): follow it with
+    codegen_builds / codegen_build_info. Read the files with codegen_file.
+
+- name: codegen_builds
+  title: List exports
+  method: GET
+  path: /api/v1/codegen/builds
+  description: The active cell's exports, newest first (id, plan, status, options).
+
+- name: codegen_build_info
+  title: One export
+  method: GET
+  path: /api/v1/codegen/builds/{id}
+  params: {id: "The build id."}
+  description: An export's status, log, diagnostics and its files.
+
+- name: codegen_file
+  title: Read a generated file
+  method: GET
+  path: /api/v1/codegen/builds/{id}/files/{path}
+  params: {id: "The build id.", path: "A file of the build (codegen_build_info lists them), e.g. krl/robot1/bt_main.src."}
+  description: One generated file (KRL .src/.dat, PLC ST, config), as text.
+
+- name: codegen_archive
+  title: Download an export
+  method: GET
+  path: /api/v1/codegen/builds/{id}/archive
+  params: {id: "The build id."}
+  description: The whole export as a zip (saved as a local file; its path is returned).
+
+- name: hardware_get
+  title: Hardware Configuration
+  method: GET
+  path: /api/v1/cell/hardware
+  query:
+    plan: {type: string, description: "Check against this plan (default: the newest)."}
+  description: The cell's Hardware Configuration (robots' controllers, stations, IPs, network, safety) and its check.
+
+- name: hardware_save
+  title: Save the Hardware Configuration
+  method: PUT
+  path: /api/v1/cell/hardware
+  body:
+    type: object
+    properties:
+      plan: {type: string}
+      config: {type: object, description: "The whole configuration, as hardware_get returns it under `config`."}
+    required: [config]
+  description: Save the Hardware Configuration (checked first; 422 lists the problems).
+
+- name: process_get
+  title: The cell's process definition
+  method: GET
+  path: /api/v1/process
+  query:
+    cell: {type: string, description: "Default: the active cell."}
+  description: |
+    The cell's process definition (plan2cell/process.yaml): the telegram's place in $IN/$OUT, per process the
+    KRL technology call, and per robot its tool / base numbers and its own signals (gun, weld controller, tip
+    dresser, …). Without one (exists false): the sim profile's sample, not saved.
+
+- name: process_init
+  title: Create a process definition from a sample
+  path: /api/v1/process/init
+  body:
+    type: object
+    properties:
+      cell: {type: string}
+      profile: {type: string, enum: [sim, vw-ks24]}
+      robots: {type: array, items: {type: string}, description: "The plan's robot namespaces (default robot1, robot2)."}
+      overwrite: {type: boolean}
+  description: |
+    Write a commented sample process.yaml for the profile into the cell (plan2cell/process.yaml). The user can
+    then edit it in the IDE (or ask Kiro to), and apply it with process_save.
+
+- name: process_save
+  title: Validate and apply the process definition
+  method: PUT
+  path: /api/v1/process
+  body:
+    type: object
+    properties:
+      cell: {type: string}
+      yaml: {type: string, description: "The whole process.yaml text. Left out (with definition): apply the file as saved in the IDE."}
+      definition: {type: object, description: "Or the definition as process_get returns it."}
+  description: |
+    Validate the process definition (signals outside the telegram, no overlaps, KRL names) and apply it: merged
+    into the cell's plan2cell.toml (the previous kept as .bak) and the robots' signals written as KRL
+    declarations (plan2cell/krl/<ns>_process_signals.dat). 422 lists the problems; nothing is saved then.

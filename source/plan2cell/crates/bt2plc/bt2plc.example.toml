@@ -1,0 +1,103 @@
+# bt2plc configuration. Every field is optional; the values shown are the defaults, which reproduce
+# the docker simulation in profinet-headplc-robot-simulation. `bt2plc config` prints them.
+
+[cell]
+prod_folge = 11              # production Folge: each robot runs its whole op list in it
+home_folge = 125             # blind homing (startup, after recovery)
+job_number = "word_le"       # "word_le" (bytes 2-3, deployed sim) | "byte" (byte 2, real KUKA VASS)
+grant_policy = "planned"     # "planned" (BT order, exact) | "fcfs" (mutual exclusion only)
+auto_run = true              # start the next cycle automatically
+home_strategy = "sequential" # blind homing one robot at a time
+prune_transitive = true      # drop cross-robot edges implied through a third robot
+ignore_unsupported_gates = false  # true: depends_on_joints/positions, has_interlock -> warnings (ignored)
+
+[protocol]                   # VASS DIO256 telegram (32 bytes each way)
+profile = "sim"              # "sim" (device simulator telegram) | "vw-ks24" (real VW KS24 robots:
+                             # PRG_NR/SRB/Folge-end, interlocks A41-56/A81-96, <= 16 zones,
+                             # no permit bit, job_number must be "byte", no blind homing)
+step_byte = 4                # robot -> PLC, WORD LE current op index
+request_byte = 28            # robot -> PLC, DWORD LE zone REQUEST bits (bit 31 = permit)
+grant_byte = 12              # PLC -> robot, DWORD LE zone GRANT bits
+plan_id_byte = 4             # PLC -> robot, WORD LE plan id with the production job
+max_zones = 31
+reset_pulse_ms = 1000        # robot needs >= 500 ms
+start_pulse_ms = 500
+stop_pulse_ms = 1000
+handshake_timeout_ms = 5000
+bringup_limit_ms = 60000     # safety enable at bring-up: waits for the PROFINET connection
+mismatch_debounce_ms = 200
+stop_debounce_ms = 200       # job running: ProgRunning + ProgFinished low this long -> ERR_ROBOT_STOPPED
+cycle_pause_ms = 2000
+start_limit_ms = 15000
+abort_limit_ms = 10000
+
+[timing]
+watchdog_factor = 1.5        # op watchdog = factor x expected + margin
+watchdog_margin_s = 5.0
+zone_wait_margin_s = 10.0
+home_return_time_s = 7.0     # blind MoveHome / HOME Folge duration
+completion_margin_s = 0.0    # added to every op (the reference executor uses 1.0)
+hop_latency_s = 0.2          # release -> grant latency budget per dependency hop
+
+[network]
+head_ip = "192.168.100.10"
+netmask = "255.255.255.0"
+gateway = "0.0.0.0"
+nic = "eth1"
+controller_station = "controller"
+# PN controller DCP pool; unset it follows the head subnet (2nd .. last host: .2 .. .254 here).
+# ip_pool_first = "192.168.100.2"
+# ip_pool_last = "192.168.100.254"
+robot_host_base = 10         # robot i gets .(10 + i)
+head_gateway_port = 11740
+head_opcua_port = 4840
+device_gateway_port = 11741
+device_opcua_port = 4841
+docker_network = "profinet_net"
+
+[codesys]
+ide_version = "CODESYS V3.5 SP22 Patch 1"
+head_project = "HeadPLC_{cell}"
+device_project = "RobotSim_{cell}_{tag}"
+main_task_ms = 4
+device_main_task_ms = 20
+gsdml_file = "GSDML-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030.xml"
+
+[robot_sim]
+enabled = true
+decimate_tol_deg = 0.0
+max_waypoints_per_robot = 4000
+at_home_tol_deg = 0.5
+start_tol_deg = 1.0
+chain_tol_deg = 0.5
+
+[opcua]
+symbols = false     # true: the head project gets a Symbol Configuration with OPC UA that exports
+                    # PLC_PRG and FB_Cell read-only (cell state, faults, cycles, per robot state /
+                    # op index / zone requests and grants); plan id and PLC code unchanged
+
+# Per-robot overrides (robot order = first appearance in the tree).
+# [[robot]]
+# ns = "robot1"
+# tag = "R1"
+# station = "kuka-robi1"
+# device_name = "kuka_robi1"
+# ip = "192.168.100.11"
+# home_pose_deg = [0.0, -90.0, 90.0, 0.0, 0.0, 0.0]
+# joint_sign = [1, 1, 1, 1, 1, 1]          # URDF -> KUKA axis sign
+# joint_offset_deg = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+# joint_map = "identity"                    # or a preset instead of sign/offset: "kr240_r2900_ultra",
+#                                           # "kr210_r2700_extra", "kr270_r2700_ultra", "kr160_r1570_nano"
+#                                           # (inverse of cell-data-replay/joint_map.yaml, UNVALIDATED)
+# prod_folge = 11
+# model = "KR240R2900_ULTRA"                # robot model for bt2krl (soft limits, axis speeds); default "unknown"
+# include_if_idle = false                   # include even without ops (bring-up/homing only)
+# interlocks = { IL01 = 1, IL02 = 11 }      # vw-ks24 only: zone -> VW interlock index 1..16
+#                                           # (both partners of a zone must use the same index;
+#                                           # written to program.json so bt2krl uses the same map)
+# external = false                          # a real/virtual controller (KUKA VC): no RobotSim project
+# safety_bypass = false                     # SIMULATION ONLY: head ignores the PROFIsafe slot-1 bits
+# safety_module = true                      # false (SIMULATION ONLY, needs safety_bypass + external):
+#                                           # head device on DAP "DIM 3" (V8.3) with slot 1 EMPTY and
+#                                           # only DIO256 in slot 2 (no FDIO64, no F-parameters; for a
+#                                           # KUKA VC, which refuses them: libSpIoMultiplexer)

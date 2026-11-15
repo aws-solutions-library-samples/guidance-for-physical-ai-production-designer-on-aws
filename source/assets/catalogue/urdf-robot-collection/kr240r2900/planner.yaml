@@ -1,0 +1,35 @@
+# KUKA KR 240 R2900 ultra: what the planner needs that the URDF does not carry (or carries wrong).
+# Prepare Cell writes it into every cell using the model (agentic_planner/config/robots.yaml, each
+# robot's joint_acceleration_limits, joint_velocity_limits, joint_limits_lower / joint_limits_upper,
+# in place of the converter's "# REVIEW" placeholder and its copies of the URDF's <limit>); editing
+# this file makes those cells stale, so the next Prepare Cell / plan picks it up.
+#
+# The robots: the four KR C4 controllers of a reference cell (their robot data exports; KSS 8.2)
+# all run $TRAFONAME[]="#KR240R2900 ULTRA C4 FLR", with the same gear ratios, motor speeds and
+# software limits ($machine.dat, KRC/R1/Mada).
+#
+# joint_acceleration_limits (rad/s^2, A1..A6): MEASURED, rounded down for margin.
+#   Peak axis accelerations of the drive traces of two of the controllers at 100 % PTP with the
+#   cell's tool mounted (KR C4 trace recordings; motor -> axis via $RAT_MOT_AX of $machine.dat):
+#   A1 432, A2 404, A3 685, A4 1012, A5 775, A6 1160 deg/s^2 = 7.54, 7.05, 11.96, 17.66, 13.53,
+#   20.25 rad/s^2. KSS computes load- and pose-dependent accelerations: these are the peaks
+#   observed, not a guaranteed maximum.
+#
+# joint_velocity_limits (rad/s): the axis speeds of the KUKA datasheet (KR 240 R2900 ultra, KR
+#   QUANTEC-2): 105 / 101 / 107 / 136 / 129 / 206 deg/s, which the controllers' machine data give too:
+#   $VEL_AXIS_MA 4500 rpm / $RAT_MOT_AX = 105.12 / 100.96 / 107.00 / 135.75 / 128.78 / 205.87 deg/s.
+#   The lower of the two, rounded down. (The URDF's <limit velocity> is 156 / 156 / 156 / 330 / 330 /
+#   615 deg/s: far above what the robot does.)
+#
+# joint_limits_lower / joint_limits_upper (rad): the controllers' software limits
+#   $SOFTN_END / $SOFTP_END: A1 +-185, A2 -140 / -5, A3 -120 / +155, A4 +-350, A5 +-122.5, A6 +-350 deg
+#   (the KUKA spec's ultra ranges), rounded inwards to 1e-6 rad. (The URDF: A2 -155 / +35, A3 -130 /
+#   +154, A5 +-130 deg.)
+joint_acceleration_limits: [7.5, 7.0, 11.5, 17.0, 13.0, 20.0]
+source: "measured: peak axis accelerations of two controllers' KR C4 drive traces ($machine.dat $RAT_MOT_AX gear ratios), rounded down; peak observed at 100% PTP with the cell tool; KSS computes load-dependent accelerations, not a guaranteed max"
+estimate: false
+joint_velocity_limits: [1.8325, 1.7621, 1.8675, 2.3692, 2.2475, 3.593]
+velocity_source: "KUKA datasheet KR 240 R2900 ultra axis speeds 105/101/107/136/129/206 deg/s = $machine.dat $VEL_AXIS_MA / $RAT_MOT_AX (105.1/101.0/107.0/135.7/128.8/205.9 deg/s), the lower, rounded down"
+joint_limits_lower: [-3.228859, -2.44346, -2.094395, -6.108652, -2.138028, -6.108652]
+joint_limits_upper: [3.228859, -0.087267, 2.70526, 6.108652, 2.138028, 6.108652]
+limits_source: "KR C4 software limits $SOFTN_END / $SOFTP_END of the four controllers' $machine.dat: A1 +-185, A2 -140/-5, A3 -120/+155, A4 +-350, A5 +-122.5, A6 +-350 deg"

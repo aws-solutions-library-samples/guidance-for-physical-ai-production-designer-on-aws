@@ -1,0 +1,18 @@
+# Copy of krl-runner's lenient KRL parser (krl-runner/krl-parser at 70cbfcb; docs/UPSTREAM.md), so the
+# parser smoke check builds from this repository alone.
+# Sources only: the upstream test_data/ (customer KRL), grammar/ and the unused krl.pest are not
+# copied. Keep changes here minimal so it can be re-synced with upstream.
+[package]
+name = "kuka-krl-parser"
+description = "Lenient KUKA KRL project parser (copy of krl-runner's krl-parser)"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+walkdir = "2"
+encoding_rs = "0.8"

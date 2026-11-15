@@ -1,0 +1,31 @@
+[package]
+name = "plan2cell-mcp"
+description = "plan2cell as an MCP server: plan, check, build and simulate over stdio or streamable HTTP"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["check"]
+check = ["plan2cell/check"]
+# Exposes the plan2cell_simulate tool (heavy build: trust-runtime).
+sim = ["check", "plan2cell/sim"]
+
+[dependencies]
+plan2cell.workspace = true
+bt2plc.workspace = true
+bt2krl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rmcp = { version = "3.5.1", features = ["server", "macros", "schemars", "transport-io", "transport-streamable-http-server"] }
+tokio-util = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-std", "signal", "sync"] }
+axum = { version = "0.8", features = ["http1", "tokio"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+rmcp = { version = "3.5.1", features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }

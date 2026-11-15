@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook-watch@1 head line (values in the read text format: CELL_STATUS and the device links)",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "t_ms",
+    "component",
+    "values"
+  ],
+  "properties": {
+    "schema": {
+      "const": "factoryos/hook-watch@1"
+    },
+    "kind": {
+      "const": "head"
+    },
+    "t_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "component": {
+      "type": "string"
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

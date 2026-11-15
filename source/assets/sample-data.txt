@@ -1,0 +1,2 @@
+# Sample data too large for git: `<dir under cells/>  <sha256 of the .tar.gz>  <key in the release archive>`
+# lines, installed by deploy/provision.sh. This sample ships none; its reference cell is in assets/cells/.

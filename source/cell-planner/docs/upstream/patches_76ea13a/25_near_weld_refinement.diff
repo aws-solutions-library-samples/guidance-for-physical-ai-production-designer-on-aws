@@ -1,0 +1,385 @@
+diff --git a/Makefile b/Makefile
+index c137bbe..b710a1b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -562,7 +562,7 @@ list-cell-tools: $(TOOLS) ## List MCP tools on the cell controller
+ # ─── Cell management ──────────────────────────────────────────────────────────
+ 
+ .PHONY: convert
+-convert: $(TOOLS) ## Convert a scene export to a cell (all config except tasks). Assets are REFERENCED, never copied; re-converting overwrites in place. OUT= SCENE_YAML= [SCENE=scene.usda] [ISAAC_ROOT=|ROBOT_MODEL=] [CELL_ID=] [TCP_OFFSET=] [OBSTACLE_MODE=voxel|aabb] [VOXEL_SIZE=0.05] [THERMAL_SPREAD=on|off] [STOP_REACTION_TIME=s STOP_DECEL=m/s2] [PATH_TOLERANCE=m]
++convert: $(TOOLS) ## Convert a scene export to a cell (all config except tasks). Assets are REFERENCED, never copied; re-converting overwrites in place. OUT= SCENE_YAML= [SCENE=scene.usda] [ISAAC_ROOT=|ROBOT_MODEL=] [CELL_ID=] [TCP_OFFSET=] [OBSTACLE_MODE=voxel|aabb] [VOXEL_SIZE=0.05] [THERMAL_SPREAD=on|off] [STOP_REACTION_TIME=s STOP_DECEL=m/s2] [PATH_TOLERANCE=m] [REFINE_POINTS=points.json [REFINE_VOXEL_SIZE=0.02] [REFINE_RADIUS=0.25]]
+ 	@test -n "$(OUT)"         || (echo "ERROR: OUT= (target cell directory, e.g. OUT=cells/my_cell) is required" && exit 1)
+ 	@test -n "$(SCENE_YAML)"  || (echo "ERROR: SCENE_YAML= (path to scene.yaml) is required" && exit 1)
+ 	@# The only target whose inputs routinely live OUTSIDE the repo: an Isaac export
+@@ -570,7 +570,7 @@ convert: $(TOOLS) ## Convert a scene export to a cell (all config except tasks).
+ 	@# mount does not cover those, so each such path is mounted at its own absolute
+ 	@# location — which is why the argument as typed still resolves inside.
+ 	@MOUNTS=""; \
+-	for p in "$(SCENE_YAML)" "$(ISAAC_ROOT)" "$(OUT)"; do \
++	for p in "$(SCENE_YAML)" "$(ISAAC_ROOT)" "$(OUT)" "$(REFINE_POINTS)"; do \
+ 	  [ -n "$$p" ] || continue; \
+ 	  if [ -d "$$p" ]; then d=$$(cd "$$p" && pwd); \
+ 	  else d=$$(cd "$$(dirname "$$p")" 2>/dev/null && pwd) || continue; fi; \
+@@ -592,7 +592,10 @@ convert: $(TOOLS) ## Convert a scene export to a cell (all config except tasks).
+ 		$(if $(THERMAL_SPREAD),--thermal-spread $(THERMAL_SPREAD),) \
+ 		$(if $(STOP_REACTION_TIME),--stop-reaction-time $(STOP_REACTION_TIME),) \
+ 		$(if $(STOP_DECEL),--stop-decel $(STOP_DECEL),) \
+-		$(if $(PATH_TOLERANCE),--path-tolerance $(PATH_TOLERANCE),)
++		$(if $(PATH_TOLERANCE),--path-tolerance $(PATH_TOLERANCE),) \
++		$(if $(REFINE_POINTS),--refine-points "$(REFINE_POINTS)" \
++			$(if $(REFINE_VOXEL_SIZE),--refine-voxel-size $(REFINE_VOXEL_SIZE),) \
++			$(if $(REFINE_RADIUS),--refine-radius $(REFINE_RADIUS),),)
+ 
+ .PHONY: urdfs
+ urdfs: $(TOOLS) ## Generate URDF files for a cell. SIM=
+diff --git a/scripts/convert_isaac_scene.py b/scripts/convert_isaac_scene.py
+index b1f2e00..e564659 100644
+--- a/scripts/convert_isaac_scene.py
++++ b/scripts/convert_isaac_scene.py
+@@ -556,10 +556,13 @@ def _rasterize_triangle(v0: tuple, v1: tuple, v2: tuple, voxel: float,
+                           _cell_index(pz, voxel, sides[2])))
+ 
+ 
+-def voxelise_meshes(meshes: Iterator[list], voxel: float) -> Optional[dict]:
++def voxelise_meshes(meshes: Iterator[list], voxel: float,
++                    keep=None) -> Optional[dict]:
+     """Rasterise world-space meshes (each a list of triangles) into an
+     occupancy set + its bounds. Each mesh is its own frame for the on-plane
+     rule of ``_rasterize_triangle`` (its bounds and winding sign).
++    ``keep(triangle) -> bool``: rasterise only those triangles (the frame is
++    still the whole mesh's) -- the near-weld refinement's fine pass.
+ 
+     Returns the same shape :func:`fixture_voxels_from_usd` does, so the writer
+     does not care which geometry source produced it.
+@@ -576,7 +579,8 @@ def voxelise_meshes(meshes: Iterator[list], voxel: float) -> Optional[dict]:
+             mins[d] = min(mins[d], frame[0][d])
+             maxs[d] = max(maxs[d], frame[1][d])
+         for (a, b, c) in tris:
+-            _rasterize_triangle(a, b, c, voxel, occupied, frame)
++            if keep is None or keep((a, b, c)):
++                _rasterize_triangle(a, b, c, voxel, occupied, frame)
+     if not occupied:
+         return None
+     return {"voxels": occupied, "voxel": voxel, "approx": False,
+@@ -609,7 +613,7 @@ def aabb_of_triangles(triangles: Iterator[tuple]) -> Optional[dict]:
+ 
+ 
+ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+-                            voxel: float) -> Optional[dict]:
++                            voxel: float, keep=None) -> Optional[dict]:
+     """
+     Build a surface-occupancy voxel set for a fixture from its USD mesh
+     geometry (points + faceVertexIndices/faceVertexCounts), transformed to
+@@ -618,6 +622,7 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+ 
+     Returns {'voxels': set[(i,j,k)], 'voxel': float, 'approx': bool,
+              'min': (x,y,z), 'max': (x,y,z)} or None if no geometry was found.
++    ``keep``: as in :func:`voxelise_meshes`.
+     """
+     body = _find_xform_block(usd_text, fixture_id)
+     if body is None:
+@@ -699,7 +704,8 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+                     tris.append((verts[a], verts[b], verts[d]))
+             frame = _mesh_frame(tris) if tris else None
+             for (a, b, d) in tris:
+-                _rasterize_triangle(a, b, d, voxel, occupied, frame)
++                if keep is None or keep((a, b, d)):
++                    _rasterize_triangle(a, b, d, voxel, occupied, frame)
+         else:
+             # No connectivity: fall back to marking vertices (dense meshes only).
+             # A vertex on a grid plane goes to the cell toward the mesh's vertex
+@@ -708,6 +714,8 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+             tol = _BOUNDARY_TOL * voxel
+             sides = [(lambda c, d=d: _side(cen[d], c, tol)) for d in range(3)]
+             for w in verts:
++                if keep is not None and not keep((w, w, w)):
++                    continue
+                 occupied.add((_cell_index(w[0], voxel, sides[0]),
+                               _cell_index(w[1], voxel, sides[1]),
+                               _cell_index(w[2], voxel, sides[2])))
+@@ -718,6 +726,87 @@ def fixture_voxels_from_usd(usd_text: str, fixture_id: str,
+             "min": tuple(mins), "max": tuple(maxs)}
+ 
+ 
++# ─── near-weld refinement ─────────────────────────────────────────────────────
++#
++# A 5 cm shell over-approximates a surface by up to a voxel, which is where the
++# tool works: at a weld. With --refine-points the shell within --refine-radius
++# of each point is rebuilt at --refine-voxel-size from the same meshes, and those
++# fine boxes are marked is_workpiece (the surface being welded; the planner's
++# tool-contact rule then lets only the weld contact touch it).
++
++def load_refine_points(path: Path) -> list:
++    """World points from a JSON file: ``[[x, y, z], ...]`` or ``{"points": [...]}``."""
++    try:
++        data = json.loads(Path(path).read_text())
++    except (OSError, ValueError) as exc:
++        _fatal(f"--refine-points {path}: cannot read JSON: {exc}")
++    if isinstance(data, dict):
++        data = data.get("points")
++    if not isinstance(data, list):
++        _fatal(f"--refine-points {path}: expected a list of [x, y, z] points or "
++               f'{{"points": [...]}}')
++    out = []
++    for n, p in enumerate(data):
++        try:
++            q = tuple(float(v) for v in p)
++        except (TypeError, ValueError):
++            q = ()
++        if len(q) != 3 or not all(math.isfinite(v) for v in q):
++            _fatal(f"--refine-points {path}: point {n} is not [x, y, z]: {p!r}")
++        out.append(q)
++    return out
++
++
++def _dist2_box(lo: tuple, hi: tuple, p: tuple) -> float:
++    """Squared distance from point ``p`` to the box [lo, hi] (0 inside)."""
++    d2 = 0.0
++    for d in range(3):
++        if p[d] < lo[d]:
++            d2 += (lo[d] - p[d]) ** 2
++        elif p[d] > hi[d]:
++            d2 += (p[d] - hi[d]) ** 2
++    return d2
++
++
++def near_points_filter(points: list, radius: float):
++    """``keep(triangle)``: the triangle's bounds come within ``radius`` of a point."""
++    r2 = radius * radius
++    lo_all = tuple(min(p[d] for p in points) - radius for d in range(3))
++    hi_all = tuple(max(p[d] for p in points) + radius for d in range(3))
++
++    def keep(tri) -> bool:
++        lo = tuple(min(v[d] for v in tri) for d in range(3))
++        hi = tuple(max(v[d] for v in tri) for d in range(3))
++        if any(hi[d] < lo_all[d] or lo[d] > hi_all[d] for d in range(3)):
++            return False
++        return any(_dist2_box(lo, hi, p) <= r2 for p in points)
++    return keep
++
++
++def refine_voxels(coarse: set, voxel: float, fine: set, fine_voxel: float,
++                  points: list, radius: float) -> tuple:
++    """(coarse cells kept, fine cells kept): a coarse cell whose centre lies
++    within ``radius - voxel`` of a point is dropped (so the whole cell is within
++    ``radius``: every surface it covered is covered by the fine shell); a fine
++    cell is kept when it comes within ``radius`` of a point."""
++    drop = radius - voxel
++    d2 = drop * drop
++    kept = set()
++    for c in coarse:
++        cen = tuple((c[d] + 0.5) * voxel for d in range(3))
++        if drop > 0 and any(sum((cen[d] - p[d]) ** 2 for d in range(3)) <= d2 for p in points):
++            continue
++        kept.add(c)
++    r2 = radius * radius
++    fine_kept = set()
++    for c in fine:
++        lo = tuple(c[d] * fine_voxel for d in range(3))
++        hi = tuple((c[d] + 1) * fine_voxel for d in range(3))
++        if any(_dist2_box(lo, hi, p) <= r2 for p in points):
++            fine_kept.add(c)
++    return kept, fine_kept
++
++
+ def _merge_voxels(voxels: set) -> list:
+     """
+     Greedily cover an occupancy set of (i,j,k) cells with as few axis-aligned
+@@ -1699,13 +1788,15 @@ def _sized(values: list, n: int) -> list:
+ 
+ 
+ def _emit_box(L: list, box_id: str, description: str, c: tuple, h: tuple,
+-              placeholder: bool = False) -> None:
++              placeholder: bool = False, is_workpiece: bool = False) -> None:
+     L.append(f"  - id: {box_id}")
+     L.append("    type: box")
+     L.append(f'    description: "{description}"')
+     L.append(f"    center: [{_fmt(c[0])}, {_fmt(c[1])}, {_fmt(c[2])}]")
+     L.append(f"    half_extents: [{_fmt(h[0])}, {_fmt(h[1])}, {_fmt(h[2])}]")
+     L.append("    collision_margin: 0.05")
++    if is_workpiece:
++        L.append("    is_workpiece: true")
+     if placeholder:
+         # Machine-readable, not only a comment: a box that is not the fixture's
+         # real geometry must be findable by a tool, not just by a reader.
+@@ -1714,10 +1805,12 @@ def _emit_box(L: list, box_id: str, description: str, c: tuple, h: tuple,
+ 
+ def render_obstacles_yaml(cell_id: str, fixtures: list, obstacle_mode: str,
+                           voxel_size: float,
+-                          tool_radius: Optional[dict] = None) -> str:
++                          tool_radius: Optional[dict] = None,
++                          refine: Optional[dict] = None) -> str:
+     """
+     fixtures: ordered list of dicts, one of:
+-      {id, kind: 'voxel',       boxes: [{c,h}, ...], voxel, approx, nvox, source}
++      {id, kind: 'voxel',       boxes: [{c,h}, ...], voxel, approx, nvox, source,
++                                [fine_boxes: [{c,h}, ...], nfine, ndropped]}
+       {id, kind: 'aabb',        box: {c,h}, approx, source}
+       {id, kind: 'placeholder', box: {c,h}}
+     """
+@@ -1731,6 +1824,21 @@ def render_obstacles_yaml(cell_id: str, fixtures: list, obstacle_mode: str,
+         L.append("# occupies becomes boxes, so open cavities and openings stay clear and a")
+         L.append("# robot can still reach into them. Boxes were merged greedily to keep")
+         L.append("# the count low.")
++        if refine:
++            done = [fx for fx in fixtures if fx.get("fine_boxes")]
++            L.append("#")
++            L.append(f"# Near-weld refinement (--refine-points {refine['path']}): "
++                     f"{refine['npoints']} point(s).")
++            L.append(f"# Within {_fmt(refine['radius'])} m of a point the shell is re-voxelised at "
++                     f"{_fmt(refine['voxel'])} m from")
++            L.append("# the same meshes: boxes <fixture>_f<n>, is_workpiece: true. Coarse cells whose")
++            L.append(f"# centre is within {_fmt(refine['radius'] - voxel_size)} m of a point were "
++                     f"dropped. Refined fixtures:")
++            for fx in done:
++                L.append(f"#   {fx['id']}: {len(fx['fine_boxes'])} fine box(es) from {fx['nfine']} "
++                         f"cells, {fx['ndropped']} coarse cell(s) dropped")
++            if not done:
++                L.append("#   none (no fixture surface within the radius of a point)")
+     else:
+         L.append("# Each fixture is ONE axis-aligned bounding box (a conservative solid block).")
+     L.append("#")
+@@ -1791,6 +1899,17 @@ def render_obstacles_yaml(cell_id: str, fixtures: list, obstacle_mode: str,
+             for n, b in enumerate(boxes):
+                 _emit_box(L, f"{fid}_v{n:0{width}d}",
+                           f"{fid} voxel shell {n}", b["c"], b["h"])
++            fine = fx.get("fine_boxes") or []
++            if fine:
++                L.append(f"  # {fid}: near-weld fine shell — {len(fine)} box(es) from "
++                         f"{fx['nfine']} cells at {_fmt(fx['fine_voxel'])} m within "
++                         f"{_fmt(fx['refine_radius'])} m of the refine points "
++                         f"({fx['ndropped']} coarse cell(s) replaced).")
++                fw = len(str(len(fine) - 1))
++                for n, b in enumerate(fine):
++                    _emit_box(L, f"{fid}_f{n:0{fw}d}",
++                              f"{fid} near-weld fine shell {n}", b["c"], b["h"],
++                              is_workpiece=True)
+ 
+     L.append("")
+     L.append("# Clearance policy — how collision distance is computed")
+@@ -1979,6 +2098,19 @@ def build_parser() -> argparse.ArgumentParser:
+     ap.add_argument("--tool-axis-tolerance", type=float, default=5.0, metavar="DEG",
+                     help="robots.yaml tool_orientation.axis_tolerance_deg: the tool-axis "
+                          "error a weld accepts, what validate_approach gates (default: 5)")
++    ap.add_argument("--refine-points", default=None, metavar="PATH",
++                    help="JSON file of world points ([[x, y, z], ...] or {\"points\": [...]}), "
++                         "e.g. the task's weld points. With --obstacle-mode voxel, each "
++                         "fixture's shell within --refine-radius of a point is re-voxelised "
++                         "at --refine-voxel-size from the same meshes: boxes <fixture>_f<n> "
++                         "with is_workpiece: true replace the coarse cells there. Without it "
++                         "nothing changes.")
++    ap.add_argument("--refine-voxel-size", type=float, default=0.02, metavar="M",
++                    help="Voxel edge length of the near-point fine shell (default: 0.02)")
++    ap.add_argument("--refine-radius", type=float, default=0.25, metavar="M",
++                    help="Radius around each --refine-points point that gets the fine "
++                         "shell (default: 0.25); coarse cells whose centre is within "
++                         "radius - --voxel-size of a point are dropped")
+     return ap
+ 
+ 
+@@ -1999,6 +2131,26 @@ def main() -> None:
+             _fatal(f"{flag} must be > 0, got {val}")
+     if args.completion_margin < 0:
+         _fatal(f"--completion-margin must be >= 0, got {args.completion_margin}")
++    refine_points: list = []
++    if args.refine_points:
++        for flag, val in (("--refine-voxel-size", args.refine_voxel_size),
++                          ("--refine-radius", args.refine_radius)):
++            if not (math.isfinite(val) and val > 0):
++                _fatal(f"{flag} must be a finite number > 0, got {val}")
++        refine_points = load_refine_points(Path(args.refine_points))
++        if args.obstacle_mode != "voxel":
++            _warn("--refine-points applies to --obstacle-mode voxel only; ignored")
++            refine_points = []
++        elif not refine_points:
++            _info(f"--refine-points {args.refine_points}: no points; no refinement")
++        else:
++            if args.refine_voxel_size >= args.voxel_size:
++                _warn(f"--refine-voxel-size {args.refine_voxel_size} is not finer than "
++                      f"--voxel-size {args.voxel_size}")
++            if args.refine_radius <= args.voxel_size:
++                _warn(f"--refine-radius {args.refine_radius} <= --voxel-size "
++                      f"{args.voxel_size}: no coarse cell is replaced, the fine shell "
++                      f"only overlaps it")
+     if args.hull_min_distance < 0:
+         _fatal(f"--hull-min-distance must be >= 0, got {args.hull_min_distance}")
+     if args.tool_contact_radius < 0:
+@@ -2395,7 +2547,9 @@ def main() -> None:
+         if args.obstacle_mode == "voxel":
+             vox = None
+             source = None
++            vox_src = None
+             if fixture_urdf is not None:
++                vox_src = "urdf"
+                 _info(f"fixture '{fid}': voxelising {fixture_urdf} at "
+                       f"{_fmt(args.voxel_size)} m (full-resolution CAD — this "
+                       f"takes a while)")
+@@ -2404,18 +2558,52 @@ def main() -> None:
+                     args.voxel_size)
+                 source = f"{fixture_urdf.name} meshes"
+             if vox is None and usd_text:
++                vox_src = "usd"
+                 vox = fixture_voxels_from_usd(usd_text, fid, args.voxel_size)
+                 source = "scene.usda mesh points"
+             if vox is None:
+                 fixtures_out.append(_placeholder())
+                 total_boxes += 1
+                 continue
+-            merged = _merge_voxels(vox["voxels"])
++            coarse = vox["voxels"]
++            fine_boxes, nfine, ndropped = [], 0, 0
++            reach = args.refine_radius + args.refine_voxel_size
++            if refine_points and any(
++                    _dist2_box(vox["min"], vox["max"], p) <= reach * reach
++                    for p in refine_points):
++                # The same mesh source as the coarse shell, only the triangles
++                # near a point rasterised (each mesh keeps its full frame).
++                near = near_points_filter(refine_points, reach)
++                if vox_src == "urdf":
++                    fvox = voxelise_meshes(urdf_geometry_meshes(fixture_urdf, world_pose),
++                                           args.refine_voxel_size, keep=near)
++                else:
++                    fvox = fixture_voxels_from_usd(usd_text, fid, args.refine_voxel_size,
++                                                   keep=near)
++                kept, fine = refine_voxels(coarse, args.voxel_size,
++                                           fvox["voxels"] if fvox else set(),
++                                           args.refine_voxel_size, refine_points,
++                                           args.refine_radius)
++                if fine:
++                    ndropped = len(coarse) - len(kept)
++                    coarse = kept
++                    nfine = len(fine)
++                    fine_boxes = _voxel_boxes_world(_merge_voxels(fine),
++                                                    args.refine_voxel_size)
++                    _info(f"fixture '{fid}': near-point refinement — {len(fine_boxes)} "
++                          f"fine box(es) from {nfine} cells at "
++                          f"{_fmt(args.refine_voxel_size)} m, {ndropped} coarse cell(s) "
++                          f"dropped")
++            merged = _merge_voxels(coarse)
+             boxes = _voxel_boxes_world(merged, args.voxel_size)
+-            total_boxes += len(boxes)
++            total_boxes += len(boxes) + len(fine_boxes)
+             fixtures_out.append({"id": fid, "kind": "voxel", "boxes": boxes,
+                                  "voxel": args.voxel_size, "approx": vox["approx"],
+-                                 "nvox": len(vox["voxels"]), "source": source})
++                                 "nvox": len(coarse), "source": source,
++                                 "fine_boxes": fine_boxes, "nfine": nfine,
++                                 "ndropped": ndropped,
++                                 "fine_voxel": args.refine_voxel_size,
++                                 "refine_radius": args.refine_radius})
+             _info(f"fixture '{fid}': {len(boxes)} voxel box(es) from "
+                   f"{len(vox['voxels'])} cells (voxel={_fmt(args.voxel_size)} m, "
+                   f"source: {source})")
+@@ -2457,7 +2645,11 @@ def main() -> None:
+                    if measured else None)
+     obstacles_path.write_text(
+         render_obstacles_yaml(cell_id, fixtures_out, args.obstacle_mode, args.voxel_size,
+-                              tool_radius)
++                              tool_radius,
++                              refine=({"path": args.refine_points, "npoints": len(refine_points),
++                                       "radius": args.refine_radius,
++                                       "voxel": args.refine_voxel_size}
++                                      if refine_points else None))
+     )
+     _info(f"wrote {obstacles_path}  ({len(fixtures_out)} fixture(s), "
+           f"{total_boxes} box(es) + floor, mode={args.obstacle_mode})")

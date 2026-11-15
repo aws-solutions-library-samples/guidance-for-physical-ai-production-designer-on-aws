@@ -1,0 +1,20 @@
+# toppra for the planner router's umarell_jam venv (deploy/provision-cell-planner.sh, jam_venv_setup), when no wheel is
+# pinned for it (deploy/toppra-wheel.txt, internal servers only): toppra 0.6.3 has no aarch64 wheel on PyPI, so the
+# host builds it from its sdist, in the venv and against the venv's numpy (1.26.4, the cell planner's
+# requirements-umarell.txt): pip install of the build requirements below (wheels only), pip download of the sdist (no
+# binary, no dependencies), its sha256 checked against the line below, pip wheel --no-build-isolation --no-deps
+# --no-index, pip install --no-index --no-deps of that wheel. Needs a C compiler and Python.h (provision.sh's public
+# packages: gcc, libc6-dev, python3.12-dev); about a minute. umarell_jam keys its component cache by toppra's
+# version (umarell_jam/stack.py), not by how it was built.
+#
+# A pip requirements file in hash-checking mode: every line exact (==) with the sha256 of the file pip may take.
+# Cython: its pure-Python wheel (any platform; cython<3.1, as toppra 0.6.3 builds); setuptools, wheel: as pyproject.toml
+# lists them, at releases without known advisories (toppra's setup.py builds with setuptools 84's distutils shim; wheel
+# 0.48 needs packaging>=24, which the venv already has from requirements-umarell.txt). The sha256 values are PyPI's
+# (https://pypi.org/pypi/<name>/<version>/json). The public export's security scan audits every pin here (pip-audit,
+# licences) as it does the requirements files.
+setuptools==84.2.1 --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
+wheel==0.48.0 --hash=sha256:3217dcc807155e45db462d7ef2431f5ddda0d7273b700d05a67b271ceb1287ab
+Cython==3.0.12 --hash=sha256:0038c9bae46c459669390e53a1ec115f8096b2e4647ae007ff1bf4e6dee92806
+# toppra itself: the sdist toppra-0.6.3.tar.gz (MIT).
+toppra==0.6.3 --hash=sha256:5a8926128a9decce85d11bac3e9a2aa2fbf2882653053b10f5cb42e0e21a401e

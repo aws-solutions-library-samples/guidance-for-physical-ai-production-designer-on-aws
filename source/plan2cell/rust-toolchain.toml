@@ -1,0 +1,5 @@
+# Same toolchain as factoryos-orchestrator.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

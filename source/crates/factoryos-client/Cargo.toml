@@ -1,0 +1,51 @@
+[package]
+name = "factoryos-client"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# The viewer's side of the factoryos-backend protocol: HTTP via ehttp, Zenoh via the `zenoh` crate
+# (native) or zenoh-ts over `/zenoh` (wasm). Same API on both targets.
+
+[features]
+default = []
+
+[dependencies]
+# Without its default features: the internal build turns its `internal` on with ours (the public export has neither).
+factoryos-protocol = { path = "../factoryos-protocol", default-features = false }
+ehttp = { version = "0.7.1", features = ["native-async"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+# The planner chat's WebSocket (chat.rs), when the backend is on another machine, and the local
+# bridge of Zenoh sessions to the backend's `/zenoh-native` (bus_native.rs).
+futures-util = "0.3.34"
+# wss:// to a backend behind CloudFront.
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+# Picks rustls' crypto provider explicitly: built together with the backend (`cargo build
+# --workspace`), both `ring` and `aws-lc-rs` are enabled and rustls would panic choosing.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# The silent login of the internal build (its `internal` feature): the edge's redirect chain, followed by hand.
+ureq = { version = "3.3.0", optional = true }
+# The browser login's state (auth.rs).
+getrandom = "0.3"
+# Must match the backend's zenoh exactly.
+zenoh = { version = "=1.10.1", default-features = false, features = ["transport_tcp", "transport_tls", "transport_ws"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.103"
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4.76"
+# The planner chat's and the IDE terminals' WebSockets (chat.rs, terminal.rs).
+web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "MessageEvent", "WebSocket"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# The tests against a Zenoh router (tests/): Zenoh needs the multi-threaded runtime.
+tokio = { version = "1.53", features = ["rt-multi-thread"] }
+
+[lints.rust]
+# The internal build's feature, which this export leaves out with the code it gates.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("internal"))'] }

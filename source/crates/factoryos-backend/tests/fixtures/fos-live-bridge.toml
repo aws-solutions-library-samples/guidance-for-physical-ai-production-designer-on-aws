@@ -1,0 +1,73 @@
+# The live bridge's config (fos-live-bridge.toml) for the welding_cell_2_small cell, as cell_wiring's tests read it:
+# plan2cell/infra/viewer/fos-live-bridge.toml (the template the backend renders a launch's bridge config from) but
+# for its comments, so the tests need no infra files (the public export carries none). Where that file is (this
+# repo), cell_wiring's the_bridge_fixture_is_the_viewers_template fails until a change there is made here too.
+
+log_every_s = 10.0
+
+[sink]
+endpoint = "tcp/127.0.0.1:7447"
+state_key = "factoryos/cell/state"
+status_key = "factoryos/cell/status"
+announce_status = true
+max_hz = 1.0
+joint_step_deg = 0.1
+heartbeat_s = 1.0
+stale_s = 3.0
+reopen_s = 20.0
+cell_name = "welding_cell_2_small"
+
+[backend]
+url = "http://127.0.0.1"
+cell = "welding_cell_2_small"
+ensure_fitter = false
+check_s = 30.0
+reset_bytes = 12000000
+size_check_s = 5.0
+reset_s = 0.0
+snapshot_key = "factoryos/rrd/fitter/snapshot"
+
+[protocol]
+step_byte = 4
+req_byte = 28
+grant_byte = 12
+plan_id_byte = 4
+zones = ["IL01", "IL02"]
+
+[opcua]
+enabled = true
+endpoint = "opc.tcp://192.168.100.10:4840"
+poll_hz = 5.0
+timeout_s = 4.0
+username = ""
+password_file = ""
+security = ""
+node_prefix = ""
+symbols = [
+  "PLC_PRG.eCellState", "PLC_PRG.eCellError", "PLC_PRG.bCellError", "PLC_PRG.bRecoveryRequired",
+  "PLC_PRG.udiCycles",
+  "PLC_PRG.fbCell.eState", "PLC_PRG.fbCell.eError", "PLC_PRG.fbCell.nErrorRobot",
+  "PLC_PRG.fbCell.nErrorOp", "PLC_PRG.fbCell.nErrorZone", "PLC_PRG.fbCell.bCycleActive",
+  "PLC_PRG.fbCell.udiCycles", "PLC_PRG.fbCell.tLastCycle", "PLC_PRG.fbCell.aeRobotState",
+  "PLC_PRG.fbCell.aeRobotError", "PLC_PRG.fbCell.awStep", "PLC_PRG.fbCell.adwReq",
+  "PLC_PRG.fbCell.adwGrant", "PLC_PRG.fbCell.anDone", "PLC_PRG.fbCell.anHolder",
+  "GVL_Cell.PLAN_ID",
+]
+
+[[robot]]
+robot_id = "robot1"
+name = "R1"
+model = "KR240 R2900 ultra"
+endpoint = "tcp/192.168.100.11:7447"
+prefix = "kuka/vass/r1"
+joint_map = "identity"
+ops = ["W01", "W02", "W03", "W06", "W05", "W04", "R1_PARK", "HOME"]
+
+[[robot]]
+robot_id = "robot2"
+name = "R2"
+model = "KR240 R2900 ultra"
+endpoint = "tcp/192.168.100.12:7447"
+prefix = "kuka/vass/r1"
+joint_map = "identity"
+ops = ["W13", "W15", "W14", "W10", "W11", "W12", "W09", "W08", "W07", "HOME"]

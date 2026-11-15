@@ -1,0 +1,36 @@
+# The umarell planner's Python environment on the server (provision.sh installs it into
+# <umarell>/.venv-planner, prebuilt arm64/x86 wheels only). umarell's own docker/requirements.txt,
+# minus what its ROS 2 Docker image needs and the pip wheels must not have:
+#
+# - numpy<2 (upstream) is for ROS Jazzy's Pinocchio, built against numpy 1.x. The pip Pinocchio
+#   below brings its own build and needs numpy 2 — numpy is pulled in by it.
+# - toppra (upstream) has no arm64 wheel and does not build under numpy 2; the planner treats it
+#   as optional and uses its own timing without it.
+#
+# Pinned, all tested on the server (the car_door_spot_welding plan, 2026-10-02):
+# - pin 3.7.0: 3.8+ need numpy 2.3 on Python 3.12, which scipy<1.14 (upstream) rules out.
+# - cmeel-urdfdom 4.x / cmeel-tinyxml2 10.x: pin 3.7.0 is linked against liburdfdom_*.so.4.0 and
+#   urdfdom 4 against libtinyxml2.so.10, but both only ask for minimum versions.
+pin==3.7.0
+cmeel-urdfdom>=4,<5
+cmeel-tinyxml2>=10,<11
+ompl
+
+# --- from umarell docker/requirements.txt (numpy, toppra removed) ---
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-aws>=0.2.0
+langchain-community>=0.3.0
+mcp>=1.0.0,<2
+uvicorn>=0.30.0
+langchain-mcp-adapters>=0.1.0
+scipy>=1.11.0,<1.14
+pyyaml>=6.0
+httpx>=0.27.0
+flask>=3.0.0
+flask-socketio>=5.3.0
+rich>=13.0.0
+rerun-sdk>=0.21.0,<0.23.2
+# umarell 08d5a39 (13d446b): compiled collision kernels (tools/fastgeom.py); without it the NumPy path runs
+numba>=0.59

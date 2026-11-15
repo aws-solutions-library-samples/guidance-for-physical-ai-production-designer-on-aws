@@ -1,0 +1,29 @@
+%YAML 1.2
+---
+# KUKA Robot Language. Generated from the keyword lists in src/code_view.rs: keep them in step.
+name: KRL
+file_extensions: [src, dat, sub]
+scope: source.krl
+
+contexts:
+  main:
+    - match: ';.*$'
+      scope: comment.line.semicolon.krl
+    - match: '^\s*&.*$'
+      scope: comment.line.header.krl
+    - match: '"'
+      push: string
+    - match: '\$[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.language.krl
+    - match: '#[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.language.krl
+    - match: '(?i)\b(?:ENDSPLINE|ENDSWITCH|INTERRUPT|CIRC_REL|CONTINUE|DISTANCE|ENDWHILE|DEFAULT|ENDLOOP|LIN_REL|PTP_REL|TRIGGER|B_EXOR|DEFDAT|DEFFCT|ENDDAT|ENDFCT|ENDFOR|EXTFCT|GLOBAL|IMPORT|PUBLIC|REPEAT|RESUME|RETURN|SIGNAL|SPLINE|SWITCH|BRAKE|B_AND|B_NOT|CONST|C_DIS|C_ORI|C_PTP|C_SPL|C_VEL|DELAY|ENDIF|FALSE|SCIRC|STRUC|UNTIL|WHILE|B_OR|CASE|CIRC|DECL|ELSE|ENUM|EXIT|EXOR|GOTO|HALT|LOOP|PATH|SLIN|SPTP|STEP|THEN|TRUE|WAIT|WHEN|AND|DEF|END|EXT|FOR|LIN|NOT|OFF|OUT|PTP|SEC|SPL|DO|IF|IN|IS|ON|OR|TO)\b'
+      scope: keyword.control.krl
+    - match: '(?i)\b(?:E6AXIS|E6POS|FRAME|AXIS|BOOL|CHAR|LOAD|REAL|INT|POS)\b'
+      scope: storage.type.krl
+    - match: '\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b'
+      scope: constant.numeric.krl
+  string:
+    - meta_scope: string.quoted.double.krl
+    - match: '"'
+      pop: true

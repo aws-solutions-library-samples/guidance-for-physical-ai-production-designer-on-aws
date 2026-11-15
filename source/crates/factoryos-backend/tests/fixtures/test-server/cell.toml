@@ -1,0 +1,39 @@
+# A test server's /etc/plan2cell/cell.toml, for the real-CLI test of services/hardware.rs: plan2cell/infra/test-server's
+# with placeholder ids, address and account (checked there: the_test_server_fixtures_are_the_test_servers_files), so the
+# test needs no infra files. The test server's virtual cell: a PLC host and two KUKA VCs, reached over SSM.
+[codesys_mcp]
+url = "http://192.0.2.12:8766/mcp"
+token_env = "PLAN2CELL_CODESYS_MCP_TOKEN"
+windows_project_dir = 'C:\ProgramData\plan2cell\projects\{cell}'
+install = "SP22 Patch 1"
+io_csv = "mirror"
+timeout_s = 1800
+
+[plc_host]
+ssm_instance = "i-0123456789abcdef0"
+ssh_host = "plc-host"
+setup = "/opt/plan2cell/plc-host/setup.sh"
+compose_dir = "/opt/plan2cell/plc-host"
+bucket = "plan2cell-software-111122223333-eu-central-1"
+region = "eu-central-1"
+
+[kuka_vc]
+region = "eu-central-1"
+
+[[kuka_vc.controller]]
+robot_ns = "robot1"
+instance = "iiQKA.OS2_KSS_9.2.0_vass"
+netns = "krc1"
+kli_ip = "192.168.100.11"
+station = "kuka-robi1"
+ssm_instance = "i-1234567890abcdef0"
+sps_base = "iiQKA.OS2_KSS_9.2.0"
+
+[[kuka_vc.controller]]
+robot_ns = "robot2"
+instance = "iiQKA.OS2_KSS_9.2.0_vass"
+netns = "krc1"
+kli_ip = "192.168.100.12"
+station = "kuka-robi2"
+ssm_instance = "i-1234567890abcdef0"
+sps_base = "iiQKA.OS2_KSS_9.2.0"

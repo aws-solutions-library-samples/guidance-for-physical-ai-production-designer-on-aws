@@ -1,0 +1,220 @@
+# The virtual cell: the workspace's cell, booted from a template (vcell_list_templates): its head PLC, robot
+# controllers and IDE. The legacy templates (ec2-codesys-kuka, eks-codesys-kuka) are a CODESYS head PLC, KUKA virtual
+# controllers and a Windows IDE, on EC2 or EKS. The template's consumer.ops are the robot operations of vcell_kvc.
+# Starting, deploying and running production change a live cell (and cost money while it runs): only with
+# the user's explicit go. Read tools first (vcell_status, vcell_deploy_check).
+
+- name: vcell_status
+  title: Virtual cell status
+  method: GET
+  path: /api/v1/infra/status
+  description: |
+    The virtual cell: its hosts (head PLC, one robot controller per robot, IDE; legacy templates: the PLC host,
+    the KUKA VC hosts, the Windows IDE) and whether they run, the bring-up, the deployed export, production state,
+    the head PLC's state, the cell's power and jobs, and the template it runs (id, version, capabilities).
+
+- name: vcell_power_status
+  title: Virtual cell power
+  method: GET
+  path: /api/v1/infra/cell/power
+  description: The whole cell's power state (off / starting / ready / in production / stopping) and its phases.
+
+- name: vcell_power
+  title: Switch the virtual cell on or off
+  path: /api/v1/infra/cell/power
+  destructive: true
+  body:
+    type: object
+    properties:
+      action: {type: string, enum: ["on", "off"]}
+      force: {type: boolean, description: "off while in production (production stops)."}
+      production: {type: boolean, description: "on: then start production once ready."}
+      restore: {type: string, enum: [auto, full, none], description: "on (own cell): restore the last deployed code."}
+      fresh: {type: boolean, description: "on (stopped own cell): new instances from the latest images."}
+      mode: {type: string, enum: [terminate, stop], description: "off (own cell): this time."}
+    required: [action]
+  description: Power the whole virtual cell on (boot, bring-up, readiness checks) or off. Costs money while on.
+
+- name: vcell_list_cells
+  title: The workspace's own virtual cells
+  method: GET
+  path: /api/v1/infra/cells
+  description: The workspace's own virtual cells (id, template, robots, runtime ec2 / eks, lifecycle, off mode).
+
+- name: vcell_list_templates
+  title: Virtual cell templates
+  method: GET
+  path: /api/v1/infra/templates
+  description: |
+    The virtual-cell templates this workspace may create: id, version, title, runtime, parameters (type, bounds,
+    default, when they may change), capabilities, robot operations (consumer.ops: name, arguments, destructive),
+    the running cost at the defaults, agentNotes, and whether each is available (else why).
+
+- name: vcell_create_cell
+  title: Create an own virtual cell
+  path: /api/v1/infra/cells
+  destructive: true
+  body:
+    type: object
+    properties:
+      template: {type: string, description: "A template id from vcell_list_templates (default ec2-codesys-kuka)."}
+      params: {type: object, description: "The template's parameters, e.g. {robots: 3} or {networks: [{name: n1, robots: 4}], ide: ec2}."}
+      start: {type: boolean}
+      robots: {type: integer, minimum: 1, maximum: 8, description: "Legacy (without template)."}
+      offMode: {type: string, enum: [terminate, stop], description: "Legacy (without template)."}
+      runtime: {type: string, enum: [ec2, eks], description: "Legacy (without template)."}
+      ide: {type: string, description: "Legacy (without template)."}
+  description: |
+    Create the workspace's own virtual cell from a template (one per workspace; AWS resources that cost money):
+    template and params as vcell_list_templates gives them, or the legacy robots / runtime / ide / offMode alone.
+
+- name: vcell_start
+  title: Start the cell's instances
+  path: /api/v1/infra/start
+  destructive: true
+  body:
+    type: object
+    properties:
+      roles: {type: array, items: {type: string}, description: "Host roles as vcell_status names them (EC2: plcHost, windowsIde, kukaVc = every KUKA VC host, kukaVc1…); default all."}
+      bringUp: {type: boolean}
+      production: {type: boolean}
+  description: Start the virtual cell's instances (then the controllers' bring-up for a whole-cell start).
+
+- name: vcell_stop
+  title: Stop the cell's instances
+  path: /api/v1/infra/stop
+  destructive: true
+  body:
+    type: object
+    properties:
+      roles: {type: array, items: {type: string}}
+  description: Stop the virtual cell's instances (never terminates them).
+
+- name: vcell_bringup
+  title: Bring up the robot controllers
+  path: /api/v1/infra/bringup
+  destructive: true
+  body:
+    type: object
+    properties:
+      restartControllers: {type: boolean, description: "Restart every robot controller first (a KUKA VC stuck with M_27002)."}
+  description: |
+    The robot controllers' bring-up, on templates with bringup.action (the KUKA VC hosts: health check, up if needed,
+    acknowledge). Follow it with vcell_status.
+
+- name: vcell_deploy_check
+  title: Check whether an export can be deployed
+  path: /api/v1/infra/deploy/check
+  read_only: true
+  body:
+    type: object
+    properties:
+      build: {type: string, description: "An export id (default: the newest)."}
+      cell: {type: string}
+  description: |
+    Read-only, seconds: the robot code against the controllers (KUKA VCs: KRL names against $config.dat), safety,
+    network, stations and IPs, job number and profile, PLAN_ID, the cell's state and the plan's status. Explain
+    every failing rule and its fix.
+
+- name: vcell_deploy_fix
+  title: Apply the deploy check's fixes
+  path: /api/v1/infra/deploy/fix
+  body:
+    type: object
+    properties:
+      build: {type: string}
+      cell: {type: string}
+      rules: {type: array, items: {type: string}, description: "Only these rules' fixes (default: every failing rule)."}
+  description: Fix the failing rules (Hardware Configuration saved, a backup kept), export again and check the new export.
+
+- name: vcell_deploy
+  title: Run Control Code (deploy)
+  path: /api/v1/infra/deploy
+  destructive: true
+  body:
+    type: object
+    properties:
+      build: {type: string, description: "The export (default: the newest successful one)."}
+      start: {type: boolean, description: "false: deploy only, without starting production."}
+      stages: {type: array, items: {type: string}, description: "Only these of the template's stages (consumer.deploy.stages; legacy: projects, deploy, krl, start)."}
+      force: {type: boolean, description: "Without the deploy check first."}
+  description: |
+    Deploy an export to the virtual cell in its template's stages (legacy templates: CODESYS projects, download
+    and boot application, KRL onto the KUKA VCs), then production (unless start false). Takes ~10 minutes; follow
+    it with vcell_status. Only after vcell_deploy_check passes and the user said go.
+
+- name: vcell_production_start
+  title: Start production
+  path: /api/v1/infra/production
+  destructive: true
+  body:
+    type: object
+    properties:
+      build: {type: string}
+  description: Start production on the deployed export (runtimes restarted, robot controllers to external mode (KUKA EXT), head pulsed until running).
+
+- name: vcell_production_stop
+  title: Stop production
+  path: /api/v1/infra/production/stop
+  destructive: true
+  description: Stop production (the head PLC stops, a CODESYS head in CS_ERROR ERR_OPERATOR_STOP; the hosts keep running).
+
+- name: vcell_auto_restart_get
+  title: Auto-restart settings
+  method: GET
+  path: /api/v1/infra/auto-restart
+  description: Whether production restarts itself before the CODESYS demo runtime stops (~2 h; templates with runtime.codesys).
+
+- name: vcell_auto_restart_set
+  title: Set auto-restart
+  method: PUT
+  path: /api/v1/infra/auto-restart
+  body:
+    type: object
+    properties:
+      enabled: {type: boolean}
+      thresholdS: {type: integer}
+    required: [enabled]
+  description: Turn the auto-restart before the CODESYS demo stop on or off.
+
+- name: vcell_smartpads
+  title: The controllers' smartPAD links
+  method: GET
+  path: /api/v1/smartpads
+  description: Each robot controller and the URL of its pendant (KUKA smartPAD, iiQKA.UI; templates with smartpad) for the user to open.
+
+- name: vcell_kvc_read
+  title: Read one robot controller
+  path: /api/v1/infra/kvc/read
+  read_only: true
+  body:
+    type: object
+    properties:
+      robot: {type: string, description: "The robot's namespace (robot1, …)."}
+      op: {type: string, description: "An operation of the cell's template that only reads (vcell_list_templates consumer.ops); legacy cells: status, mode, program, braketest-need."}
+      arg: {type: string, description: "The op's argument; legacy: mode / program show."}
+    required: [robot, op]
+  description: |
+    Read one robot controller with an op of the cell's template that does not change it (the backend refuses one
+    that would). Legacy templates, a KUKA virtual controller: status (state, operating mode $MODE_OP, selected
+    program, pending messages and whether they stop the robot), mode show, program show, braketest-need.
+
+- name: vcell_kvc
+  title: Operate one robot controller
+  path: /api/v1/infra/kvc
+  destructive: true
+  body:
+    type: object
+    properties:
+      robot: {type: string, description: "The robot's namespace (robot1, …)."}
+      op: {type: string, description: "An operation of the cell's template (vcell_list_templates consumer.ops); legacy cells: status, mode, ack, restart, program, braketest-need."}
+      arg: {type: string, description: "The op's argument (consumer.ops argSchema). Legacy: mode: show, T1, T2, AUT, EXT. program: show, cancel, select, select=<module>."}
+    required: [robot, op]
+  description: |
+    One operation of the cell's template on one robot controller; the backend checks the op and its argument
+    against the template's consumer.ops, which also say whether it changes the controller (destructive). Legacy
+    templates, a KUKA virtual controller over its SSM or kubectl remote: status (state, operating mode, selected
+    program, pending messages), mode show / T1 / T2 / AUT / EXT (through the smartPAD), ack (stop messages
+    acknowledged in T1, back to EXT, brake test if due), restart (controller restart, then ack), program show /
+    cancel / select, braketest-need. status, mode show, program show and braketest-need only read; the others
+    change a running controller: ask first.

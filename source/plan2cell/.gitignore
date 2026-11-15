@@ -1,0 +1,9 @@
+# Rust build output and generated outputs
+target/
+out/
+dist/
+release/
+.DS_Store
+# Research notes quote controller sample code that is not ours to publish: keep them local.
+crates/bt2krl/docs/research/
+__pycache__/

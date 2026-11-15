@@ -1,0 +1,25 @@
+/target
+/web/node_modules
+/web/dist
+/cell/target
+# The rerun checkout (scripts/fetch-rerun.sh); only PIN and patches/ are committed.
+/third_party/rerun/src
+
+# Product & Task products saved by a local backend (productsDir defaults to products/ next to the config file).
+/products/
+
+# factoryos-terminal-agent builds (scripts/build-terminal-agent.sh)
+plan2cell/infra/terminal-agent/bin/
+plan2cell/infra/omniverse/isaac-zenoh/terminal-agent/
+
+# scripts/visual_smoke.py's default output (screenshots, report.md, logs).
+/out/
+.e2e-assets/
+
+# ASH's working files (its default output dir .ash/ash_output/); only its configuration is committed.
+/.ash/*
+!/.ash/.ash.yaml
+
+# Python bytecode
+__pycache__/
+*.pyc

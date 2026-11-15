@@ -1,0 +1,10 @@
+; OPTIONAL PATCH, do not copy over the controller's cell.src:
+; its CASE list is cell-specific. Add the two lines below to the SWITCH PGNO block
+; of KRC/R1/Folgen/cell.src (CASE 0 of SWITCH P_TYPE), keeping the existing cases.
+
+SWITCH PGNO
+   CASE 11
+      FOLGE11()
+ENDSWITCH
+
+; Folge 11 must be 1..255: PRG_NR is 8 bits (E1-E8) on these robots.

@@ -1,0 +1,71 @@
+--- a/utils/arm_model.py
++++ b/utils/arm_model.py
+@@ -28,12 +28,36 @@
+ """
+ from __future__ import annotations
+ 
++import copy
++import os
+ import threading
+ from pathlib import Path
+ from typing import Optional
+ 
+ from utils import cell_layout
+ 
++# umarell-fast U3 (patch U3_01): parse-once cache of robots.yaml. ``_robot_config``
++# re-parsed it with pure-Python PyYAML on EVERY call (every ``tcp_spec``, so every
++# ``load``) -- thousands of times per plan (docs/uf_profile.md section 5). Keyed on
++# the file's (path, mtime, size), so an edited file is re-read; the parsed dict is
++# shared and the returned block deep-copied because callers may mutate it. (The
++# model itself is cached upstream, in ``load``.) UMARELL_MODEL_CACHE=0 restores the
++# uncached parse.
++_CONFIG_LOCK = threading.Lock()
++_CONFIG_CACHE: dict = {}
++
++
++def _config_cache_enabled() -> bool:
++    return os.environ.get("UMARELL_MODEL_CACHE", "1").strip().lower() not in ("0", "false", "no")
++
++
++def _file_key(path) -> Optional[tuple]:
++    try:
++        st = Path(path).stat()
++    except OSError:
++        return None
++    return (str(path), st.st_mtime_ns, st.st_size)
++
+ # Frame names that have historically meant "the tool tip". Consulted only when
+ # the cell does not declare end_effector_link, so a hand-written cell still works.
+ _LEGACY_EE_NAMES = ("welding_tcp", "tool0")
+@@ -44,16 +68,26 @@
+     """The ``config/robots.yaml`` block for one robot, matched on the inner key."""
+     import yaml
+     path = cell_layout.robots_yaml(cell_id, cell_base)
+-    try:
+-        cfg = yaml.safe_load(path.read_text()) or {}
+-    except OSError:
+-        return {}
++    key = _file_key(path) if _config_cache_enabled() else None
++    cfg = None
++    if key is not None:
++        with _CONFIG_LOCK:
++            cfg = _CONFIG_CACHE.get(key)
++    if cfg is None:
++        try:
++            loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
++            cfg = yaml.load(path.read_text(), Loader=loader) or {}
++        except OSError:
++            return {}
++        if key is not None:
++            with _CONFIG_LOCK:
++                _CONFIG_CACHE[key] = cfg
+     for ns_block in (cfg.get("robots") or {}).values():
+         if not isinstance(ns_block, dict):
+             continue
+         rcfg = ns_block.get(robot_ns)
+         if isinstance(rcfg, dict):
+-            return rcfg
++            return copy.deepcopy(rcfg)
+     return {}
+ 
+ 

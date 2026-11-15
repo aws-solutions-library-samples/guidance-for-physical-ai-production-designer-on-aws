@@ -1,0 +1,218 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1790934549_welding_cell_2_small",
+  "cell_id": "welding_cell_2_small",
+  "plan_id": "16#F77E",
+  "profile": "sim",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot1",
+    "tag": "R1",
+    "controller": "robot1",
+    "model": "KR240R2900_ULTRA",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11,
+    125
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "0d6b1c287f9a80e2"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "9a328ca4c6620ca9"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "f407db3b36e2a905"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.dat",
+      "fnv1a64": "e97ba42ebd4e2c58"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.src",
+      "fnv1a64": "a728148b30313cf2"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.dat",
+      "fnv1a64": "97399d5371d14d5f"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.src",
+      "fnv1a64": "806c00e96c2ff1ba"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "b250c35e26658f1a"
+    },
+    {
+      "path": "KRC/R1/System/bt_sps.src",
+      "fnv1a64": "f5d0284440b5426c"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "W01",
+      "zone_mask": "16#00000001",
+      "waypoints": 47,
+      "points": 15,
+      "est_s": 10.485,
+      "est_motion_s": 9.985,
+      "planned_motion_s": 10.632,
+      "expected_s": 11.132,
+      "limit_s": 21.698
+    },
+    {
+      "index": 2,
+      "operation_id": "W02",
+      "zone_mask": "16#00000002",
+      "waypoints": 21,
+      "points": 9,
+      "est_s": 4.312,
+      "est_motion_s": 3.812,
+      "planned_motion_s": 3.821,
+      "expected_s": 4.321,
+      "limit_s": 11.482
+    },
+    {
+      "index": 3,
+      "operation_id": "W03",
+      "zone_mask": "16#00000001",
+      "waypoints": 27,
+      "points": 12,
+      "est_s": 5.833,
+      "est_motion_s": 5.333,
+      "planned_motion_s": 5.451,
+      "expected_s": 5.951,
+      "limit_s": 13.927
+    },
+    {
+      "index": 4,
+      "operation_id": "W06",
+      "zone_mask": "16#00000002",
+      "waypoints": 15,
+      "points": 5,
+      "est_s": 2.822,
+      "est_motion_s": 2.322,
+      "planned_motion_s": 2.172,
+      "expected_s": 2.672,
+      "limit_s": 9.008
+    },
+    {
+      "index": 5,
+      "operation_id": "W05",
+      "zone_mask": "16#00000001",
+      "waypoints": 27,
+      "points": 11,
+      "est_s": 5.628,
+      "est_motion_s": 5.128,
+      "planned_motion_s": 5.412,
+      "expected_s": 5.912,
+      "limit_s": 13.868
+    },
+    {
+      "index": 6,
+      "operation_id": "W04",
+      "zone_mask": "16#00000002",
+      "waypoints": 22,
+      "points": 9,
+      "est_s": 4.399,
+      "est_motion_s": 3.899,
+      "planned_motion_s": 4.05,
+      "expected_s": 4.55,
+      "limit_s": 11.825
+    },
+    {
+      "index": 7,
+      "operation_id": "R1_PARK",
+      "zone_mask": "16#00000001",
+      "waypoints": 10,
+      "points": 7,
+      "est_s": 2.836,
+      "est_motion_s": 2.336,
+      "planned_motion_s": 2.171,
+      "expected_s": 2.671,
+      "limit_s": 9.007
+    },
+    {
+      "index": 8,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000002",
+      "waypoints": 42,
+      "points": 14,
+      "est_s": 8.271,
+      "est_motion_s": 8.271,
+      "planned_motion_s": 8.331,
+      "expected_s": 8.331,
+      "limit_s": 17.497
+    }
+  ],
+  "warnings": [],
+  "check": {
+    "profile": "sim",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      256
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [],
+    "reserved_in": [],
+    "request_base": 225,
+    "grant_base": 97,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "BT_STEP=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 3,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 4,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 5,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 6,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 7,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 8,
+        "mask": 2,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

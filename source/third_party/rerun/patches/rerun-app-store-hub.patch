@@ -1,0 +1,15 @@
+--- a/crates/top/re_viewer/src/app/mod.rs
++++ b/crates/top/re_viewer/src/app/mod.rs
+@@ -1103,6 +1103,12 @@
+                     time_commands,
+                 });
+         }
++    }
++
++    /// The viewer's stores (recordings and blueprints), for a host to read, e.g. an application's
++    /// active blueprint. `None` only while the viewer is in the middle of a frame.
++    pub fn store_hub(&self) -> Option<&StoreHub> {
++        self.store_hub.as_ref()
+     }
+ 
+     pub fn recording_db(&self) -> Option<&EntityDb> {

@@ -1,0 +1,31 @@
+[package]
+name = "plan2cell-cli"
+description = "The plan2cell command: build head-PLC code and robot programs from a behaviour-tree plan, serve it over MCP, bring it up on the cell"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "plan2cell"
+path = "src/main.rs"
+
+[features]
+default = ["check"]
+check = ["plan2cell/check", "plan2cell-mcp/check"]
+sim = ["check", "plan2cell/sim", "plan2cell-mcp/sim"]
+# `plan2cell cell ...`: bring a build up on the cell (PLC host over ssh, CODESYS over MCP).
+cell = ["dep:plan2cell-cell"]
+
+[dependencies]
+plan2cell.workspace = true
+plan2cell-mcp.workspace = true
+plan2cell-cell = { workspace = true, optional = true }
+clap.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true

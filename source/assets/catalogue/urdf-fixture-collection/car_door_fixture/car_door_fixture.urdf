@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<!--
+  car_door_fixture - the car-door panel fixture of the reference cell welding_cell_2_small: umarell's model
+  of it, the boxes of umarell's cells/welding_cell_2s/config/obstacles.yaml (the container floor, four
+  0.25 m walls, four clamp rails on their tops and the inner weld surface panel), 0.10 m lower: every top
+  at z = 1.10 m (umarell: 1.20 m), one mesh for visual and collision so the planner's converter can
+  voxelise it. Metres, Z up, relative to the fixture origin: its centre on the floor (the scene places it
+  at x -0.975, y -1.225). Footprint 1.15 x 1.95 m.
+  The cell's 15 weld points (agentic_planner/tasks/car_door_spot_welding.json, z = 1.35 m) sit above the
+  panel, as in umarell (welding_cell_2_small/NOTE.md: "A known inconsistency in umarell's data"). Why
+  lower: Prepare Cell's voxel shell (0.05 m voxels, faces snapped outward) puts umarell's 1.20 m tops at
+  1.25 m, and the planners keep the TCP sphere (tool_link_radius 0.05 m + collision_margin 0.05 m) 0.10 m
+  from every box, so a weld 0.10 m above that shell is in collision (umarell_jam: goal_in_collision at
+  every weld); at 1.10 m the shell's top is 1.15 m, the welds clear it.
+-->
+<robot name="car_door_fixture">
+  <link name="World">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes/car_door_fixture.obj" scale="1 1 1"/></geometry>
+      <material name="fixture_steel"><color rgba="0.55 0.65 0.75 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><mesh filename="meshes/car_door_fixture.obj" scale="1 1 1"/></geometry>
+    </collision>
+  </link>
+</robot>

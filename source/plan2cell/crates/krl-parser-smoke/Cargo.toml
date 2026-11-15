@@ -1,0 +1,19 @@
+# Parser smoke check of bt2krl output with krl-runner's lenient `kuka-krl-parser`
+# (copied into crates/kuka-krl-parser).
+#   cargo test -p krl-parser-smoke
+#   cargo run -p krl-parser-smoke -- <bt2krl output dir>
+[package]
+name = "krl-parser-smoke"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+bt2krl.workspace = true
+serde_json.workspace = true
+kuka-krl-parser = { path = "../kuka-krl-parser" }
+
+[dev-dependencies]
+tempfile.workspace = true

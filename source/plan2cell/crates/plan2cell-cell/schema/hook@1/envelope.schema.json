@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook@1 answer envelope (the last non-empty stdout line of every verb)",
+  "description": "ok == (exit == 0); exit equals the hook's process exit code (0, 2 usage or unimplemented, 3 precondition, 4 transient, 7 verify, 8 build). Verb fields are added at the top level. error only when ok is false.",
+  "type": "object",
+  "required": [
+    "schema",
+    "verb",
+    "ok",
+    "exit"
+  ],
+  "properties": {
+    "schema": {
+      "const": "factoryos/hook@1"
+    },
+    "verb": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "exit": {
+      "enum": [
+        0,
+        2,
+        3,
+        4,
+        7,
+        8
+      ]
+    },
+    "role": {
+      "enum": [
+        "head-plc",
+        "robot-controller"
+      ]
+    },
+    "component": {
+      "type": "string"
+    },
+    "hook": {
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "exit": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "exit": {
+            "not": {
+              "const": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

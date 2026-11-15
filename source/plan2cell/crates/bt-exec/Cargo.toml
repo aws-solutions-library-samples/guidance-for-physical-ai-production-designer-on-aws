@@ -1,0 +1,11 @@
+[package]
+name = "bt-exec"
+description = "A BehaviorTree.CPP v4 interpreter that records every status transition, with stub leaves and manual overrides."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+bt-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true

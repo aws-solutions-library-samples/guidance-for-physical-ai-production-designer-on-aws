@@ -1,0 +1,65 @@
+; bt2krl sim: merge into KRC/R1/System/$config.dat (fold USER GLOBALS), robot robot1 plan 16#A312
+; Profile sim. NEVER on a VW KS24 robot: these signals collide with the VW standard.
+;FOLD BT2KRL robot1 16#A312
+   ; PLC -> robot: telegram byte b bit i = $IN[0 + 8b + i + 1]
+   SIGNAL BT_C_DRIVES $IN[1] ; [0].0 DrivesOn (level)
+   SIGNAL BT_C_START $IN[2] ; [0].1 ProgStart (500 ms pulse)
+   SIGNAL BT_C_STOP $IN[3] ; [0].2 Stop (level)
+   SIGNAL BT_C_CANCEL $IN[4] ; [0].3 Cancel (level)
+   SIGNAL BT_C_EXT $IN[5] ; [0].4 EXT mode request
+   SIGNAL BT_C_RESET $IN[6] ; [0].5 Reset (held 1 s)
+   SIGNAL BT_C_JOBREQ $IN[9] ; [1].0 JobRequest
+   SIGNAL BT_JOB $IN[17] TO $IN[32] ; job number (Folge)
+   SIGNAL BT_PLANID $IN[33] TO $IN[48] ; PLAN_ID WORD LE
+   ; GRANT bit b = $IN[97+b] (read per bit in the Folge; bit 31 = permit)
+   ; robot -> PLC: telegram byte b bit i = $OUT[0 + 8b + i + 1]
+   SIGNAL BT_O_DRIVES $OUT[1] ; [0].0 DrivesPowered
+   SIGNAL BT_O_RUN $OUT[2] ; [0].1 ProgRunning
+   SIGNAL BT_O_HOME $OUT[3] ; [0].2 AtHome
+   SIGNAL BT_O_INPOS $OUT[4] ; [0].3 InPosition
+   SIGNAL BT_O_EXT $OUT[5] ; [0].4 ModeExt
+   SIGNAL BT_O_READY $OUT[6] ; [0].5 Ready
+   SIGNAL BT_O_ERROR $OUT[7] ; [0].6 Error
+   SIGNAL BT_O_WARN $OUT[8] ; [0].7 Warning
+   SIGNAL BT_O_GATES $OUT[9] ; [1].0 Gates closed
+   SIGNAL BT_O_ESTOP $OUT[10] ; [1].1 EStopOK
+   SIGNAL BT_O_FIN $OUT[11] ; [1].2 ProgFinished
+   SIGNAL BT_O_JOBACK $OUT[12] ; [1].3 JobAck
+   SIGNAL BT_O_PERIPH $OUT[15] ; [1].6 Periphery ready
+   SIGNAL BT_ECHO $OUT[17] TO $OUT[32] ; job echo
+   SIGNAL BT_STEP $OUT[33] TO $OUT[48] ; op index WORD LE
+   SIGNAL BT_ERRCODE $OUT[81] TO $OUT[96] ; error code
+   SIGNAL BT_WARNCODE $OUT[97] TO $OUT[112] ; warning code
+   SIGNAL BT_REQ0 $OUT[225] TO $OUT[232] ; REQUEST byte 0 (cleared by bt_sps)
+   SIGNAL BT_REQ1 $OUT[233] TO $OUT[240] ; REQUEST byte 1 (cleared by bt_sps)
+   SIGNAL BT_REQ2 $OUT[241] TO $OUT[248] ; REQUEST byte 2 (cleared by bt_sps)
+   SIGNAL BT_REQ3 $OUT[249] TO $OUT[256] ; REQUEST byte 3 (cleared by bt_sps)
+   SIGNAL BT_JNT0 $OUT[129] TO $OUT[136] ; A1 high byte
+   SIGNAL BT_JNT1 $OUT[137] TO $OUT[144] ; A1 low byte
+   SIGNAL BT_JNT2 $OUT[145] TO $OUT[152] ; A2 high byte
+   SIGNAL BT_JNT3 $OUT[153] TO $OUT[160] ; A2 low byte
+   SIGNAL BT_JNT4 $OUT[161] TO $OUT[168] ; A3 high byte
+   SIGNAL BT_JNT5 $OUT[169] TO $OUT[176] ; A3 low byte
+   SIGNAL BT_JNT6 $OUT[177] TO $OUT[184] ; A4 high byte
+   SIGNAL BT_JNT7 $OUT[185] TO $OUT[192] ; A4 low byte
+   SIGNAL BT_JNT8 $OUT[193] TO $OUT[200] ; A5 high byte
+   SIGNAL BT_JNT9 $OUT[201] TO $OUT[208] ; A5 low byte
+   SIGNAL BT_JNT10 $OUT[209] TO $OUT[216] ; A6 high byte
+   SIGNAL BT_JNT11 $OUT[217] TO $OUT[224] ; A6 low byte
+   ; Flags shared by bt_sps (submit) and bt_cell / the Folgen (robot interpreter)
+   DECL BOOL BT_START=FALSE
+   DECL BOOL BT_RUN=FALSE
+   DECL BOOL BT_FIN=FALSE
+   DECL BOOL BT_ERR=FALSE
+   DECL BOOL BT_ACK=FALSE
+   DECL BOOL BT_ABRT=FALSE
+   DECL BOOL BT_READY=FALSE
+   DECL BOOL BT_M_JOB=FALSE
+   DECL BOOL BT_M_START=FALSE
+   DECL BOOL BT_M_RESET=FALSE
+   DECL INT BT_JOBNR=0
+   DECL INT BT_PLANL=0
+   DECL INT BT_ECODE=0
+   DECL INT BT_WCODE=0
+   DECL AXIS BT_HOME={A1 0.0,A2 -90.0,A3 90.0,A4 0.0,A5 0.0,A6 0.0} ; home_pose_deg (AtHome)
+;ENDFOLD

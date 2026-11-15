@@ -1,0 +1,225 @@
+# Product & Task: the part a cell produces and its operations (spot welds, …), in the product's own
+# frame: metres, z up; a box stands on its frame's origin (the centre of its bottom face).
+
+- name: product_list
+  title: List products
+  method: GET
+  path: /api/v1/product/list
+  description: |
+    The user's products (folder names under the products dir). Load one with product_get.
+
+- name: product_get
+  title: Read a product
+  path: /api/v1/product/load
+  read_only: true
+  body:
+    type: object
+    properties:
+      name: {type: string, description: "The product's name."}
+    required: [name]
+  description: |
+    A product as stored: geometry (box size / mesh / URDF), its tasks (process, tool, params) and every
+    operation with id, target (point position + outward normal, or a path), group and parameter overrides.
+
+- name: product_save
+  title: Save a whole product
+  path: /api/v1/product/save
+  body:
+    type: object
+    description: The whole product (as product_get returns it under `product`).
+    properties:
+      name: {type: string, description: "Folder name: letters, digits, _ and - only."}
+      description: {type: string}
+      geometry:
+        type: object
+        description: '{"kind":"box","size":[x,y,z]} | {"kind":"mesh","path":"part.obj","scale":1} | {"kind":"urdf","path":"urdf/part.urdf"}'
+      tasks:
+        type: array
+        description: 'Each {name, process (spotWeld|seamWeld|glue|screw|drill|inspect), tool, params, operations:[{id, target:{kind:"point",position,normal}, group, params}]}.'
+        items: {type: object}
+    required: [name, geometry]
+  description: |
+    Create or overwrite a product. Prefer the weld tools (product_add_welds, …) for changes to operations;
+    use this for a new product or a new geometry. Cells using the product get their task programs derived
+    again.
+
+- name: product_catalogue
+  title: List catalogue products
+  method: GET
+  path: /api/v1/product/catalogue
+  description: The catalogue's ready-made products; copy one into the user's products with product_from_catalogue.
+
+- name: product_from_catalogue
+  title: Copy a catalogue product
+  path: /api/v1/product/catalogue/load
+  body:
+    type: object
+    properties:
+      name: {type: string}
+      overwrite: {type: boolean, description: "Replace a product of that name (default false: 409)."}
+    required: [name]
+  description: Copy a catalogue product (with its tasks) into the user's products.
+
+- name: product_publish
+  title: Publish a product to the catalogue
+  path: /api/v1/product/catalogue/publish
+  body:
+    type: object
+    properties:
+      name: {type: string}
+      overwrite: {type: boolean}
+    required: [name]
+  description: Copy a saved product into the user's catalogue additions.
+
+- name: product_fixtures
+  title: List catalogue fixtures
+  method: GET
+  path: /api/v1/product/fixtures
+  description: The catalogue's fixtures, whose URDFs a product can use as its geometry (product_urdf_from_fixture).
+
+- name: product_urdf_from_fixture
+  title: Use a fixture URDF as a product's part
+  path: /api/v1/product/urdf/from_catalogue
+  body:
+    type: object
+    properties:
+      product: {type: string}
+      fixture: {type: string}
+    required: [product, fixture]
+  description: |
+    Copy fixture `fixture`'s URDF and meshes into product `product`'s urdf/ folder; then set the product's
+    geometry to {"kind":"urdf","path":"urdf/<file>.urdf"} with product_save.
+
+- name: product_preview
+  title: Show a product in the 3D view
+  path: /api/v1/product/preview
+  read_only: true
+  body:
+    type: object
+    properties:
+      product: {type: object, description: "The product (as product_get returns it under `product`), unsaved edits included."}
+    required: [product]
+  description: Draw a product with its operations in the Product & Task 3D view (nothing is saved).
+
+- name: product_add_welds
+  title: Add spot welds
+  path: /api/v1/product/{name}/welds/add
+  params: {name: "The product."}
+  body:
+    type: object
+    properties:
+      task: {type: string, description: "The task; left out: the product's spot welding (or only) task. A new name creates the task."}
+      process: {type: string, description: "For a new task: spotWeld (default), screw, drill, inspect."}
+      tool: {type: string, description: "The task's tool (a Robo Dresser catalogue tool, e.g. the spot welding gun)."}
+      snap: {type: boolean, description: "Move each point onto the part's surface first and take its normal from there (default true)."}
+      welds:
+        type: array
+        items:
+          type: object
+          properties:
+            position: &v3 {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "[x, y, z] metres, product frame."}
+            normal: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "Outward surface normal; left out: the surface's."}
+            id: {type: string, description: "Left out: the next free id (W07, …)."}
+            group: {type: string, description: "Operations of one group are done together, e.g. structural before secondary."}
+            params: {type: object, description: "Overrides of the task's process parameters (weldTime s, force kN, current kA, approachOffset m) and priority."}
+          required: [position]
+    required: [welds]
+  description: |
+    Add point operations (spot welds) to a product and save it. Points are snapped onto the part (box, OBJ/STL
+    mesh or URDF) unless snap is false; the answer lists the new ids and any issue found at them
+    (inside the part, off the surface, too close to another weld, near an edge). Use product_snap_point first
+    to see where a point lands.
+
+- name: product_remove_welds
+  title: Remove spot welds
+  path: /api/v1/product/{name}/welds/remove
+  params: {name: "The product."}
+  body:
+    type: object
+    properties:
+      task: {type: string, description: "Only this task (default: every task)."}
+      ids: {type: array, items: {type: string}, description: 'Operation ids; ["*"]: all of the task(s).'}
+    required: [ids]
+  description: Remove operations from a product and save it.
+
+- name: product_move_weld
+  title: Move or re-orient a spot weld
+  path: /api/v1/product/{name}/welds/move
+  params: {name: "The product."}
+  body:
+    type: object
+    properties:
+      task: {type: string}
+      id: {type: string}
+      position: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "New [x, y, z] metres."}
+      delta: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "Or: move by [dx, dy, dz] metres."}
+      normal: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "New outward normal (left out: the surface's at the new place)."}
+      snap: {type: boolean, description: "Onto the surface after moving (default true)."}
+    required: [id]
+  description: Move one point operation (to a position or by a delta) and/or set its normal, then save.
+
+- name: product_regroup_welds
+  title: Group and order spot welds
+  path: /api/v1/product/{name}/welds/regroup
+  params: {name: "The product."}
+  body:
+    type: object
+    properties:
+      task: {type: string}
+      ids: {type: array, items: {type: string}}
+      group: {type: string, description: "The new group, e.g. structural, secondary."}
+      priority: {type: number, description: "The operations' priority (lower first)."}
+    required: [ids, group]
+  description: Set the group (and priority) of operations; the planner does a group's welds together.
+
+- name: product_generate_welds
+  title: Generate a weld grid on a face
+  path: /api/v1/product/{name}/welds/generate
+  params: {name: "The product."}
+  body:
+    type: object
+    properties:
+      task: {type: string}
+      process: {type: string}
+      tool: {type: string}
+      face: {type: string, description: "+Z (top), -Z (bottom), +X, -X, +Y, -Y."}
+      rows: {type: integer, minimum: 1}
+      columns: {type: integer, minimum: 1}
+      pitch: {type: number, description: "Instead of rows/columns: spacing between welds, metres."}
+      margin: {type: number, description: "Distance from the face's edges, metres."}
+      group: {type: string}
+      replace: {type: boolean, description: "Replace the task's operations (default: add)."}
+    required: [face]
+  description: |
+    Box products: a rows × columns grid of spot welds (or, for a path process, the face's outline) evenly
+    spread over one face, `margin` in from its edges, with the face's normal. Saves the product.
+
+- name: product_snap_point
+  title: Snap points onto the part
+  path: /api/v1/product/{name}/snap
+  params: {name: "The product."}
+  read_only: true
+  body:
+    type: object
+    properties:
+      points: {type: array, items: *v3}
+    required: [points]
+  description: |
+    Where points land on the part's surface (nearest point of the box / mesh / URDF), with the outward normal
+    there and how far each moved. Nothing is saved.
+
+- name: product_check_welds
+  title: Check a product's welds
+  path: /api/v1/product/{name}/welds/check
+  params: {name: "The product."}
+  read_only: true
+  body:
+    type: object
+    properties:
+      task: {type: string}
+      minPitch: {type: number, description: "Welds closer than this are flagged, metres (default 0.02)."}
+      edgeMargin: {type: number, description: "Box: welds closer than this to an edge are flagged, metres (default 0.01)."}
+      surfaceTolerance: {type: number, description: "Welds farther than this from the surface are flagged, metres (default 0.003)."}
+  description: |
+    Check every weld: on the surface (not inside the part or floating), the normal matching the surface,
+    spacing, distance to edges, ids unique. Run it before planning; fix findings with the weld tools.

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook@1 health answer: runtime is a plan2cell/cell-runtime@1 report (camelCase, plan2cell-cell/src/runtime.rs)",
+  "type": "object",
+  "required": [
+    "runtime"
+  ],
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "required": [
+        "schema",
+        "ok",
+        "runtimes"
+      ],
+      "properties": {
+        "schema": {
+          "const": "plan2cell/cell-runtime@1"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "nowS": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runtimes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "container",
+              "head",
+              "exists",
+              "running"
+            ],
+            "properties": {
+              "container": {
+                "type": "string"
+              },
+              "head": {
+                "type": "boolean"
+              },
+              "exists": {
+                "type": "boolean"
+              },
+              "running": {
+                "type": "boolean"
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startedS": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "restartCount": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "demo": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "stopsS": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "secondsLeft": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "detail": {
+      "type": "object"
+    }
+  }
+}

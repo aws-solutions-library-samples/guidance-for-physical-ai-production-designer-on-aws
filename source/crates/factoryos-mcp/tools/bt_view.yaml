@@ -1,0 +1,159 @@
+# The Behaviour Tree Executor (the simulated cell's playback of a plan) and the 3D view. The plan's
+# behaviour tree is compiled into a timeline of operations (one segment per robot and operation);
+# playback moves the robots in the viewer's Live Cell / Robo Fitter view.
+
+- name: bt_load_plan
+  title: Load a plan into the Behaviour Tree Executor
+  path: /api/v1/cell/plan/load
+  body:
+    type: object
+    properties:
+      path: {type: string, description: "The plan (cell_plans `path`, e.g. agentic_planner/plans/bt_….json)."}
+      play: {type: boolean, description: "Start playing right away."}
+      cell: {type: string, description: "The cell to simulate it in (default: the active cell)."}
+    required: [path, play]
+  description: |
+    Load a saved plan into the simulated cell (starting the cell-runner if needed) and optionally play it. The
+    answer lists the compiled timeline (operations per robot with t0 / t_end), warnings and collision findings.
+
+- name: bt_state
+  title: Simulated cell and playback state
+  method: GET
+  path: /api/v1/cell/snapshot
+  description: |
+    The simulated cell's state (robots' joints, IOs) and the behaviour tree playback: playing, t / duration,
+    each robot's phase and operation, breakpoints and the breakpoint hit.
+
+- name: bt_timeline
+  title: The loaded plan's timeline
+  verb: trajectory_timeline
+  read_only: true
+  description: Every operation of the loaded plan in start order (op_id, robot_id, op_type, t0, t_end, hold_end).
+
+- name: bt_play
+  title: Play
+  verb: trajectory_play
+  description: Play (or resume) the loaded plan; it pauses at breakpoints.
+
+- name: bt_pause
+  title: Pause
+  verb: trajectory_pause
+  description: Pause playback.
+
+- name: bt_stop
+  title: Stop and rewind
+  verb: trajectory_stop
+  description: Stop playback and rewind to the start.
+
+- name: bt_step
+  title: Step to the next or previous operation
+  verb: trajectory_step
+  body:
+    type: object
+    properties:
+      direction: {type: string, enum: [next, back], description: "Default next."}
+      robot_id: {type: string, description: "Only this robot's operations."}
+  description: Pause and move the playhead to the start of the next (or previous) operation.
+
+- name: bt_seek
+  title: Seek to a time
+  verb: trajectory_seek
+  body:
+    type: object
+    properties:
+      t: {type: number, description: "Seconds from the plan's start."}
+    required: [t]
+  description: Move the playhead to a time.
+
+- name: bt_seek_operation
+  title: Seek to an operation
+  verb: trajectory_seek_operation
+  body:
+    type: object
+    properties:
+      op_id: {type: string, description: "An operation of the timeline (e.g. W03, home, W03:interlock)."}
+      robot_id: {type: string}
+    required: [op_id]
+  description: Pause at the start of an operation.
+
+- name: bt_set_breakpoints
+  title: Set breakpoints
+  verb: trajectory_set_breakpoints
+  body:
+    type: object
+    properties:
+      operations: {type: array, items: {type: string}, description: "Operation ids to pause at; [] clears them."}
+    required: [operations]
+  description: Playback pauses whenever one of these operations starts (state's break_hit says which).
+
+- name: bt_set_speed
+  title: Playback speed
+  verb: trajectory_set_speed
+  body:
+    type: object
+    properties:
+      speed: {type: number, minimum: 0.1, maximum: 100}
+    required: [speed]
+  description: Playback speed factor (1 = real time).
+
+- name: bt_set_loop
+  title: Loop playback
+  verb: trajectory_set_loop
+  body:
+    type: object
+    properties:
+      loop: {type: boolean}
+    required: [loop]
+  description: Play the plan in a loop.
+
+- name: bt_unload
+  title: Unload the plan
+  verb: trajectory_unload
+  description: "Unload the plan: the robots follow the KRL interpreter again."
+
+- name: cell_start
+  title: Start the simulated cell
+  path: /api/v1/cell/start
+  description: Start the simulated cell-runner for the active cell (bt_load_plan does this itself).
+
+- name: cell_stop
+  title: Stop the simulated cell
+  path: /api/v1/cell/stop
+  description: Stop the simulated cell-runner.
+
+- name: cell_command
+  title: Any cell-runner command
+  path: /api/v1/cell/command
+  body:
+    type: object
+    properties:
+      type: {type: string, description: "state, start, stop, step, step_robot, run, reset, set_speed, set_input, set_output, set_krl_input, set_krl_output, set_all_ready, load_folge, trajectory_*."}
+      params: {type: object, description: "The verb's parameters, e.g. {robot: 0, signal: ..., value: true} for set_input, {cycles: 100} for run."}
+    required: [type]
+  description: |
+    Send one verb to the simulated cell-runner (the KRL/PLC simulation and the playback). Prefer the bt_* tools
+    for playback; this one is for the PLC/KRL simulation (IOs, Folge, cycles).
+
+- name: view_camera
+  title: Move the 3D view
+  path: /api/v1/view/command
+  read_only: true
+  body:
+    type: object
+    properties:
+      action: {type: string, enum: [set, focus, preset, orbit, zoom, fit]}
+      page: {type: string, enum: [dresser, fitter, product, training, live], description: "Which page's 3D view (default: the one shown)."}
+      eye: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "set: the camera's position."}
+      target: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "What it looks at."}
+      robot: {type: string, description: "focus: a robot of the Robo Fitter's scene."}
+      weld: {type: string, description: "focus: a weld of the Robo Fitter's task (id or label)."}
+      preset: {type: string, enum: [iso, top, front, back, left, right]}
+      distance: {type: number, description: "Eye to target, metres."}
+      factor: {type: number, description: "zoom: 0.5 closer, 2 farther."}
+      yaw_deg: {type: number, description: "orbit: about the vertical axis."}
+      pitch_deg: {type: number, description: "orbit: up/down."}
+    required: [action]
+  description: |
+    Move the viewers' 3D view, even if the user moved it: set an eye and target, focus on a point / robot /
+    weld, a preset (iso, top, front, back, left, right), orbit, zoom, or fit (frame the whole scene again).
+    Scene frame, metres.

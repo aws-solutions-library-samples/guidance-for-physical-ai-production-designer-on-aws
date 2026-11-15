@@ -1,0 +1,156 @@
+# Robo Dresser: robots (urdf-robot-collection/), tools (urdf-tool-collection/) and dressed robots
+# (urdf-dressed-robots/<robot>__<tool>/) in the catalogue.
+
+- name: dresser_state
+  title: Robo Dresser catalogue and state
+  method: GET
+  path: /api/v1/dresser/state
+  description: |
+    The catalogue's robots, tools and dressed robots (each with any problem), what the Dresser is busy
+    with, and the outcome of the last dress (`dress`: output path, diagnostics, error). Call dresser_open
+    first if the lists are empty.
+
+- name: dresser_open
+  title: Open the Robo Dresser
+  path: /api/v1/dresser/open
+  read_only: true
+  body:
+    type: object
+    properties:
+      rescan: {type: boolean, description: "Scan the catalogue again (after adding files)."}
+  description: Load the catalogue (rescanning if asked) and answer the Dresser's state.
+
+- name: dresser_preview
+  title: Show a robot, tool or dressed robot
+  path: /api/v1/dresser/preview
+  read_only: true
+  body:
+    type: object
+    properties:
+      kind: {type: string, enum: [robot, tool, dressed]}
+      name: {type: string}
+    required: [kind, name]
+  description: Show a catalogue asset in the Robo Dresser's 3D view (its joints in the answer's `preview`).
+
+- name: dresser_dress
+  title: Dress a robot with a tool
+  path: /api/v1/dresser/dress
+  body:
+    type: object
+    properties:
+      robot: {type: string}
+      tool: {type: string}
+      hull: {type: string, enum: [tight, medium, max], description: "Collision hull margin (default tight)."}
+      orient: {type: array, items: {type: integer, enum: [0, 90, 180, 270]}, minItems: 3, maxItems: 3, description: "Tool rotation about X, Y, Z in 90° steps; [0,0,0] = auto-orient."}
+      spin_deg: {type: number, description: "Then turn the tool about the flange axis by any angle (degrees)."}
+      attach_to: {type: string, description: "Mount on this link instead of the flange."}
+    required: [robot, tool, hull, orient]
+  description: |
+    Merge the tool onto the robot's flange and write urdf-dressed-robots/<robot>__<tool>/ (replacing an
+    earlier dressing of that pair). Runs in the background: call dresser_state until `busy` is empty and read
+    `dress` (output_rel, diagnostics, error). Use dresser_orient_sweep first to pick orient / spin_deg.
+
+- name: dresser_orient_sweep
+  title: Find the best tool orientation
+  path: /api/v1/dresser/orient_sweep
+  body:
+    type: object
+    properties:
+      robot: {type: string}
+      tool: {type: string}
+      hull: {type: string, enum: [tight, medium, max]}
+      candidates:
+        type: array
+        description: "Mountings to try (at most 24). Default: auto-orient spun 0/90/180/270° about the flange."
+        items:
+          type: object
+          properties:
+            orient: {type: array, items: {type: integer, enum: [0, 90, 180, 270]}, minItems: 3, maxItems: 3}
+            spin_deg: {type: number}
+      scene_file: {type: string, description: "A scene (its name) with the product placed and the robot(s) in it."}
+      cell: {type: string, description: "Or a cell (its scene)."}
+      robots: {type: array, items: {type: string}, description: "The scene's robots that carry the tool (default: those dressed with `robot`)."}
+      mode: {type: string, enum: [quick, full], description: "quick: IK at the weld (~1 s per robot and weld); full: with the approach stroke (~20 s)."}
+      estimate_only: {type: boolean, description: "Reach domes only, no IK: seconds, but blind to the tool's orientation."}
+      apply: {type: boolean, description: "Dress the best mounting into the catalogue (urdf-dressed-robots/)."}
+    required: [robot, tool]
+  description: |
+    Try tool mountings and rank them by how many of the scene's welds the robots reach with them (then how many
+    two robots reach), with the unreached welds and why (out of reach, joint limits, collisions, …). Each
+    candidate is dressed into a scratch folder; the catalogue changes only with apply. Takes minutes with the
+    IK: start with few candidates, mode quick. Report the table and recommend one; ask before apply.
+
+- name: dresser_view
+  title: Dresser 3D view options
+  path: /api/v1/dresser/view
+  read_only: true
+  body:
+    type: object
+    properties:
+      show_collision: {type: boolean}
+      show_reach: {type: boolean, description: "The robot's reach envelope."}
+    required: [show_collision, show_reach]
+  description: Show or hide the collision hulls and the reach envelope in the Dresser's 3D view.
+
+- name: dresser_get_tcp
+  title: Read a tool's TCP
+  method: GET
+  path: /api/v1/dresser/tool_tcp
+  query:
+    tool: {type: string, required: true}
+  description: A tool's TCP (relative to its root link), as declared in its URDF or estimated.
+
+- name: dresser_tool_tip
+  title: Estimate a tool's tip
+  method: GET
+  path: /api/v1/dresser/tool_tip
+  query:
+    tool: {type: string, required: true}
+  description: "The tool's tip estimated from its meshes: a starting point for its TCP."
+
+- name: dresser_set_tcp
+  title: Set a tool's TCP
+  path: /api/v1/dresser/tool_tcp
+  body:
+    type: object
+    properties:
+      tool: {type: string}
+      xyz_m: {type: array, items: {type: number}, minItems: 3, maxItems: 3}
+      rpy_deg: {type: array, items: {type: number}, minItems: 3, maxItems: 3, description: "Roll, pitch, yaw (URDF rpy), degrees."}
+    required: [tool, xyz_m, rpy_deg]
+  description: Save a tool's TCP into its URDF; the robots dressed with it are updated.
+
+- name: dresser_preview_tcp
+  title: Preview a TCP
+  path: /api/v1/dresser/tool_tcp/preview
+  read_only: true
+  body:
+    type: object
+    properties:
+      tool: {type: string}
+      xyz_m: {type: array, items: {type: number}, minItems: 3, maxItems: 3}
+      rpy_deg: {type: array, items: {type: number}, minItems: 3, maxItems: 3}
+    required: [tool, xyz_m, rpy_deg]
+  description: Draw a TCP in the Dresser's 3D view without saving it.
+
+- name: robot_describe
+  title: Describe a dressed robot
+  method: GET
+  path: /api/v1/robot/info
+  query:
+    dressed: {type: string, description: "A dressed robot of the catalogue: <robot>__<tool> (urdf-dressed-robots/)."}
+    scene_file: {type: string, description: "Or a scene: describe its robots (each distinct dressed robot once)."}
+    cell: {type: string, description: "Or a cell: its scene's robots."}
+    robot_id: {type: string, description: "With scene_file / cell: only this robot."}
+  description: |
+    What a dressed robot is, discovered from its URDF (no model knowledge): DOF and each joint's limits
+    (degrees) and max velocity; A1 height, shoulder (A2) height and offset from A1, link lengths at the
+    zero pose; the wrist centre (A5's origin) reach dome: z range, farthest reach r_max_m, the height it
+    reaches farthest at (sweet_height_m), the comfortable height band (reach >= 90 % of the farthest),
+    r_min there; the tool: TCP in the flange frame, tool length wrist->TCP, whether the TCP is declared or
+    estimated. `placement` derives what to place it by (rules in `placement.rules`): comfortable wrist
+    radius, weld_distance_m (weld to base for a horizontal approach, ratio_target x R + tool length) and
+    its comfortable range, comfortable weld heights (level tool / top-down), weld_line_span_m (a straight
+    weld line one robot does comfortably), base footprint radius, clearance_m from the products and
+    min_spacing_m between bases (the defaults scene_auto_place_robots uses). Heights are above the robot's
+    mounting face: add its pedestal. Call it first when placing robots, and reason from its numbers.

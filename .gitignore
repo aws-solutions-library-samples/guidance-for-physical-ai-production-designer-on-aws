@@ -1,0 +1,56 @@
+### vsCode ###
+.vscode
+
+### macOS ###
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+**/node_modules
+**/dist
+**/build
+**/.DS_Store
+**/.angular
+**/.idea
+cdk.out
+**/data/**.csv
+
+.env
+
+### Windows ###
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+### Environment files (credentials) ###
+.env.*
+
+### Python ###
+__pycache__/
+*.pyc
+
+### This Guidance (source/ is the runnable tree; see source/.gitignore for the rest) ###
+# Rust build output of the three workspaces
+/source/target/
+/source/cell/target/
+/source/plan2cell/target/
+# The web viewer's npm packages and build (scripts/build-web.sh)
+/source/web/node_modules/
+/source/web/dist/
+# The Rerun checkout of scripts/fetch-rerun.sh; only PIN and patches/ are committed
+/source/third_party/rerun/src/
+# Products saved by a local backend (productsDir defaults to products/ next to the config file)
+/source/products/
+# The CDK app's synthesized output, packages and context cache (deployment/)
+/deployment/node_modules/
+/deployment/cdk.out/
+/deployment/cdk.context.json

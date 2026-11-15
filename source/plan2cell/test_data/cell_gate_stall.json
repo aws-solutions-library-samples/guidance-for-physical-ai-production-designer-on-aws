@@ -1,0 +1,160 @@
+{
+ "tree_id": "bt_gate_stall",
+ "cell_id": "cell_2robot_demo",
+ "status": "ok",
+ "num_operations": 3,
+ "behaviour_tree": {
+  "tree_id": "bt_gate_stall",
+  "cell_id": "cell_2robot_demo",
+  "BTCPP_format": "4",
+  "main_tree_to_execute": "MainTree",
+  "xml": "<?xml version=\"1.0\" ?>\n<root BTCPP_format=\"4\" main_tree_to_execute=\"MainTree\">\n  <BehaviorTree ID=\"MainTree\">\n    <Sequence>\n      <Parallel success_count=\"-1\" failure_count=\"1\">\n        <Sequence>\n          <ExecuteTrajectory name=\"weld_robot1_W01\" robot_ns=\"robot1\" operation_id=\"W01\" operation_type=\"weld\" trajectory=\"{traj_robot1_W01}\" hold_duration_s=\"0.5\" velocity_scale=\"1.0\" has_interlock=\"false\"/>\n          <ExecuteTrajectory name=\"move_robot1_R1_PARK\" robot_ns=\"robot1\" operation_id=\"R1_PARK\" operation_type=\"move\" trajectory=\"{traj_robot1_R1_PARK}\" hold_duration_s=\"0.5\" velocity_scale=\"1.0\" has_interlock=\"false\"/>\n        </Sequence>\n        <Sequence>\n          <WaitForRobot name=\"wait_robot1_parked\" robot_ns=\"robot2\" depends_on_joints=\"{deps_robot1_parked}\"/>\n          <ExecuteTrajectory name=\"weld_robot2_W02\" robot_ns=\"robot2\" operation_id=\"W02\" operation_type=\"weld\" trajectory=\"{traj_robot2_W02}\" hold_duration_s=\"0.5\" velocity_scale=\"1.0\" has_interlock=\"false\"/>\n        </Sequence>\n      </Parallel>\n      <Parallel success_count=\"-1\" failure_count=\"1\">\n        <MoveHome name=\"home_robot1\" robot_ns=\"robot1\" trajectory=\"{traj_robot1_home}\"/>\n        <MoveHome name=\"home_robot2\" robot_ns=\"robot2\" trajectory=\"{traj_robot2_home}\"/>\n      </Parallel>\n    </Sequence>\n  </BehaviorTree>\n  <TreeNodesModel>\n    <Action ID=\"ExecuteTrajectory\">\n      <input_port name=\"robot_ns\"/>\n      <input_port name=\"operation_id\"/>\n      <input_port name=\"operation_type\" default=\"weld\"/>\n      <input_port name=\"trajectory\"/>\n      <input_port name=\"hold_duration_s\" default=\"0.5\"/>\n      <input_port name=\"velocity_scale\" default=\"1.0\"/>\n      <input_port name=\"has_interlock\" default=\"false\"/>\n      <input_port name=\"interlock_target\"/>\n      <input_port name=\"depends_on_robots\"/>\n      <input_port name=\"depends_on_positions\"/>\n    </Action>\n    <Action ID=\"MoveHome\">\n      <input_port name=\"robot_ns\"/>\n      <input_port name=\"trajectory\"/>\n    </Action>\n    <Action ID=\"WaitForRobot\">\n      <input_port name=\"robot_ns\"/>\n      <input_port name=\"depends_on_robots\"/>\n      <input_port name=\"depends_on_joints\"/>\n      <input_port name=\"depends_on_positions\"/>\n      <input_port name=\"depends_on_ops\"/>\n    </Action>\n    <Condition ID=\"CheckSafety\">\n      <input_port name=\"condition\" default=\"estop_clear\"/>\n    </Condition>\n  </TreeNodesModel>\n</root>\n",
+  "blackboard": {
+   "traj_robot1_W01": [
+    {
+     "positions": [
+      0.0,
+      -1.57,
+      1.57,
+      0.0,
+      1.57,
+      0.0
+     ],
+     "time_s": 0.0
+    },
+    {
+     "positions": [
+      0.5,
+      -1.2,
+      1.4,
+      0.0,
+      1.2,
+      0.0
+     ],
+     "time_s": 2.0
+    },
+    {
+     "positions": [
+      0.6,
+      -1.1,
+      1.3,
+      0.0,
+      1.1,
+      0.0
+     ],
+     "time_s": 3.0
+    }
+   ],
+   "traj_robot1_R1_PARK": [
+    {
+     "positions": [
+      0.6,
+      -1.1,
+      1.3,
+      0.0,
+      1.1,
+      0.0
+     ],
+     "time_s": 0.0
+    },
+    {
+     "positions": [
+      0.9,
+      -1.2,
+      1.5,
+      0.0,
+      0.8,
+      0.0
+     ],
+     "time_s": 2.5
+    }
+   ],
+   "traj_robot2_W02": [
+    {
+     "positions": [
+      0.0,
+      -1.57,
+      1.57,
+      0.0,
+      1.57,
+      0.0
+     ],
+     "time_s": 0.0
+    },
+    {
+     "positions": [
+      -0.5,
+      -1.2,
+      1.4,
+      0.0,
+      1.2,
+      0.0
+     ],
+     "time_s": 2.5
+    }
+   ],
+   "traj_robot1_home": [
+    {
+     "positions": [
+      0.9,
+      -1.2,
+      1.5,
+      0.0,
+      0.8,
+      0.0
+     ],
+     "time_s": 0.0
+    },
+    {
+     "positions": [
+      0.0,
+      -1.57,
+      1.57,
+      0.0,
+      1.57,
+      0.0
+     ],
+     "time_s": 3.0
+    }
+   ],
+   "traj_robot2_home": [
+    {
+     "positions": [
+      -0.5,
+      -1.2,
+      1.4,
+      0.0,
+      1.2,
+      0.0
+     ],
+     "time_s": 0.0
+    },
+    {
+     "positions": [
+      0.0,
+      -1.57,
+      1.57,
+      0.0,
+      1.57,
+      0.0
+     ],
+     "time_s": 2.5
+    }
+   ],
+   "deps_robot1_parked": [
+    {
+     "robot": "robot1",
+     "joint_positions": [
+      0.9,
+      -1.2,
+      1.6,
+      0.0,
+      0.8,
+      0.0
+     ],
+     "tolerance_rad": 0.02
+    }
+   ]
+  }
+ }
+}

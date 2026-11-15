@@ -1,0 +1,48 @@
+name: cube-weld-2r
+description: Two KR240 R2900 with stick tools facing a 1 m weld cube (top face at z = 1 m).
+robots:
+- robot_id: kr240r2900__sticktool
+  dressed_urdf: ../../urdf-dressed-robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position:
+    x: -1.8
+    y: 0.0
+    z: 0.0
+  orientation:
+    a: 0.0
+    b: 0.0
+    c: 0.0
+  home_pose_deg:
+  - 0.0
+  - -90.0
+  - 90.0
+  - 0.0
+  - 0.0
+  - 0.0
+- robot_id: kr240r2900__sticktool_2
+  dressed_urdf: ../../urdf-dressed-robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position:
+    x: 1.8
+    y: 0.0
+    z: 0.0
+  orientation:
+    a: 180.0
+    b: 0.0
+    c: 0.0
+  home_pose_deg:
+  - 0.0
+  - -90.0
+  - 90.0
+  - 0.0
+  - 0.0
+  - 0.0
+fixtures:
+- id: weld_cube
+  urdf: ../../urdf-fixture-collection/weld_cube/weld_cube.urdf
+  position:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  orientation:
+    a: 0.0
+    b: 0.0
+    c: 0.0

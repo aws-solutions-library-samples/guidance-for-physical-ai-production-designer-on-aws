@@ -1,0 +1,10 @@
+# Test config: both example robots are KR240 R2900 ultra without external axes.
+[[robot]]
+ns = "robot1"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+
+[[robot]]
+ns = "robot2"
+model = "KR240R2900_ULTRA"
+e_axes = "none"

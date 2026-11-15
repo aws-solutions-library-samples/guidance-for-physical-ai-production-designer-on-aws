@@ -1,0 +1,8 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "watch": {
+    "include": ["bin/**", "lib/**", "lambda/**", "bootstrap/**"],
+    "exclude": ["node_modules", "cdk.out", "test"]
+  },
+  "context": {}
+}

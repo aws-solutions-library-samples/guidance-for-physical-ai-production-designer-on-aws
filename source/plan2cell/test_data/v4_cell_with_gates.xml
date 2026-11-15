@@ -1,0 +1,63 @@
+<?xml version="1.0" ?>
+<!-- BTCPP 4: reactive safety check, a subtree per robot, a gate that only an override opens. -->
+<root BTCPP_format="4" main_tree_to_execute="Cell">
+  <BehaviorTree ID="Cell">
+    <ReactiveSequence name="safe_cell">
+      <CheckSafety name="estop_clear" condition="estop_clear"/>
+      <Sequence name="program">
+        <Script code="cycle := 0"/>
+        <Parallel name="robots" success_count="-1" failure_count="1">
+          <SubTree ID="RobotJob" name="job_r1" robot="r1" op="{op_r1}"/>
+          <SubTree ID="RobotJob" name="job_r2" robot="r2" op="{op_r2}"/>
+        </Parallel>
+        <WaitForRobot name="wait_handover" robot_ns="r2" depends_on_robots="r1"/>
+        <RetryUntilSuccessful num_attempts="3">
+          <Fallback name="place">
+            <ExecuteTrajectory name="place_part" robot_ns="r1" operation_id="place" trajectory="{traj_place}"/>
+            <ForceFailure>
+              <MoveHome name="recover_r1" robot_ns="r1"/>
+            </ForceFailure>
+          </Fallback>
+        </RetryUntilSuccessful>
+        <Script code="cycle += 1"/>
+      </Sequence>
+    </ReactiveSequence>
+  </BehaviorTree>
+  <BehaviorTree ID="RobotJob">
+    <Sequence>
+      <Delay delay_msec="250">
+        <ExecuteTrajectory name="approach" robot_ns="{robot}" operation_id="approach"/>
+      </Delay>
+      <Timeout msec="5000">
+        <ExecuteTrajectory name="work" robot_ns="{robot}" operation_id="{op}"/>
+      </Timeout>
+      <MoveHome name="home" robot_ns="{robot}"/>
+    </Sequence>
+  </BehaviorTree>
+  <TreeNodesModel>
+    <Action ID="ExecuteTrajectory">
+      <input_port name="robot_ns">robot namespace, e.g. r1</input_port>
+      <input_port name="operation_id"/>
+      <input_port name="operation_type" default="weld"/>
+      <input_port name="trajectory">waypoints on the blackboard</input_port>
+      <input_port name="hold_duration_s" default="0.5"/>
+      <input_port name="velocity_scale" default="1.0"/>
+    </Action>
+    <Action ID="MoveHome">
+      <input_port name="robot_ns"/>
+      <input_port name="trajectory"/>
+    </Action>
+    <Action ID="WaitForRobot">
+      <input_port name="robot_ns"/>
+      <input_port name="depends_on_robots"/>
+      <input_port name="depends_on_joints"/>
+    </Action>
+    <Condition ID="CheckSafety">
+      <input_port name="condition" default="estop_clear"/>
+    </Condition>
+    <SubTree ID="RobotJob">
+      <input_port name="robot"/>
+      <input_port name="op"/>
+    </SubTree>
+  </TreeNodesModel>
+</root>

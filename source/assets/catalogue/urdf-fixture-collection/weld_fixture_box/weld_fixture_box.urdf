@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<!--
+  weld_fixture_box - a lightweight PLACEHOLDER weld fixture for the Factory OS
+  sample. It is a single box the size of a car-body weld fixture (1.51 x 1.99 x
+  1.47 m, the bounding box of a production fixture's CAD), so a fitted scene and
+  its planned motions stay geometrically realistic without shipping ~100 MB of
+  fixture meshes. Units: metres, world/base frame (Z up), matching the sibling
+  collections' NOTE.md conventions. Replace with the real fixture URDF for
+  production work.
+-->
+<robot name="weld_fixture_box">
+  <link name="World">
+    <visual>
+      <origin xyz="0.0575 0.0 0.7407" rpy="0 0 0"/>
+      <geometry><box size="1.5094 1.993 1.4721"/></geometry>
+      <material name="fixture_grey"><color rgba="0.55 0.57 0.60 1.0"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0.0575 0.0 0.7407" rpy="0 0 0"/>
+      <geometry><box size="1.5094 1.993 1.4721"/></geometry>
+    </collision>
+  </link>
+</robot>

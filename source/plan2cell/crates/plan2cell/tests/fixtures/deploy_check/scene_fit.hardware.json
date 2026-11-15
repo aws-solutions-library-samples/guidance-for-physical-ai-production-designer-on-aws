@@ -1,0 +1,38 @@
+{
+  "schema": "factoryos/hardware@1",
+  "savedS": 1792161011.403467,
+  "plan": "agentic_planner/plans/bt_1792156523_scene_fit.json",
+  "config": {
+    "network": {
+      "headIp": "192.168.100.10",
+      "netmask": "255.255.255.0",
+      "gateway": "0.0.0.0",
+      "controllerStation": "controller"
+    },
+    "robots": [
+      {
+        "ns": "robot1",
+        "tag": "R1",
+        "station": "kuka-robi1",
+        "deviceName": "kuka_robi1",
+        "ip": "192.168.100.11",
+        "model": "unknown",
+        "external": false,
+        "safetyBypass": false,
+        "safetyModule": true
+      },
+      {
+        "ns": "robot2",
+        "tag": "R2",
+        "station": "kuka-robi2",
+        "deviceName": "kuka_robi2",
+        "ip": "192.168.100.12",
+        "model": "unknown",
+        "external": false,
+        "safetyBypass": false,
+        "safetyModule": true
+      }
+    ],
+    "kukaVc": []
+  }
+}

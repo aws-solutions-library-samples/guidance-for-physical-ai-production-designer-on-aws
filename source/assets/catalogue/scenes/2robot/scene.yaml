@@ -1,0 +1,37 @@
+name: 2robot
+robots:
+- robot_id: kr240r2900__sticktool
+  dressed_urdf: ../../urdf-dressed-robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+  orientation:
+    a: 0.0
+    b: 0.0
+    c: 0.0
+  home_pose_deg:
+  - 0.0
+  - -90.0
+  - 90.0
+  - 0.0
+  - 0.0
+  - 0.0
+- robot_id: kr240r2900__sticktool_2
+  dressed_urdf: ../../urdf-dressed-robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position:
+    x: 3.0
+    y: 0.0
+    z: 0.0
+  orientation:
+    a: 0.0
+    b: 0.0
+    c: 0.0
+  home_pose_deg:
+  - 0.0
+  - -90.0
+  - 90.0
+  - 0.0
+  - 0.0
+  - 0.0
+fixtures: []

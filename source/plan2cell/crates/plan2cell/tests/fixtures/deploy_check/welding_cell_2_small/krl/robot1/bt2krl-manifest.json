@@ -1,0 +1,269 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1792076124_welding_cell_2_small",
+  "cell_id": "welding_cell_2_small",
+  "plan_id": "16#4F80",
+  "profile": "sim",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot1",
+    "tag": "R1",
+    "controller": "robot1",
+    "model": "KR240R2900_ULTRA",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11,
+    125
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "5298a6fc6c423d3f"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "318b14840b7fd3ca"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "bae16a910fb9049b"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.dat",
+      "fnv1a64": "28c1d5bbd88897f4"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.src",
+      "fnv1a64": "429a5ef4975767a0"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.dat",
+      "fnv1a64": "5f8ee82231697ac9"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.src",
+      "fnv1a64": "f1d322594a7e0506"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "5ac18aea92bedd98"
+    },
+    {
+      "path": "KRC/R1/System/bt_sps.src",
+      "fnv1a64": "c2eaf7a7e0db6b5e"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "W03",
+      "zone_mask": "16#00000001",
+      "waypoints": 64,
+      "points": 16,
+      "est_s": 3.419,
+      "est_motion_s": 2.919,
+      "planned_motion_s": 2.909,
+      "expected_s": 3.409,
+      "limit_s": 10.114
+    },
+    {
+      "index": 2,
+      "operation_id": "W02",
+      "zone_mask": "16#00000002",
+      "waypoints": 76,
+      "points": 11,
+      "est_s": 3.597,
+      "est_motion_s": 3.097,
+      "planned_motion_s": 3.463,
+      "expected_s": 3.963,
+      "limit_s": 10.945
+    },
+    {
+      "index": 3,
+      "operation_id": "W06",
+      "zone_mask": "16#00000001",
+      "waypoints": 78,
+      "points": 11,
+      "est_s": 3.557,
+      "est_motion_s": 3.057,
+      "planned_motion_s": 3.513,
+      "expected_s": 4.013,
+      "limit_s": 11.02
+    },
+    {
+      "index": 4,
+      "operation_id": "W01",
+      "zone_mask": "16#00000002",
+      "waypoints": 86,
+      "points": 13,
+      "est_s": 3.737,
+      "est_motion_s": 3.237,
+      "planned_motion_s": 4.153,
+      "expected_s": 4.653,
+      "limit_s": 11.98
+    },
+    {
+      "index": 5,
+      "operation_id": "ROBOT1_S04",
+      "zone_mask": "16#00000001",
+      "waypoints": 71,
+      "points": 2,
+      "est_s": 1.165,
+      "est_motion_s": 1.165,
+      "planned_motion_s": 3.403,
+      "expected_s": 3.403,
+      "limit_s": 10.105
+    },
+    {
+      "index": 6,
+      "operation_id": "W04",
+      "zone_mask": "16#00000002",
+      "waypoints": 69,
+      "points": 8,
+      "est_s": 2.33,
+      "est_motion_s": 1.83,
+      "planned_motion_s": 3.303,
+      "expected_s": 3.803,
+      "limit_s": 10.705
+    },
+    {
+      "index": 7,
+      "operation_id": "W05",
+      "zone_mask": "16#00000001",
+      "waypoints": 79,
+      "points": 11,
+      "est_s": 3.555,
+      "est_motion_s": 3.055,
+      "planned_motion_s": 3.803,
+      "expected_s": 4.303,
+      "limit_s": 11.455
+    },
+    {
+      "index": 8,
+      "operation_id": "W08",
+      "zone_mask": "16#00000002",
+      "waypoints": 68,
+      "points": 7,
+      "est_s": 3.243,
+      "est_motion_s": 2.743,
+      "planned_motion_s": 3.253,
+      "expected_s": 3.753,
+      "limit_s": 10.63
+    },
+    {
+      "index": 9,
+      "operation_id": "ROBOT1_S08",
+      "zone_mask": "16#00000001",
+      "waypoints": 92,
+      "points": 18,
+      "est_s": 3.183,
+      "est_motion_s": 3.183,
+      "planned_motion_s": 4.453,
+      "expected_s": 4.453,
+      "limit_s": 11.68
+    },
+    {
+      "index": 10,
+      "operation_id": "ROBOT1_S09",
+      "zone_mask": "16#00000002",
+      "waypoints": 74,
+      "points": 1,
+      "est_s": 0.05,
+      "est_motion_s": 0.0,
+      "planned_motion_s": 3.553,
+      "expected_s": 3.553,
+      "limit_s": 10.33
+    },
+    {
+      "index": 11,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000001",
+      "waypoints": 45,
+      "points": 1,
+      "est_s": 0.05,
+      "est_motion_s": 0.0,
+      "planned_motion_s": 1.961,
+      "expected_s": 1.961,
+      "limit_s": 7.942
+    }
+  ],
+  "warnings": [],
+  "check": {
+    "profile": "sim",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      256
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [],
+    "reserved_in": [],
+    "request_base": 225,
+    "grant_base": 97,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "BT_STEP=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 3,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 4,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 5,
+        "mask": 1,
+        "hold_ms": 0
+      },
+      {
+        "index": 6,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 7,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 8,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 9,
+        "mask": 1,
+        "hold_ms": 0
+      },
+      {
+        "index": 10,
+        "mask": 2,
+        "hold_ms": 0
+      },
+      {
+        "index": 11,
+        "mask": 1,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

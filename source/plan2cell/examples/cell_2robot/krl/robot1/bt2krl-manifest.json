@@ -1,0 +1,116 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1791274820_cell_2robot",
+  "cell_id": "cell_2robot",
+  "plan_id": "16#A312",
+  "profile": "sim",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot1",
+    "tag": "R1",
+    "controller": "robot1",
+    "model": "KR240R2900_ULTRA",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11,
+    125
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "a7fa3d79fc5801c3"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "8d45db817b7312f4"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "b6f72e25a91aa27d"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.dat",
+      "fnv1a64": "c5534f038bb7f912"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.src",
+      "fnv1a64": "8fb4d89602843b7c"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.dat",
+      "fnv1a64": "bc6ffa345299b7a9"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.src",
+      "fnv1a64": "7b526e0baad1c5ec"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "8672dad02bec28ba"
+    },
+    {
+      "path": "KRC/R1/System/bt_sps.src",
+      "fnv1a64": "2128668b8af24486"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "STAGE_R1",
+      "zone_mask": "16#00000000",
+      "waypoints": 14,
+      "points": 11,
+      "est_s": 3.883,
+      "est_motion_s": 3.383,
+      "planned_motion_s": 3.229,
+      "expected_s": 3.729,
+      "limit_s": 10.594
+    },
+    {
+      "index": 2,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000000",
+      "waypoints": 13,
+      "points": 9,
+      "est_s": 2.584,
+      "est_motion_s": 2.584,
+      "planned_motion_s": 2.419,
+      "expected_s": 2.419,
+      "limit_s": 8.629
+    }
+  ],
+  "warnings": [],
+  "check": {
+    "profile": "sim",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      256
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [],
+    "reserved_in": [],
+    "request_base": 225,
+    "grant_base": 97,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "BT_STEP=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 0,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 0,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

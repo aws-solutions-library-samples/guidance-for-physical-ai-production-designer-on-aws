@@ -1,0 +1,105 @@
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -127,6 +127,10 @@
+     /// Laid out right to left: the first one added is the rightmost.
+     pub top_bar_buttons: Option<CustomPanelUi>,
+ 
++    /// While this returns `true`, the left panel (the host's sections, the sources and the
++    /// blueprint) is not drawn: e.g. a host page that takes the whole window below the top bar.
++    pub left_panel_hidden: Option<std::rc::Rc<dyn Fn() -> bool>>,
++
+     /// Shrink the left panel's Sources (recordings) and Blueprint panes to a one-line bar at its
+     /// bottom, opened by a click, so `left_panel_sections` get the panel's full height.
+     pub compact_sources_panel: bool,
+@@ -271,6 +275,7 @@
+             right_panel_sections: Vec::new(),
+             outer_panels: None,
+             top_bar_buttons: None,
++            left_panel_hidden: None,
+             compact_sources_panel: false,
+             compact_selection_panel: false,
+             hide_share_button: false,
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -873,6 +873,7 @@
+         right_panel_sections: Vec::new(),
+         outer_panels: None,
+         top_bar_buttons: None,
++        left_panel_hidden: None,
+         compact_sources_panel: false,
+         compact_selection_panel: false,
+         hide_share_button: false,
+--- a/crates/top/re_viewer/src/app_state.rs
++++ b/crates/top/re_viewer/src/app_state.rs
+@@ -318,6 +318,7 @@
+         custom_window_frame: bool,
+     ) {
+         re_tracing::profile_function!();
++        let left_panel_hidden = startup_options.left_panel_hidden.as_ref().is_some_and(|hidden| hidden());
+ 
+         let egui_ctx = ui.ctx().clone();
+ 
+@@ -697,6 +698,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &ctx.app_ctx,
+                     Some((&viewport_ui, &ctx)),
+                 );
+@@ -736,6 +738,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &app_ctx,
+                     None,
+                 );
+@@ -775,6 +778,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &app_ctx,
+                     None,
+                 );
+@@ -816,6 +820,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &app_ctx,
+                     None,
+                 );
+@@ -882,6 +887,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &app_ctx,
+                     None,
+                 );
+@@ -914,6 +920,7 @@
+                     welcome_screen_state,
+                     &startup_options.left_panel_sections,
+                     startup_options.compact_sources_panel,
++                    left_panel_hidden,
+                     &app_ctx,
+                     None,
+                 );
+@@ -1123,11 +1130,15 @@
+         welcome_screen_state: &WelcomeScreenState,
+         left_panel_sections: &[crate::startup_options::CustomLeftPanelSection],
+         compact_sources: bool,
++        hidden: bool,
+         app_ctx: &AppContext<'_>,
+         // Present only for `Route::LocalRecording`: the blueprint tree is shown below the
+         // recordings panel and needs a full `ViewerContext`.
+         viewport: Option<(&ViewportUi, &ViewerContext<'_>)>,
+     ) {
++        if hidden {
++            return;
++        }
+         let left_panel = egui::Panel::left("blueprint_panel")
+             .resizable(true)
+             .frame(egui::Frame {

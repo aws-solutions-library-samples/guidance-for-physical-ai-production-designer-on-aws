@@ -1,0 +1,463 @@
+{
+  "schema": "bt2plc/robot-program@1",
+  "schema_minor": 1,
+  "plan": {
+    "tree_id": "bt_1791274820_cell_2robot",
+    "cell_id": "cell_2robot",
+    "plan_id": "16#A312"
+  },
+  "robot": {
+    "ns": "robot1",
+    "tag": "R1",
+    "index": 1,
+    "station": "kuka-robi1",
+    "ip": "192.168.100.11",
+    "model": "unknown"
+  },
+  "folgen": {
+    "production": 11,
+    "home": 125
+  },
+  "home_pose_deg": [
+    0.0,
+    -90.0,
+    90.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "joint_mapping": {
+    "preset": "identity",
+    "sign": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "offset_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "source_unit": "rad"
+  },
+  "protocol": {
+    "step": {
+      "byte": 4,
+      "len": 2,
+      "endian": "little",
+      "dir": "robot_to_plc"
+    },
+    "request": {
+      "byte": 28,
+      "len": 4,
+      "endian": "little",
+      "dir": "robot_to_plc"
+    },
+    "grant": {
+      "byte": 12,
+      "len": 4,
+      "endian": "little",
+      "dir": "plc_to_robot"
+    },
+    "plan_id": {
+      "byte": 4,
+      "len": 2,
+      "endian": "little",
+      "dir": "plc_to_robot"
+    },
+    "permit_bit": 31,
+    "handshake": "4-phase: step := k; REQUEST := mask; wait GRANT&mask = mask; [delay] move; hold; REQUEST := 0; wait GRANT&mask = 0",
+    "grant_policy": "planned",
+    "profile": "sim",
+    "job_number": "word_le",
+    "error_codes": {
+      "unknown_folge": 257,
+      "plan_mismatch": 259,
+      "start_deviation": 513
+    },
+    "at_home_tol_deg": 0.5,
+    "start_tol_deg": 1.0,
+    "home_return_time_s": 7.0,
+    "handshake_s": 5.0,
+    "abort_limit_s": 10.0,
+    "home_limit_s": 15.5
+  },
+  "zones": [],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "STAGE_R1",
+      "kind": {
+        "kind": "execute",
+        "operation_type": "move"
+      },
+      "bt_path": "/Sequence/ExecuteTrajectory[0]",
+      "zones": [],
+      "zone_mask": "16#00000000",
+      "waits_for": [],
+      "start_delay_s": 0.0,
+      "hold_s": 0.5,
+      "velocity_scale": 1.0,
+      "duration_s": 3.229,
+      "expected_s": 3.729,
+      "limit_s": 10.594,
+      "delay_exact": true,
+      "blind_home": false,
+      "trajectory_key": "traj_robot1_STAGE_R1",
+      "waypoints": [
+        {
+          "t_s": 0.0,
+          "q_deg": [
+            0.0,
+            -90.0,
+            90.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.2767,
+          "q_deg": [
+            0.1421,
+            -89.0006,
+            89.9771,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.553,
+          "q_deg": [
+            0.5354,
+            -86.231,
+            89.9133,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.8297,
+          "q_deg": [
+            1.131,
+            -82.0342,
+            89.8161,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.1063,
+          "q_deg": [
+            1.8795,
+            -76.7531,
+            89.6931,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.383,
+          "q_deg": [
+            2.7319,
+            -70.7305,
+            89.5515,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.6593,
+          "q_deg": [
+            3.6388,
+            -64.3095,
+            89.399,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.936,
+          "q_deg": [
+            4.5513,
+            -57.8329,
+            89.2429,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.2127,
+          "q_deg": [
+            5.42,
+            -51.6436,
+            89.0908,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.4893,
+          "q_deg": [
+            6.1959,
+            -46.0847,
+            88.9501,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.7657,
+          "q_deg": [
+            6.8297,
+            -41.499,
+            88.8283,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 3.0423,
+          "q_deg": [
+            7.2722,
+            -38.2294,
+            88.7329,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 3.1357,
+          "q_deg": [
+            7.7267,
+            -33.2119,
+            88.3788,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 3.2287,
+          "q_deg": [
+            7.2722,
+            -35.0616,
+            88.2443,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "operation_id": "HOME",
+      "kind": {
+        "kind": "move_home"
+      },
+      "bt_path": "/Sequence/MoveHome[1]",
+      "zones": [],
+      "zone_mask": "16#00000000",
+      "waits_for": [],
+      "start_delay_s": 0.0,
+      "hold_s": 0.0,
+      "velocity_scale": 1.0,
+      "duration_s": 2.419,
+      "expected_s": 2.419,
+      "limit_s": 8.629,
+      "delay_exact": true,
+      "blind_home": false,
+      "trajectory_key": "traj_robot1_n3",
+      "waypoints": [
+        {
+          "t_s": 0.0,
+          "q_deg": [
+            7.2722,
+            -35.0616,
+            88.2443,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.2015,
+          "q_deg": [
+            7.1292,
+            -36.1426,
+            88.2788,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.4032,
+          "q_deg": [
+            6.7336,
+            -39.1311,
+            88.3743,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.6048,
+          "q_deg": [
+            6.136,
+            -43.6457,
+            88.5186,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 0.8065,
+          "q_deg": [
+            5.3868,
+            -49.3049,
+            88.6995,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.008,
+          "q_deg": [
+            4.5367,
+            -55.7271,
+            88.9047,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.2097,
+          "q_deg": [
+            3.6361,
+            -62.5308,
+            89.1221,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.4112,
+          "q_deg": [
+            2.7355,
+            -69.3345,
+            89.3396,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.6127,
+          "q_deg": [
+            1.8854,
+            -75.7567,
+            89.5448,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 1.8145,
+          "q_deg": [
+            1.1363,
+            -81.4159,
+            89.7257,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.016,
+          "q_deg": [
+            0.5387,
+            -85.9305,
+            89.8699,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.2177,
+          "q_deg": [
+            0.1431,
+            -88.919,
+            89.9655,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        },
+        {
+          "t_s": 2.4192,
+          "q_deg": [
+            0.0,
+            -90.0,
+            90.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "phase": "transit"
+        }
+      ]
+    }
+  ]
+}

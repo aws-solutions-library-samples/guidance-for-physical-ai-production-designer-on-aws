@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook@1 head deploy wiring (the deploy request's wiring, from the per-scene cell.toml; no other fields)",
+  "type": "object",
+  "required": [
+    "head_ip",
+    "netmask",
+    "gateway",
+    "controllers"
+  ],
+  "properties": {
+    "head_ip": {
+      "type": "string",
+      "format": "ipv4"
+    },
+    "netmask": {
+      "type": "string",
+      "format": "ipv4"
+    },
+    "gateway": {
+      "type": "string",
+      "format": "ipv4"
+    },
+    "controllers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "robot_ns",
+          "station",
+          "kli_ip"
+        ],
+        "properties": {
+          "robot_ns": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "station": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "kli_ip": {
+            "type": "string",
+            "format": "ipv4"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

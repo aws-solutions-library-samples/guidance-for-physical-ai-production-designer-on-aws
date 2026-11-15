@@ -1,0 +1,34 @@
+# factoryos-release: builds and deploys the release the handoff unpacked (deployment/bootstrap/factoryos-release.sh,
+# deployment/CONTRACT.md). Installed and started (--no-block) by the stack's release document
+# (deployment/bootstrap/release-handoff.sh), from the export it releases.
+#
+# Enabled, so it also starts at boot: it continues a release a reboot interrupted, and else exits at once.
+# DefaultDependencies=no, with the ordering spelled out: a oneshot that multi-user.target wants is otherwise waited
+# for by the target (After=), and a build of an hour or more would hold up the boot's later units.
+[Unit]
+Description=FactoryOS release (build, package, deploy, check; resumes after a reboot)
+DefaultDependencies=no
+Requires=sysinit.target
+Wants=network-online.target
+After=sysinit.target basic.target network-online.target cloud-final.service
+Conflicts=shutdown.target
+Before=shutdown.target
+# No manual stop or restart (`systemctl kill` still stops it, and fails the release): needrestart, after an account
+# patch association's upgrade, restarted a long-running unit mid-phase (the test-install runner, 2611122014-dc89).
+# A shutdown still stops it (the boot resumes the release).
+RefuseManualStop=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/factoryos-release
+TimeoutStartSec=infinity
+Environment=NEEDRESTART_SUSPEND=1
+# A system unit without User= gets no HOME; rustup, cargo, npm and git (the build) need one.
+Environment=HOME=/root
+# The backend and the live cell come first while it builds.
+Nice=5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+[Install]
+WantedBy=multi-user.target

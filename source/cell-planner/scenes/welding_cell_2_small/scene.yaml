@@ -1,0 +1,163 @@
+# Corrected scene for umarell cell `welding_cell_2_small` (2 x KUKA KR240 R2900 stick-tool spot welding).
+# Format: scenes/SCHEMA.md (schema_version 2). Errors fixed relative to the umarell originals: ERRATA.md.
+# Loader / validator: trajgen/scene.py (`load_scene("scenes/welding_cell_2_small")`).
+#
+# Units: metres, radians, seconds, unless a key says _deg. Quaternions are xyzw.
+# Every value is identical to the umarell original unless ERRATA.md lists it as an error (E-numbers below).
+
+schema_version: 2
+cell_id: welding_cell_2_small
+# umarell parity: the umarell cell this scene is derived from. The generator then also enforces umarell's own arm-arm
+# gate (its 35-sphere tool grid from that cell's robots.yaml), evaluated on THIS scene's robot geometry (bases, homes,
+# URDF), so the plans pass umarell's validators unchanged. Remove the block for a scene without a umarell counterpart.
+umarell: {cell_id: welding_cell_2_small, parity: true}
+description: >
+  Two KUKA KR240 R2900 arms with a rigid stick spot-welding tool, floor only (no fixture boxes).
+  The weld program is task.json in this folder. Source: third_party/sample-umarell/cells/welding_cell_2_small
+  (agentic_planner/config/robots.yaml, agentic_planner/config/obstacles.yaml, agentic_planner/cell.yaml).
+
+assets:
+  # Asset paths that start with "cells:" are relative to cells_root. cells_root itself is relative to
+  # this file; override with the UMARELL_CELLS environment variable or load_scene(..., cells_root=...).
+  # Any other relative path is relative to this file (use that for copied assets).
+  cells_root: ../../third_party/sample-umarell/cells
+
+robots:
+  - id: robot1
+    model: kr240r2900
+    urdf: cells:welding_cell_2_small/robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+    srdf: cells:welding_cell_2_small/robots/kr240r2900__sticktool/kr240r2900__sticktool.srdf
+    base: {xyz: [0.06915208, -3.318409, 0.0], yaw: 0.0}     # world pose of base_link (yaw about +z)
+    home_deg: [0, -90, 90, 0, 0, 0]
+    joints:
+      names: [joint_a1, joint_a2, joint_a3, joint_a4, joint_a5, joint_a6]
+      lower: [-3.228859, -2.70526, -2.268928, -6.108652, -2.268928, -6.108652]
+      upper: [3.228859, 0.6108652, 2.687807, 6.108652, 2.268928, 6.108652]
+      velocity: [2.722714, 2.722714, 2.722714, 5.759586, 5.759586, 10.73377]   # rad/s, generic URDF values, not
+                                             # checked against the KUKA datasheet (ERRATA E20)
+      acceleration: [3, 3, 3, 6, 6, 8]       # rad/s^2; umarell "REVIEW" default, not measured (ERRATA E13)
+    tool: &stick_tool
+      tip_link: like_kr240r2900_link_6
+      tcp_offset: [-0.9092, 0.0005, -0.0056]  # TCP origin in the tip_link frame
+      tcp_rotation: identity                  # TCP frame axes = tip_link frame axes
+      axis: [-1, 0, 0]                        # tool axis (flange -> electrode tip) in the TCP frame: -x
+  - id: robot2
+    model: kr240r2900
+    urdf: cells:welding_cell_2_small/robots/kr240r2900__sticktool/kr240r2900__sticktool.urdf
+    srdf: cells:welding_cell_2_small/robots/kr240r2900__sticktool/kr240r2900__sticktool.srdf
+    base: {xyz: [-1.18318, 1.042389, 0.0], yaw: 0.0}
+    home_deg: [0, -90, 90, 0, 0, 0]
+    joints:
+      names: [joint_a1, joint_a2, joint_a3, joint_a4, joint_a5, joint_a6]
+      lower: [-3.228859, -2.70526, -2.268928, -6.108652, -2.268928, -6.108652]
+      upper: [3.228859, 0.6108652, 2.687807, 6.108652, 2.268928, 6.108652]
+      velocity: [2.722714, 2.722714, 2.722714, 5.759586, 5.759586, 10.73377]
+      acceleration: [3, 3, 3, 6, 6, 8]
+    tool: *stick_tool
+
+collision:
+  # --- arm structure: umarell's link-sphere model, unchanged --------------------------------------------
+  link_spheres:
+    radius: 0.12              # robot_link_radius: one sphere per frame origin from base_link on
+    fill_step: 0.12           # extra spheres every 0.12 m between consecutive joint origins
+    tcp_radius: 0.05          # tool_link_radius: the welding_tcp frame sphere
+  # --- tool: CORRECTED sphere set (ERRATA E1, E2) ------------------------------------------------------------
+  # Fitted to the URDF <collision> hulls of tip_link (flange hull + World_hull_0..4) WITH the <origin rpy>
+  # applied (trajgen/tool_spheres.py, seed 0). Coverage: 100 % of the 650 hull vertices (worst 3.7 mm inside) and the
+  # hull surfaces to within 0.1 mm (one point of World_hull_3 is 0.08 mm outside, ERRATA E1); every centre is in
+  # metal or within 1.2 mm of it.
+  # The original 35 spheres covered 72.9 % of the tool-hull vertices (worst gap 0.295 m), 21 in empty space.
+  tool_spheres:
+    frame: like_kr240r2900_link_6     # centres are in this link's frame
+    spheres:                          # [x, y, z, radius]
+      # slim stick (electrode World_hull_0 + 80 mm bar World_hull_4), on its centre line, flange -> tip
+      - [-0.3079, -0.0008, -0.0052, 0.07]
+      - [-0.4081, -0.0008, -0.0052, 0.07]
+      - [-0.5083, -0.0008, -0.0052, 0.07]
+      - [-0.6085, -0.0008, -0.0052, 0.07]
+      - [-0.7088, -0.0008, -0.0052, 0.07]
+      - [-0.8090, -0.0008, -0.0052, 0.07]
+      - [-0.9092, -0.0008, -0.0052, 0.07]
+      # flange hull, adapter discs World_hull_1/2, RAH plate World_hull_3 (0.48 x 0.36 m, normal to the axis)
+      - [-0.2894, 0.0036, 0.0057, 0.12]
+      - [-0.3060, -0.0429, -0.1592, 0.12]
+      - [-0.3079, 0.0615, -0.2182, 0.12]
+      - [-0.3105, 0.0674, 0.2243, 0.12]
+      - [-0.3118, -0.1216, -0.1482, 0.12]
+      - [-0.3150, -0.1059, 0.1395, 0.12]
+      - [-0.3184, 0.0642, -0.1716, 0.12]
+      - [-0.3188, -0.0613, 0.2136, 0.12]
+      - [-0.3252, 0.1473, -0.0283, 0.12]
+      - [-0.3304, 0.0837, 0.1427, 0.12]
+      - [-0.3324, -0.0779, -0.0175, 0.12]
+    coverage_requirement: {min_vertex_fraction: 0.99, max_gap: own_radius}
+  # --- arm vs arm: umarell's gate, unchanged ----------------------------------------------------------------
+  arm_arm:
+    pair_radius: 0.12         # every sphere (link, fill, TCP, tool) counts with 0.12 m arm-vs-arm (umarell parity)
+    gate_m: 0.20              # clearance = min centre distance - 2 * pair_radius must stay > gate_m (warning_distance)
+    hull_backstop: true       # also no contact between the two arms' URDF collision hulls
+    hull_min_distance_m: 0.03 # and the hulls of any two robots stay >= 3 cm apart (planner: over the +-skew window; ERRATA E21)
+  # --- self collision: NEW requirement (ERRATA E5) ----------------------------------------------------------
+  self_collision:
+    geometry: urdf_collision_hulls   # all <collision> meshes of each link, origins applied
+    min_distance_m: 0.0              # hull-hull signed distance must stay >= this (penetration forbidden)
+    disabled_pairs:                  # from the SRDF (adjacent links); a pair disables every geom of both links
+      - [like_kr240r2900_base_link, like_kr240r2900_link_1]
+      - [like_kr240r2900_link_1, like_kr240r2900_link_2]
+      - [like_kr240r2900_link_2, like_kr240r2900_link_3]
+      - [like_kr240r2900_link_3, like_kr240r2900_link_4]
+      - [like_kr240r2900_link_4, like_kr240r2900_link_5]
+      - [like_kr240r2900_link_5, like_kr240r2900_link_6]
+
+obstacles:
+  # --- floor: really enforced, tool included (ERRATA E3, E4) ------------------------------------------------
+  floor:
+    z: 0.0                    # the floor surface the bases stand on (world z = 0)
+    margin_m: 0.05            # = the original floor collision_margin
+    sphere_rule: true         # every link sphere after base_link (index > base_link frame), every fill sphere,
+                              # the TCP sphere and EVERY tool sphere: centre z - own radius >= z + margin_m
+    hull_rule: true           # every URDF collision hull except base_link: min vertex z >= z
+  # --- static boxes (umarell box rule, extended to the tool spheres) ----------------------------------------
+  default_box_margin: 0.05    # used when a box has no collision_margin
+  box_hull: {enabled: true, min_distance_m: 0.0}   # URDF collision hulls vs (non-workpiece) boxes, MuJoCo signed distance
+  boxes: []                   # [{id, center [x,y,z], half_extents [hx,hy,hz], collision_margin, is_workpiece}]
+                              # welding_cell_2_small has none (the fixture is only in welding_cell_2t)
+
+workpiece:
+  # Rule W "certain-material wedge" (docs/workpiece_decision.md): for every weld p (unit approach a, tool
+  # axis t), the TCP of EITHER arm violates when |x - p| < radius and min((x-p).a, (x-p).t) > tol, at any
+  # time of the cycle (approach, dwell, departure, the other arm). No door CAD exists (ERRATA E10).
+  rule: wedge
+  radius_m: 0.020
+  tol_m: 0.003
+  points: tcp
+
+planning:
+  # umarell's executed dynamics rules (robots.yaml planning, obstacles.yaml, time_parameterization.py:138)
+  velocity_scale: 0.7               # transit speed, fraction of joint velocity limits (max_velocity_scaling)
+  acceleration_rule: vscale_squared # joint accel limit = acceleration * velocity_scale^2 (0.49 a_max at 0.7)
+  approach_velocity_fraction: 0.4   # terminal descent speed = 0.4 * velocity_scale (obstacles.yaml)
+  home_velocity_scale: 0.4          # return to HOME (trajgen times the lift-off out of the last seam separately, at
+                                    # the approach caps: slower than umarell, which times it with the transit)
+  # weld stroke geometry (ERRATA E8: the task's approach_offset_z 0.05 is read by nothing; 0.10 is executed)
+  approach_offset_m: 0.10           # pre-weld standoff, back against approach_vector: p_pre = p - a * offset
+  retract_offset_m: 0.10            # lift-off length after the dwell, same line: p_ret = p - a * offset
+  min_offset_m: 0.045               # a shorter standoff is allowed down to this (>= 0.04 entry-check span)
+  # departure (ERRATA E7): the lift-off is a STRAIGHT Cartesian line on the weld's own approach line at the
+  # weld orientation; the TCP must stay within liftoff_tube_m of that line until retract_offset_m is reached.
+  # A joint-space transit straight out of the seam is forbidden (umarell ompl_planner.py:796 "physically wrong").
+  liftoff: {required: true, straight_on_axis: true, tube_m: 0.002}
+  descent: {straight_on_axis: true, tube_m: 0.002}
+  dwell_s: 0.5                      # time at the weld (the executed hold; ERRATA E9 for the task's 2.2 s phases)
+  executor_margin_s: 1.0            # umarell executor completion margin after each leg (bt_executor.py:87)
+  sample_dt: 0.05                   # output trajectory sample interval (20 Hz, as the umarell plans)
+  max_jerk_factor: null             # optional jerk cap in a_max/s; umarell's plans reach ~4.5 (not a umarell rule)
+  check_dt: 0.0125                  # collision / workpiece checks run at this interval (4x the sample rate)
+
+tolerances:
+  # umarell validate_approach (agents/trajectory/tools/pinocchio.py:476-639)
+  position_m: 0.010
+  tool_axis_deg: 5.0                # angle between achieved and required tool axis (spin about the axis is free)
+  entry_direction_deg: 15.0         # TCP motion over the last entry_span_m vs approach_vector
+  entry_span_m: 0.04
+  spin_free: true                   # the rotation about the tool axis is not gated (umarell semantics)

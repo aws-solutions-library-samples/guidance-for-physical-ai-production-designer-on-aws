@@ -1,0 +1,36 @@
+{
+  "schema": "plan2cell/build@1",
+  "generator": "plan2cell 0.1.0",
+  "tree_id": "bt_1791274820_cell_2robot",
+  "cell_id": "cell_2robot",
+  "plan_id": "16#A312",
+  "options": {
+    "profile": "sim",
+    "plc": "codesys",
+    "robot_sim": true,
+    "krl": true,
+    "krl_robots": null,
+    "st_check": true,
+    "strict": false
+  },
+  "robots": [
+    {
+      "ns": "robot1",
+      "tag": "R1",
+      "ops": 2,
+      "folgen": [
+        11,
+        125
+      ],
+      "krl_points": 20
+    }
+  ],
+  "zones": [],
+  "makespan_s": 6.148,
+  "st_checked": true,
+  "files": 99,
+  "notes": [],
+  "warnings": [
+    "warning[krl] bt2krl.toml: [[robot]] robot2 has no program"
+  ]
+}

@@ -1,0 +1,13 @@
+# The plain umarell commit the planner router's umarell_jam is built on (the cell planner's umarell_jam/: umarell
+# 76ea13a + its fix set + U3's hooks + its own integration patch), for the public sample: deploy/fetch-umarell.sh --jam
+# installs it, unpatched and read-only, as /var/lib/factoryos/umarell-<first 7 hex digits> (found by
+# deploy/planner-router/umarell_jam.py; umarell_jam patches its own copy). From git (fetch --depth 1 of this commit from
+# this URL), or, while the repository is not public, from the installer's --umarell-jam-tarball (a
+# `git archive --format=tar.gz --prefix=umarell/` of the commit; FACTORYOS_UMARELL_JAM_TARBALL / _SHA256).
+# Not deploy/umarell.pin's commit (umarell_u3's source and the chat agent's tree): umarell_jam's patches are for this
+# commit only. Without it umarell_jam is not set up, and its jobs fall back to umarell_u3 (provision-incomplete).
+# FactoryOS's internal servers don't read this file: they install the same commit from their pinned archive
+# (deploy/umarell-jam-base.txt), whose commit must be this one's first 7 hex digits.
+#
+# <commit, 40 hex digits>  <git URL>
+76ea13aafdeede10be11936cf0830613e8717907 https://github.com/aws-samples/sample-umarell.git

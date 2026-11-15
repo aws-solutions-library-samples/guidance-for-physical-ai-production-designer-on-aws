@@ -1,0 +1,39 @@
+--- a/crates/top/re_viewer/src/app_blueprint.rs
++++ b/crates/top/re_viewer/src/app_blueprint.rs
+@@ -66,6 +66,15 @@
+     }
+ }
+ 
++/// Set by [`hide_time_panel_by_default`].
++static TIME_PANEL_HIDDEN_BY_DEFAULT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++/// Start the time panel hidden in every recording whose blueprint doesn't set its state, for hosts
++/// whose recordings rarely need a timeline. The top bar's toggle still shows it.
++pub fn hide_time_panel_by_default(hide: bool) {
++    TIME_PANEL_HIDDEN_BY_DEFAULT.store(hide, std::sync::atomic::Ordering::Relaxed);
++}
++
+ impl<'a> AppBlueprint<'a> {
+     pub fn new(
+         blueprint_db: Option<&'a EntityDb>,
+@@ -86,7 +95,9 @@
+             } else {
+                 PanelState::Collapsed
+             },
+-            time: if screen_size.y > 600.0 {
++            time: if TIME_PANEL_HIDDEN_BY_DEFAULT.load(std::sync::atomic::Ordering::Relaxed) {
++                PanelState::Hidden
++            } else if screen_size.y > 600.0 {
+                 PanelState::Expanded
+             } else {
+                 PanelState::Collapsed
+--- a/crates/top/re_viewer/src/lib.rs
++++ b/crates/top/re_viewer/src/lib.rs
+@@ -31,6 +31,7 @@
+ mod agent_panel;
+ mod app;
+ mod app_blueprint;
++pub use app_blueprint::hide_time_panel_by_default;
+ mod app_state;
+ mod background_tasks;
+ mod catalog_handle;

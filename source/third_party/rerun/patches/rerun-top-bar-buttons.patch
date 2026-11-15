@@ -1,0 +1,45 @@
+--- a/crates/top/re_viewer/src/ui/top_panel.rs
++++ b/crates/top/re_viewer/src/ui/top_panel.rs
+@@ -385,6 +385,11 @@
+     ui: &mut egui::Ui,
+     store_hub: &StoreHub,
+ ) {
++    // The host's own buttons, rightmost.
++    if let Some(top_bar_buttons) = app.startup_options().top_bar_buttons.clone() {
++        top_bar_buttons(ui);
++    }
++
+     #[cfg(agent_panel)]
+     if app.app_options().experimental.agent_panel {
+         let mut open = app.agent_panel_open();
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -122,6 +122,10 @@
+     /// Drawn right after the top panel, before the agent panel and everything else: the host's
+     /// own side panels, below the top bar and at the window's edges.
+     pub outer_panels: Option<CustomPanelUi>,
++
++    /// The host's own buttons at the right end of the top bar, right of the agent panel button.
++    /// Laid out right to left: the first one added is the rightmost.
++    pub top_bar_buttons: Option<CustomPanelUi>,
+ }
+ 
+ /// UI callback that draws a custom welcome screen, see [`StartupOptions::custom_welcome_screen`].
+@@ -247,6 +251,7 @@
+             left_panel_sections: Vec::new(),
+             right_panel_sections: Vec::new(),
+             outer_panels: None,
++            top_bar_buttons: None,
+         }
+     }
+ }
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -872,6 +872,7 @@
+         left_panel_sections: Vec::new(),
+         right_panel_sections: Vec::new(),
+         outer_panels: None,
++        top_bar_buttons: None,
+     };
+     crate::customize_eframe_and_setup_renderer(cc)?;
+ 

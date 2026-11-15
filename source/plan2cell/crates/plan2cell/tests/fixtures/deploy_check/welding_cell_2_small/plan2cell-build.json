@@ -1,0 +1,77 @@
+{
+  "schema": "plan2cell/build@1",
+  "generator": "plan2cell 0.1.0",
+  "tree_id": "bt_1792076124_welding_cell_2_small",
+  "cell_id": "welding_cell_2_small",
+  "plan_id": "16#4F80",
+  "options": {
+    "profile": "sim",
+    "plc": "codesys",
+    "robot_sim": true,
+    "krl": true,
+    "krl_robots": null,
+    "st_check": true,
+    "strict": false
+  },
+  "robots": [
+    {
+      "ns": "robot1",
+      "tag": "R1",
+      "ops": 11,
+      "folgen": [
+        11,
+        125
+      ],
+      "krl_points": 99
+    },
+    {
+      "ns": "robot2",
+      "tag": "R2",
+      "ops": 11,
+      "folgen": [
+        11,
+        125
+      ],
+      "krl_points": 137
+    }
+  ],
+  "zones": [
+    {
+      "name": "IL01",
+      "tickets": [
+        "robot1.W03",
+        "robot2.W14",
+        "robot1.W06",
+        "robot2.W10",
+        "robot1.ROBOT1_S04",
+        "robot2.W12",
+        "robot1.W05",
+        "robot2.ROBOT2_S07",
+        "robot1.ROBOT1_S08",
+        "robot2.W07",
+        "robot1.HOME"
+      ]
+    },
+    {
+      "name": "IL02",
+      "tickets": [
+        "robot2.W15",
+        "robot1.W02",
+        "robot2.W13",
+        "robot1.W01",
+        "robot2.W11",
+        "robot1.W04",
+        "robot2.ROBOT2_S06",
+        "robot1.W08",
+        "robot2.W09",
+        "robot1.ROBOT1_S09",
+        "robot2.HOME"
+      ]
+    }
+  ],
+  "makespan_s": 42.767,
+  "st_checked": true,
+  "files": 64,
+  "notes": [],
+  "warnings": []
+}

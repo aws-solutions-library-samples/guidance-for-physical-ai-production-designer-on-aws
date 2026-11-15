@@ -1,0 +1,67 @@
+{
+  "schema": "plan2cell/build@1",
+  "generator": "plan2cell 0.1.0",
+  "tree_id": "bt_1792156523_scene_fit",
+  "cell_id": "scene_fit",
+  "plan_id": "16#A1BE",
+  "options": {
+    "profile": "vw-ks24",
+    "plc": "codesys",
+    "robot_sim": true,
+    "krl": true,
+    "krl_robots": null,
+    "st_check": true,
+    "strict": false
+  },
+  "robots": [
+    {
+      "ns": "robot1",
+      "tag": "R1",
+      "ops": 3,
+      "folgen": [
+        11
+      ],
+      "krl_points": 36
+    },
+    {
+      "ns": "robot2",
+      "tag": "R2",
+      "ops": 3,
+      "folgen": [
+        11
+      ],
+      "krl_points": 42
+    }
+  ],
+  "zones": [
+    {
+      "name": "IL01",
+      "tickets": [
+        "robot1.W02",
+        "robot2.W03",
+        "robot1.HOME"
+      ]
+    },
+    {
+      "name": "IL02",
+      "tickets": [
+        "robot2.W01",
+        "robot1.W04",
+        "robot2.HOME"
+      ]
+    }
+  ],
+  "makespan_s": 27.731,
+  "st_checked": true,
+  "files": 58,
+  "notes": [
+    "vw-ks24: job_number set to \"byte\" (PRG_NR is 8 bits)",
+    "vw-ks24: max_zones set to 16 (the VW robot interlocks)",
+    "vw-ks24: no PLAN_ID check (set plc.protocol.plan_id_byte to a free byte, e.g. 12, to get one)",
+    "vw-ks24: no robot simulator projects (the device simulator speaks the sim telegram); the KRL executor stands in for the robots in `plan2cell simulate`"
+  ],
+  "warnings": [
+    "warning[krl] robot robot1: model unknown: software limits are not checked and the time estimate assumes the fastest axis speeds of the model table",
+    "warning[krl] robot robot2: model unknown: software limits are not checked and the time estimate assumes the fastest axis speeds of the model table"
+  ]
+}

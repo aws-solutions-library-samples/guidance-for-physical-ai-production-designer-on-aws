@@ -1,0 +1,200 @@
+{
+  "program": "bug_cube_walls",
+  "cell_id": "jam2",
+  "version": "1.0.0",
+  "description": "Test fixture: an agent-written program that does not match the product: 4 welds on the top, 2 on the +x wall, 6 on the -x side 5 cm inside the cube.",
+  "operations": [
+    {
+      "id": "W01",
+      "type": "weld",
+      "position": [
+        -0.5,
+        -0.5,
+        2.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W02",
+      "type": "weld",
+      "position": [
+        0.5,
+        -0.5,
+        2.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W03",
+      "type": "weld",
+      "position": [
+        -0.5,
+        0.5,
+        2.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W04",
+      "type": "weld",
+      "position": [
+        0.5,
+        0.5,
+        2.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W05",
+      "type": "weld",
+      "position": [
+        1.0,
+        -0.5,
+        1.0
+      ],
+      "approach_vector": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W06",
+      "type": "weld",
+      "position": [
+        1.0,
+        0.5,
+        1.0
+      ],
+      "approach_vector": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W07",
+      "type": "weld",
+      "position": [
+        -0.95,
+        -0.5,
+        0.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W08",
+      "type": "weld",
+      "position": [
+        -0.95,
+        0.0,
+        0.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W09",
+      "type": "weld",
+      "position": [
+        -0.95,
+        0.5,
+        0.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W10",
+      "type": "weld",
+      "position": [
+        -0.95,
+        -0.5,
+        1.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W11",
+      "type": "weld",
+      "position": [
+        -0.95,
+        0.0,
+        1.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    },
+    {
+      "id": "W12",
+      "type": "weld",
+      "position": [
+        -0.95,
+        0.5,
+        1.5
+      ],
+      "approach_vector": [
+        1.0,
+        0.0,
+        0.0
+      ],
+      "sequence_group": "structural",
+      "priority": 1
+    }
+  ]
+}

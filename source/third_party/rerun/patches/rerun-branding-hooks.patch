@@ -1,0 +1,431 @@
+diff --git a/crates/panels/re_selection_panel/src/lib.rs b/crates/panels/re_selection_panel/src/lib.rs
+index 9665740e41..939772a96b 100644
+--- a/crates/panels/re_selection_panel/src/lib.rs
++++ b/crates/panels/re_selection_panel/src/lib.rs
+@@ -48,6 +48,7 @@ mod test {
+                 ui,
+                 &mut true,
+                 &mut Default::default(),
++                None,
+             );
+         });
+     }
+diff --git a/crates/panels/re_selection_panel/src/selection_panel.rs b/crates/panels/re_selection_panel/src/selection_panel.rs
+index e983a0407c..c9965aad30 100644
+--- a/crates/panels/re_selection_panel/src/selection_panel.rs
++++ b/crates/panels/re_selection_panel/src/selection_panel.rs
+@@ -62,6 +62,7 @@ impl SelectionPanel {
+         ui: &mut egui::Ui,
+         expanded: &mut bool,
+         selection_history: &mut SelectionHistory,
++        extra_top_ui: Option<&dyn Fn(&mut egui::Ui)>,
+     ) {
+         let screen_width = ui.content_rect().width();
+ 
+@@ -81,6 +82,11 @@ impl SelectionPanel {
+         }
+ 
+         panel.show_collapsible(ui, expanded, |ui: &mut egui::Ui| {
++            // Host-provided panes stacked above the selection view.
++            if let Some(extra_top_ui) = extra_top_ui {
++                extra_top_ui(ui);
++            }
++
+             ui.panel_content(|ui| {
+                 let hover = "The selection view contains information and options about \
+                     the currently selected object(s)";
+diff --git a/crates/top/re_viewer/src/agent_panel.rs b/crates/top/re_viewer/src/agent_panel.rs
+index b7ba46f2cd..af46b5600e 100644
+--- a/crates/top/re_viewer/src/agent_panel.rs
++++ b/crates/top/re_viewer/src/agent_panel.rs
+@@ -38,6 +38,16 @@ pub struct ViewerAgentPanel {
+ }
+ 
+ impl ViewerAgentPanel {
++    /// End the current agent session; the next `show` starts one with the (new) settings.
++    pub fn reset(&mut self) {
++        self.panel = None;
++    }
++
++    /// The panel, once it has been shown (it starts its agent then). For hosts driving the agent.
++    pub fn panel_mut(&mut self) -> Option<&mut AgentPanel> {
++        self.panel.as_mut()
++    }
++
+     /// Give the prompt input keyboard focus once there is a panel to give it to.
+     pub fn request_input_focus(&mut self) {
+         self.focus_input = true;
+@@ -108,7 +118,9 @@ impl ViewerAgentPanel {
+         settings
+             .mcp_servers
+             .retain(|server| server.name != MCP_SERVER_NAME);
+-        if let Some(server) = rerun_mcp_server(viewer_endpoint) {
++        if !settings.connect_viewer {
++            // The host doesn't want this agent to drive the viewer.
++        } else if let Some(server) = rerun_mcp_server(viewer_endpoint) {
+             settings.mcp_servers.insert(0, server);
+         } else {
+             re_log::warn_once!(
+diff --git a/crates/top/re_viewer/src/app/mod.rs b/crates/top/re_viewer/src/app/mod.rs
+index 082a5cfdc4..a6064b7704 100644
+--- a/crates/top/re_viewer/src/app/mod.rs
++++ b/crates/top/re_viewer/src/app/mod.rs
+@@ -635,6 +635,32 @@ impl App {
+         self.app_options().experimental.agent_panel && self.state.agent_panel_open
+     }
+ 
++    /// Open the agent panel with host-chosen settings (agent, working directory, …), enabling
++    /// the experimental option if needed. Restarts the agent session if the settings changed.
++    #[cfg(agent_panel)]
++    pub fn open_agent_panel_with(&mut self, settings: re_agent_ui::AgentSettings) {
++        self.app_options_mut().experimental.agent_panel = true;
++        if self.state.agent_settings != settings {
++            self.state.agent_settings = settings;
++            self.agent_panel.reset();
++        }
++        self.state.agent_panel_open = true;
++        self.agent_panel.request_input_focus();
++    }
++
++    /// The agent panel, once it has been shown: for hosts that drive its agent (select a mode,
++    /// send a prompt as if the user had typed it, …).
++    #[cfg(agent_panel)]
++    pub fn agent_panel_mut(&mut self) -> Option<&mut re_agent_ui::AgentPanel> {
++        self.agent_panel.panel_mut()
++    }
++
++    /// The agent panel's current settings.
++    #[cfg(agent_panel)]
++    pub fn agent_settings(&self) -> &re_agent_ui::AgentSettings {
++        &self.state.agent_settings
++    }
++
+     #[cfg(agent_panel)]
+     pub fn toggle_agent_panel(&mut self) {
+         if self.app_options().experimental.agent_panel {
+diff --git a/crates/top/re_viewer/src/app_state.rs b/crates/top/re_viewer/src/app_state.rs
+index 63e0fc05b4..e3776cc309 100644
+--- a/crates/top/re_viewer/src/app_state.rs
++++ b/crates/top/re_viewer/src/app_state.rs
+@@ -644,6 +644,8 @@ impl AppState {
+ 
+                 let selection_was_expanded = app_blueprint.selection_panel_state().is_expanded();
+                 let mut selection_expanded = selection_was_expanded;
++                let right_sections = &startup_options.right_panel_sections;
++                let right_sections_ui = |ui: &mut egui::Ui| custom_panel_sections_ui(ui, right_sections);
+                 selection_panel.show_panel(
+                     &ctx,
+                     &viewport_ui.blueprint,
+@@ -651,6 +653,7 @@ impl AppState {
+                     ui,
+                     &mut selection_expanded,
+                     selection_histories.entry(recording_id.clone()).or_default(),
++                    (!right_sections.is_empty()).then_some(&right_sections_ui as &dyn Fn(&mut egui::Ui)),
+                 );
+                 if selection_expanded != selection_was_expanded {
+                     // The user dragged the resize handle past the panel's limits to collapse/expand it:
+@@ -672,6 +675,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &ctx.app_ctx,
+                     Some((&viewport_ui, &ctx)),
+                 );
+@@ -709,6 +713,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &app_ctx,
+                     None,
+                 );
+@@ -746,6 +751,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &app_ctx,
+                     None,
+                 );
+@@ -785,6 +791,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &app_ctx,
+                     None,
+                 );
+@@ -792,7 +799,12 @@ impl AppState {
+                 egui::CentralPanel::default()
+                     .frame(page_frame)
+                     .show(ui, |ui| {
+-                        if origin == &*re_redap_browser::EXAMPLES_ORIGIN {
++                        if origin == &*re_redap_browser::EXAMPLES_ORIGIN
++                            && let Some(custom_welcome_screen) =
++                                &startup_options.custom_welcome_screen
++                        {
++                            custom_welcome_screen(ui);
++                        } else if origin == &*re_redap_browser::EXAMPLES_ORIGIN {
+                             let origin = self
+                                 .redap_servers
+                                 .iter_servers()
+@@ -844,6 +856,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &app_ctx,
+                     None,
+                 );
+@@ -874,6 +887,7 @@ impl AppState {
+                     ui,
+                     app_blueprint,
+                     welcome_screen_state,
++                    &startup_options.left_panel_sections,
+                     &app_ctx,
+                     None,
+                 );
+@@ -1017,6 +1031,7 @@ impl AppState {
+         ui: &mut Ui,
+         app_blueprint: &AppBlueprint<'_>,
+         welcome_screen_state: &WelcomeScreenState,
++        left_panel_sections: &[crate::startup_options::CustomLeftPanelSection],
+         app_ctx: &AppContext<'_>,
+         // Present only for `Route::LocalRecording`: the blueprint tree is shown below the
+         // recordings panel and needs a full `ViewerContext`.
+@@ -1036,6 +1051,8 @@ impl AppState {
+         let mut blueprint_panel_expanded = was_expanded;
+         let left_panel_response =
+             left_panel.show_collapsible(ui, &mut blueprint_panel_expanded, |ui: &mut egui::Ui| {
++                custom_panel_sections_ui(ui, left_panel_sections);
++
+                 // ListItem don't need vertical spacing so we disable it, but restore it
+                 // before drawing the blueprint panel.
+                 ui.spacing_mut().item_spacing.y = 0.0;
+@@ -1288,6 +1305,25 @@ fn check_for_clicked_hyperlinks(egui_ctx: &egui::Context, command_sender: &Comma
+     });
+ }
+ 
++/// Host-provided panes (see [`crate::StartupOptions::left_panel_sections`]), stacked at the top
++/// of a side panel, each resizable.
++fn custom_panel_sections_ui(ui: &mut egui::Ui, sections: &[crate::startup_options::CustomLeftPanelSection]) {
++    let panel_height = ui.available_height();
++    for section in sections {
++        if section.is_visible.as_ref().is_some_and(|is_visible| !is_visible()) {
++            continue;
++        }
++        let max_size = (ui.available_height() - 150.0).max(60.0);
++        egui::Panel::top(section.id)
++            .frame(egui::Frame::new())
++            .resizable(true)
++            .min_size(60.0)
++            .max_size(max_size)
++            .default_size(panel_height * section.default_height_fraction)
++            .show(ui, |ui| (section.ui)(ui));
++    }
++}
++
+ pub fn default_blueprint_panel_width(screen_width: f32) -> f32 {
+     (0.35 * screen_width).min(200.0).round()
+ }
+diff --git a/crates/top/re_viewer/src/lib.rs b/crates/top/re_viewer/src/lib.rs
+index b84b32cb25..97514c1564 100644
+--- a/crates/top/re_viewer/src/lib.rs
++++ b/crates/top/re_viewer/src/lib.rs
+@@ -73,6 +73,8 @@ mod loading;
+ pub mod blueprint;
+ 
+ pub use app::App;
++#[cfg(agent_panel)]
++pub use re_agent_ui::{AgentPanel, AgentSettings, acp as agent_acp};
+ pub(crate) use app_state::AppState;
+ pub use event::{SelectionChangeItem, ViewerEvent, ViewerEventKind};
+ pub use external_memory::ExternalMemoryUser;
+@@ -82,7 +84,9 @@ pub use re_sdk_types::reflection::{ViewApplicability, ViewReflection};
+ pub use re_viewer_context::{
+     CommandReceiver, CommandSender, SystemCommand, SystemCommandSender, command_channel,
+ };
+-pub use startup_options::{LoginOptions, StartupOptions};
++pub use startup_options::{
++    CustomLeftPanelSection, CustomPanelUi, CustomWelcomeScreenUi, LoginOptions, StartupOptions,
++};
+ pub use ui::about_rerun_ui;
+ pub(crate) use ui::dev_panel;
+ 
+@@ -223,7 +227,8 @@ impl AppEnvironment {
+ 
+ // ---------------------------------------------------------------------------
+ 
+-pub(crate) fn wgpu_options(force_wgpu_backend: Option<&str>) -> egui_wgpu::WgpuConfiguration {
++/// wgpu settings the Rerun viewer runs with; hosts embedding it on the web pass these to eframe.
++pub fn wgpu_options(force_wgpu_backend: Option<&str>) -> egui_wgpu::WgpuConfiguration {
+     re_tracing::profile_function!();
+ 
+     let instance_descriptor = re_renderer::device_caps::instance_descriptor(force_wgpu_backend);
+diff --git a/crates/top/re_viewer/src/startup_options.rs b/crates/top/re_viewer/src/startup_options.rs
+index 53e3447a07..b82af6a017 100644
+--- a/crates/top/re_viewer/src/startup_options.rs
++++ b/crates/top/re_viewer/src/startup_options.rs
+@@ -106,6 +106,41 @@ pub struct StartupOptions {
+     /// * notebooks & native: use rerun.io/viewer with the crate's last known stable version
+     /// * web viewers: use the url of the page it is embedded in
+     pub viewer_base_url: Option<String>,
++
++    /// Text shown in place of the Rerun wordmark on the main menu button.
++    pub app_menu_title: Option<String>,
++
++    /// Replaces the built-in welcome screen (shown when no data is loaded).
++    pub custom_welcome_screen: Option<CustomWelcomeScreenUi>,
++
++    /// Extra panes stacked at the top of the left panel, above the recordings, each resizable.
++    pub left_panel_sections: Vec<CustomLeftPanelSection>,
++
++    /// Extra panes stacked at the top of the right (selection) panel, above the selection view.
++    pub right_panel_sections: Vec<CustomLeftPanelSection>,
++}
++
++/// UI callback that draws a custom welcome screen, see [`StartupOptions::custom_welcome_screen`].
++pub type CustomWelcomeScreenUi = std::rc::Rc<dyn Fn(&mut egui::Ui)>;
++
++/// UI callback that draws extra panel content, see [`StartupOptions::left_panel_sections`].
++pub type CustomPanelUi = std::rc::Rc<dyn Fn(&mut egui::Ui)>;
++
++/// One extra side-panel pane, see [`StartupOptions::left_panel_sections`] and
++/// [`StartupOptions::right_panel_sections`].
++#[derive(Clone)]
++pub struct CustomLeftPanelSection {
++    /// Unique id, used to remember the pane's size.
++    pub id: &'static str,
++
++    /// Initial height as a fraction of the left panel's height.
++    pub default_height_fraction: f32,
++
++    /// Draws the pane, including its title bar.
++    pub ui: CustomPanelUi,
++
++    /// Whether to show the pane right now. Always shown if `None`.
++    pub is_visible: Option<std::rc::Rc<dyn Fn() -> bool>>,
+ }
+ 
+ impl StartupOptions {
+@@ -202,6 +237,11 @@ impl Default for StartupOptions {
+             login: None,
+ 
+             viewer_base_url: None,
++
++            app_menu_title: None,
++            custom_welcome_screen: None,
++            left_panel_sections: Vec::new(),
++            right_panel_sections: Vec::new(),
+         }
+     }
+ }
+diff --git a/crates/top/re_viewer/src/ui/rerun_menu.rs b/crates/top/re_viewer/src/ui/rerun_menu.rs
+index 07ceb70288..8d9deff331 100644
+--- a/crates/top/re_viewer/src/ui/rerun_menu.rs
++++ b/crates/top/re_viewer/src/ui/rerun_menu.rs
+@@ -24,13 +24,25 @@ impl App {
+         ui: &mut egui::Ui,
+     ) {
+         let icon_tint = ui.tokens().strong_fg_color;
+-        let image = re_ui::icons::RERUN_WORDMARK
+-            .as_image()
+-            .max_height(12.0)
+-            .tint(icon_tint)
+-            .alt_text("Menu");
++        let arrow = icons::DROPDOWN_ARROW.as_image().tint(icon_tint);
+ 
+-        MenuButton::new((image, icons::DROPDOWN_ARROW.as_image().tint(icon_tint)))
++        let menu_button = if let Some(title) = &self.startup_options().app_menu_title {
++            MenuButton::new((
++                egui::RichText::new(title).strong().color(icon_tint),
++                arrow,
++            ))
++        } else {
++            MenuButton::new((
++                re_ui::icons::RERUN_WORDMARK
++                    .as_image()
++                    .max_height(12.0)
++                    .tint(icon_tint)
++                    .alt_text("Menu"),
++                arrow,
++            ))
++        };
++
++        menu_button
+             .config(MenuConfig::new().style(menu_style()))
+             .ui(ui, |ui| {
+                 ui.set_max_height(ui.content_rect().height());
+diff --git a/crates/top/re_viewer/src/web.rs b/crates/top/re_viewer/src/web.rs
+index dde7b267f0..dd5e298d52 100644
+--- a/crates/top/re_viewer/src/web.rs
++++ b/crates/top/re_viewer/src/web.rs
+@@ -866,6 +866,11 @@ fn create_app(
+         enable_history,
+         viewer_base_url,
+         login,
++
++        app_menu_title: None,
++        custom_welcome_screen: None,
++        left_panel_sections: Vec::new(),
++        right_panel_sections: Vec::new(),
+     };
+     crate::customize_eframe_and_setup_renderer(cc)?;
+ 
+diff --git a/crates/utils/re_agent/src/profiles.rs b/crates/utils/re_agent/src/profiles.rs
+index c1dfdf44b5..fc77819c64 100644
+--- a/crates/utils/re_agent/src/profiles.rs
++++ b/crates/utils/re_agent/src/profiles.rs
+@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
+ 
+ /// Profile ids by popularity, most popular first. Decides which installed agent is picked
+ /// when the user has not chosen one.
+-const DEFAULT_AGENT_PRIORITY: [&str; 7] = [
+-    "claude", "codex", "gemini", "copilot", "cursor", "opencode", "goose",
++const DEFAULT_AGENT_PRIORITY: [&str; 8] = [
++    "kiro", "claude", "codex", "gemini", "copilot", "cursor", "opencode", "goose",
+ ];
+ 
+ /// How to launch a particular agent, and how to tell whether it is installed.
+@@ -123,6 +123,17 @@ fn builtin_profiles() -> Vec<AgentProfile> {
+             login_hint: "codex login".to_owned(),
+             env: Vec::new(),
+         },
++        AgentProfile {
++            id: "kiro".to_owned(),
++            name: "Kiro CLI".to_owned(),
++            description: "AWS Kiro CLI, native ACP support (`kiro-cli acp`).".to_owned(),
++            command: "kiro-cli".to_owned(),
++            args: vec!["acp".to_owned()],
++            install_hint: "curl -fsSL https://cli.kiro.dev/install | bash".to_owned(),
++            url: "https://kiro.dev/docs/cli/".to_owned(),
++            login_hint: "kiro-cli login".to_owned(),
++            env: Vec::new(),
++        },
+         AgentProfile {
+             id: "gemini".to_owned(),
+             name: "Gemini CLI".to_owned(),
+diff --git a/crates/utils/re_agent/src/settings.rs b/crates/utils/re_agent/src/settings.rs
+index 26e6c8a10e..3659f3b631 100644
+--- a/crates/utils/re_agent/src/settings.rs
++++ b/crates/utils/re_agent/src/settings.rs
+@@ -71,6 +71,10 @@ pub struct AgentSettings {
+     /// MCP servers handed to the agent when a session starts.
+     pub mcp_servers: Vec<McpServerConfig>,
+ 
++    /// Hand the agent the viewer's own MCP server (`rerun viewer-mcp`), so it can drive the viewer.
++    /// Hosts turn this off for agents that have no use for it.
++    pub connect_viewer: bool,
++
+     /// Show the agent's reasoning in the transcript, not just its answers.
+     pub show_thoughts: bool,
+ 
+@@ -173,6 +177,7 @@ impl Default for AgentSettings {
+             cwd: String::new(),
+             env_vars: String::new(),
+             mcp_servers: Vec::new(),
++            connect_viewer: true,
+             show_thoughts: true,
+             log_protocol: false,
+             share_redacted_prompts: true,

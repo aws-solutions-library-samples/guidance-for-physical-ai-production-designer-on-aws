@@ -1,0 +1,171 @@
+{
+  "schema": "bt2plc/cell-plan@1",
+  "generator": "bt2plc 0.1.0",
+  "source": {
+    "file": "bt_1791274820_cell_2robot.json",
+    "tree_id": "bt_1791274820_cell_2robot",
+    "cell_id": "cell_2robot",
+    "fingerprint": "fnv1a64:1b72dde12ac94f48",
+    "plan_id": "16#A312"
+  },
+  "config": {
+    "cell": {
+      "prod_folge": 11,
+      "home_folge": 125,
+      "job_number": "word_le",
+      "grant_policy": "planned",
+      "auto_run": true,
+      "home_strategy": "sequential",
+      "prune_transitive": true,
+      "ignore_unsupported_gates": false
+    },
+    "protocol": {
+      "profile": "sim",
+      "step_byte": 4,
+      "request_byte": 28,
+      "grant_byte": 12,
+      "plan_id_byte": 4,
+      "max_zones": 31,
+      "reset_pulse_ms": 1000,
+      "start_pulse_ms": 500,
+      "stop_pulse_ms": 1000,
+      "handshake_timeout_ms": 5000,
+      "bringup_limit_ms": 60000,
+      "mismatch_debounce_ms": 200,
+      "stop_debounce_ms": 200,
+      "cycle_pause_ms": 2000,
+      "start_limit_ms": 15000,
+      "abort_limit_ms": 10000
+    },
+    "timing": {
+      "watchdog_factor": 1.5,
+      "watchdog_margin_s": 5.0,
+      "zone_wait_margin_s": 10.0,
+      "home_return_time_s": 7.0,
+      "completion_margin_s": 0.0,
+      "hop_latency_s": 0.2
+    },
+    "network": {
+      "head_ip": "192.168.100.10",
+      "netmask": "255.255.255.0",
+      "gateway": "0.0.0.0",
+      "nic": "eth1",
+      "controller_station": "controller",
+      "ip_pool_first": "192.168.100.2",
+      "ip_pool_last": "192.168.100.254",
+      "robot_host_base": 10,
+      "head_gateway_port": 11740,
+      "head_opcua_port": 4840,
+      "device_gateway_port": 11741,
+      "device_opcua_port": 4841,
+      "docker_network": "profinet_net"
+    },
+    "codesys": {
+      "ide_version": "CODESYS V3.5 SP22 Patch 1",
+      "head_project": "HeadPLC_{cell}",
+      "device_project": "RobotSim_{cell}_{tag}",
+      "main_task_ms": 4,
+      "device_main_task_ms": 20,
+      "gsdml_file": "GSDML-V2.25-KUKA-Roboter-GmbH-VKR C4-Device-V1.0-20121030.xml"
+    },
+    "robot_sim": {
+      "enabled": true,
+      "decimate_tol_deg": 0.0,
+      "max_waypoints_per_robot": 4000,
+      "at_home_tol_deg": 0.5,
+      "start_tol_deg": 1.0,
+      "chain_tol_deg": 0.5
+    },
+    "robot": []
+  },
+  "robots": [
+    {
+      "index": 1,
+      "ns": "robot1",
+      "tag": "R1",
+      "station": "kuka-robi1",
+      "device_name": "kuka_robi1",
+      "ip": "192.168.100.11",
+      "idle": false,
+      "prod_folge": 11,
+      "home_pose_deg": [
+        0.0,
+        -90.0,
+        90.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "home_source": "final_move_home",
+      "ops": [
+        "STAGE_R1",
+        "HOME"
+      ]
+    }
+  ],
+  "ops": [
+    {
+      "pos": 0,
+      "robot": "robot1",
+      "index": 1,
+      "operation_id": "STAGE_R1",
+      "kind": {
+        "kind": "execute",
+        "operation_type": "move"
+      },
+      "bt_path": "/Sequence/ExecuteTrajectory[0]",
+      "bt_name": "move_robot1_STAGE_R1",
+      "zones": [],
+      "zone_mask": "16#00000000",
+      "permit_preds": [],
+      "start_delay_s": 0.0,
+      "delay_exact": true,
+      "hold_s": 0.5,
+      "velocity_scale": 1.0,
+      "motion_s": 3.229,
+      "expected_s": 3.729,
+      "limit_s": 10.594,
+      "zone_deadline_s": 10.0,
+      "asap_start_s": 0.0,
+      "asap_end_s": 3.729,
+      "depth": 0,
+      "waypoints": 14
+    },
+    {
+      "pos": 1,
+      "robot": "robot1",
+      "index": 2,
+      "operation_id": "HOME",
+      "kind": {
+        "kind": "move_home"
+      },
+      "bt_path": "/Sequence/MoveHome[1]",
+      "bt_name": "home_robot1",
+      "zones": [],
+      "zone_mask": "16#00000000",
+      "permit_preds": [],
+      "start_delay_s": 0.0,
+      "delay_exact": true,
+      "hold_s": 0.0,
+      "velocity_scale": 1.0,
+      "motion_s": 2.419,
+      "expected_s": 2.419,
+      "limit_s": 8.629,
+      "zone_deadline_s": 20.794,
+      "asap_start_s": 3.729,
+      "asap_end_s": 6.148,
+      "depth": 1,
+      "waypoints": 13
+    }
+  ],
+  "cross_edges": [],
+  "zones": [],
+  "schedule": {
+    "makespan_s": 6.148,
+    "critical_path": [
+      "robot1.STAGE_R1",
+      "robot1.HOME"
+    ]
+  },
+  "diagnostics": []
+}

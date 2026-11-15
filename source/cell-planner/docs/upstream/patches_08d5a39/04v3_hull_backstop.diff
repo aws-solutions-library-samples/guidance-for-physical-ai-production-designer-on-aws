@@ -1,0 +1,556 @@
+diff --git a/agents/trajectory/backends/ompl/planner.py b/agents/trajectory/backends/ompl/planner.py
+index d5fd22c138f7aa4eb990a85ae4348b75325dbe79..a6dbfacc71875150baa1bb49d061349cef061284 100644
+--- a/agents/trajectory/backends/ompl/planner.py
++++ b/agents/trajectory/backends/ompl/planner.py
+@@ -1388,6 +1388,11 @@ def plan_trajectories_ompl(
+             try:
+                 verdict = inter_robot_clearance(
+                     cell_id, {**trajectories, ns: traj})
++                # The exact hull backstop must hold whichever sphere gate is
++                # installed (hull_clearance; the same call validate_trajectory_set
++                # makes).
++                from agents.trajectory.tools.hull_clearance import apply_hull_backstop
++                verdict = apply_hull_backstop(cell_id, {**trajectories, ns: traj}, verdict)
+             except Exception as e:
+                 # A gate that cannot run has not said yes. Fail-closed: the relaxed
+                 # leg is unverified, so it does not ship.
+diff --git a/agents/trajectory/backends/ompl_compound/planner.py b/agents/trajectory/backends/ompl_compound/planner.py
+index a8324c9ff0a398bb138f570064710c4c98cee49c..b5cb07d34fa0ebde2f94ce5b3a4bb7ee89986294 100644
+--- a/agents/trajectory/backends/ompl_compound/planner.py
++++ b/agents/trajectory/backends/ompl_compound/planner.py
+@@ -850,6 +850,9 @@ def plan_trajectories_ompl_compound(
+                            tool_rise_m=round(rise, 4), tool_rise_limit_m=limit)
+     try:
+         verdict = inter_robot_clearance(cell_id, {**joint, **bystander_traj})
++        # The exact hull backstop, whichever sphere gate is installed (hull_clearance).
++        from agents.trajectory.tools.hull_clearance import apply_hull_backstop
++        verdict = apply_hull_backstop(cell_id, {**joint, **bystander_traj}, verdict)
+     except Exception as e:  # noqa: BLE001 — a gate that cannot run has not said yes
+         verdict = {"collision_free": False, "error": str(e)}
+     if not verdict.get("collision_free"):
+diff --git a/agents/trajectory/tools/hull_clearance.py b/agents/trajectory/tools/hull_clearance.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..77867b90120f82702812a39a621510e13707b51b
+--- /dev/null
++++ b/agents/trajectory/tools/hull_clearance.py
+@@ -0,0 +1,246 @@
++"""Arm-vs-arm distance on the URDF collision hulls: an exact backstop for the sphere gate.
++
++``robot_kinematics.inter_robot_clearance`` decides "may these arms move at once?"
++on spheres: the skeleton, the tool and the converter-fitted ``link_collision``
++envelope. Spheres are an approximation of the castings, and the gate only sees
++the spheres it is given:
++
++* a cell converted before ``link_collision`` existed has no envelope, so the gate
++  checks the skeleton alone (0.12 m spheres on the kinematic chain cover 1-29 %
++  of the KR240 link hulls: on welding_cell_2_small a pair of configurations
++  clears the 0.20 m band at 0.226 m while robot2's link_5 hull sits 0.30 m deep
++  inside robot1's link_3 hull, umarell issue 04);
++* a fitted envelope covers the hull VERTICES, not necessarily every face;
++* a replaced sphere kernel (a vectorised drop-in for ``inter_robot_clearance``)
++  is whatever it is.
++
++So the CALLERS of the gate (``validate_trajectory_set``, and through it every step
++gate, the home step and the home reset; the OMPL backends' inter-arm admission)
++also measure the exact signed distance between the two arms' convex collision
++hulls on the same clock and grid, and refuse a set whose hulls come closer than
++``collision.hull_min_distance`` (robots.yaml, written by the converter; absent =
++:data:`HULL_MIN_DISTANCE_M`, ``null`` = off). It lives here and not inside the
++sphere gate so that no sphere implementation can switch it off.
++
++One cached convex ``GeometryModel`` per (cell, robot, cell files). The exact pair
++distance is computed only for hull pairs whose bounding spheres could be closer
++than the best pair found so far (branch and bound), so the result is the exact
++minimum at a fraction of the 144 GJK calls per sample.
++
++The policy for a check that does not answer is ``leg_verdict``'s: geometry that is
++UNAVAILABLE (no meshes, no hpp-fcl/coal, no URDF) gives no opinion and is reported
++(``hull_checked: False`` + ``hull_check_note``); a check that ran and BROKE raises,
++and the callers refuse (fail-closed).
++"""
++from __future__ import annotations
++
++import threading
++from typing import Optional
++
++import numpy as np
++
++from utils import arm_model
++
++#: The hull separation a cell gets when its robots.yaml does not declare
++#: ``collision.hull_min_distance`` — what scripts/convert_isaac_scene.py writes.
++#: 0.03 m absorbs about one 20 Hz poll of tracking lag between two arms.
++HULL_MIN_DISTANCE_M = 0.03
++
++_LOCK = threading.RLock()
++_CACHE: dict = {}
++
++
++class HullsUnavailable(FileNotFoundError):
++    """The arm has no hull geometry to measure (an availability failure, not a verdict)."""
++
++
++def _fcl():
++    try:
++        import hppfcl as fcl          # pinocchio 2.x
++    except ImportError:               # pragma: no cover - pinocchio >= 3
++        import coal as fcl
++    return fcl
++
++
++def _build(cell_id: str, robot_ns: str) -> dict:
++    try:
++        import pinocchio as pin
++        _fcl()
++    except ImportError as e:
++        raise HullsUnavailable(f"no geometry stack: {e}") from e
++    from agents.trajectory.tools.robot_kinematics import _load_robot_config
++    urdf = arm_model.urdf_path(cell_id, robot_ns)
++    if urdf is None:
++        raise HullsUnavailable(f"no URDF for {robot_ns} in {cell_id}")
++    model = pin.buildModelFromUrdf(str(urdf))
++    try:
++        geom = pin.buildGeomFromUrdf(model, str(urdf), pin.GeometryType.COLLISION,
++                                     package_dirs=[str(urdf.parent)])
++    except ValueError as e:           # a <collision> mesh that is not on disk
++        raise HullsUnavailable(f"{urdf.name}: {e}") from e
++    if geom.ngeoms == 0:
++        raise HullsUnavailable(f"{urdf.name} declares no <collision> geometry")
++    centres, radii = [], []
++    for go in geom.geometryObjects:
++        go.geometry.buildConvexRepresentation(False)
++        go.geometry = go.geometry.convex
++        go.geometry.computeLocalAABB()
++        lo = np.asarray(go.geometry.aabb_local.min_, float)
++        hi = np.asarray(go.geometry.aabb_local.max_, float)
++        centres.append(0.5 * (lo + hi))           # in the geometry's own frame
++        radii.append(0.5 * float(np.linalg.norm(hi - lo)))
++    cfg = _load_robot_config(cell_id, robot_ns)
++    yaw = float(cfg.get("base_orientation_yaw", 0.0))
++    cy, sy = np.cos(yaw), np.sin(yaw)
++    world = pin.SE3(np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]]),
++                    np.asarray(cfg["base_position"], float))
++    return {"model": model, "data": model.createData(), "geom": geom,
++            "gdata": pin.GeometryData(geom), "world": world,
++            "centres": centres, "radii": np.asarray(radii)}
++
++
++def _geometry(cell_id: str, robot_ns: str) -> dict:
++    """The arm's hulls, cached per (cell, robot, cell files' mtimes): a re-converted
++    cell or an edited URDF is measured afresh. Raises :class:`HullsUnavailable`."""
++    from agents.trajectory.tools.leg_verdict import cell_stamp
++    name = (str(cell_id), str(robot_ns))
++    key = (*name, cell_stamp(cell_id, robot_ns) or ())
++    with _LOCK:
++        hit = _CACHE.get(key)
++        if hit is not None:
++            return hit
++        hit = _build(cell_id, robot_ns)
++        for stale in [k for k in _CACHE if k[:2] == name and k != key]:
++            del _CACHE[stale]
++        _CACHE[key] = hit
++        return hit
++
++
++def available(cell_id: str, robot_ns: str) -> tuple:
++    """``(True, "")`` when the arm's hulls can be measured, else ``(False, reason)``."""
++    try:
++        _geometry(cell_id, robot_ns)
++        return True, ""
++    except HullsUnavailable as e:
++        return False, str(e)
++
++
++def _placed(cell_id: str, robot_ns: str, q) -> tuple:
++    import pinocchio as pin
++    g = _geometry(cell_id, robot_ns)
++    model = g["model"]
++    qv = np.zeros(model.nq)
++    qa = np.asarray(q, dtype=float)[: model.nq]
++    qv[: len(qa)] = qa
++    pin.forwardKinematics(model, g["data"], qv)
++    pin.updateGeometryPlacements(model, g["data"], g["geom"], g["gdata"])
++    fcl = _fcl()
++    out, centres = [], []
++    for k, go in enumerate(g["geom"].geometryObjects):
++        M = g["world"] * g["gdata"].oMg[k]
++        out.append((go.name, go.geometry, fcl.Transform3f(M.rotation, M.translation)))
++        centres.append(M.rotation @ g["centres"][k] + M.translation)
++    return out, np.asarray(centres), g["radii"]
++
++
++def arm_hull_distance(cell_id: str, ns_a: str, q_a, ns_b: str, q_b) -> tuple:
++    """``(signed distance m, [hull_a, hull_b])`` of the closest hull pair of two arms.
++
++    Negative = penetration depth. Exact: a pair is skipped only when its bounding
++    spheres are farther apart than the best exact distance already found. Raises
++    :class:`HullsUnavailable` when either arm has no usable geometry.
++    """
++    fcl = _fcl()
++    with _LOCK:
++        A, ca, ra = _placed(cell_id, ns_a, q_a)
++        B, cb, rb = _placed(cell_id, ns_b, q_b)
++    lower = (np.linalg.norm(ca[:, None, :] - cb[None, :, :], axis=-1)
++             - ra[:, None] - rb[None, :])
++    order = np.argsort(lower, axis=None)
++    best, pair = float("inf"), None
++    req = fcl.DistanceRequest()
++    nb = len(B)
++    for flat in order:
++        i, j = divmod(int(flat), nb)
++        if lower[i, j] >= best:
++            break
++        res = fcl.DistanceResult()
++        d = float(fcl.distance(A[i][1], A[i][2], B[j][1], B[j][2], req, res))
++        if d < best:
++            best, pair = d, [A[i][0], B[j][0]]
++    return best, pair
++
++
++def hull_min_distance(cell_id: str) -> Optional[float]:
++    """The cell's hull separation (``collision.hull_min_distance``), None = off."""
++    from agents.trajectory.tools.robot_kinematics import _load_collision_config
++    return _load_collision_config(cell_id).get("hull_min_distance")
++
++
++def apply_hull_backstop(cell_id: str, trajectories: dict, result: dict,
++                        n_samples: int = 20) -> dict:
++    """Add the exact hull verdict to an ``inter_robot_clearance`` result.
++
++    The grid is the sphere gate's own (``validation_sample_count`` over the
++    longest leg, at least ``n_samples``), on the shared clock: an arm that has
++    finished stands at its last sample. A pair closer than the cell's
++    ``hull_min_distance`` makes the result not collision-free and is listed in
++    ``colliding_pairs`` (``hull_distance_m``, ``hulls``). The sphere verdict —
++    band, stopping distances, its clearances — is left as it is.
++
++    A no-op when the cell switches the hull check off, for fewer than two arms, and
++    when the result already carries ``min_hull_distance_m`` (an implementation of
++    the gate that measured the hulls itself). Hulls that are unavailable are
++    reported (``hull_checked: False``, ``hull_check_note``) and change nothing; any
++    other failure raises — the caller refuses.
++    """
++    from agents.trajectory.tools.robot_kinematics import validation_sample_count
++    from agents.trajectory.tools.time_parameterization import _sample_at_time
++
++    if result is None or "min_hull_distance_m" in result:
++        return result
++    hull_min = hull_min_distance(cell_id)
++    names = [ns for ns, tr in (trajectories or {}).items() if tr]
++    if hull_min is None or len(names) < 2:
++        return result
++    for ns in names:
++        ok, why = available(cell_id, ns)
++        if not ok:
++            result["hull_checked"] = False
++            result["hull_check_note"] = f"{ns}: {why}"
++            return result
++    horizon = max(float(trajectories[ns][-1].get("time_s", 0.0)) for ns in names)
++    n = validation_sample_count(horizon, floor=int(n_samples))
++    grid = [horizon * i / (n - 1) for i in range(n)] if horizon > 0 else [0.0]
++    min_hull, worst, colliding, first_t = float("inf"), None, {}, None
++    for t in grid:
++        qs = {ns: _sample_at_time(trajectories[ns], t) for ns in names}
++        for ia, a in enumerate(names):
++            for b in names[ia + 1:]:
++                hd, hp = arm_hull_distance(cell_id, a, qs[a], b, qs[b])
++                if hd < min_hull:
++                    min_hull, worst = hd, [f"{a}:{hp[0]}", f"{b}:{hp[1]}"]
++                if hd < hull_min:
++                    key = f"{a}|{b}|hull"
++                    if key not in colliding:
++                        colliding[key] = {"robots": [a, b], "time_s": round(t, 4),
++                                          "hull_distance_m": round(hd, 4),
++                                          "hulls": hp, "penetrating": bool(hd < 0)}
++                    if first_t is None:
++                        first_t = round(t, 4)
++    result["hull_checked"] = True
++    result["hull_min_distance_m"] = hull_min
++    result["min_hull_distance_m"] = round(min_hull, 4)
++    result["worst_hull_pair"] = worst
++    if colliding:
++        result["collision_free"] = False
++        result["colliding_pairs"] = list(result.get("colliding_pairs") or []) + list(
++            colliding.values())
++        if result.get("collision_time_s") is None or first_t < result["collision_time_s"]:
++            result["collision_time_s"] = first_t
++    return result
++
++
++def clear_cache() -> None:
++    with _LOCK:
++        _CACHE.clear()
+diff --git a/agents/trajectory/tools/leg_verdict.py b/agents/trajectory/tools/leg_verdict.py
+index 4ac5e30152fe33b1b50e12e638df7b37884b3c80..df263477684f1d257ff65259c9cdef868b41faa3 100644
+--- a/agents/trajectory/tools/leg_verdict.py
++++ b/agents/trajectory/tools/leg_verdict.py
+@@ -11,7 +11,9 @@ assembler before a tree ships, the coordinated assembler, the home reset:
+                   (``robot_kinematics.leg_static_breach``).
+ 
+ The inter-arm question ("may these arms move at once?") is not here: it needs
+-every arm's leg, and ``behaviour_tree._gate_multi_arm_step`` owns it.
++every arm's leg, and ``behaviour_tree._gate_multi_arm_step`` owns it (through
++``validate_trajectory_set``: the sphere gate plus the exact hull backstop of
++``hull_clearance``, under the same policy as below).
+ 
+ One policy for a check that does not answer, so no caller invents its own:
+ 
+diff --git a/agents/trajectory/tools/planning_tools.py b/agents/trajectory/tools/planning_tools.py
+index 465ee8055b33898be35c92e32706c06ce0a93054..fcc2deb6db3ba62def74dd39698d6c8ce022eed5 100644
+--- a/agents/trajectory/tools/planning_tools.py
++++ b/agents/trajectory/tools/planning_tools.py
+@@ -1051,9 +1051,12 @@ def find_start_delays(cell_id: str, legs: dict, *,
+     def clear(subset, dl):
+         if len(subset) < 2:
+             return True, float("inf")
+-        r = inter_robot_clearance(
+-            cell_id, {ns: delayed(legs[ns], dl[ns]) for ns in subset},
+-            warning_distance_m=warning_distance_m)
++        timed = {ns: delayed(legs[ns], dl[ns]) for ns in subset}
++        r = inter_robot_clearance(cell_id, timed, warning_distance_m=warning_distance_m)
++        if r.get("collision_free"):
++            # A delay is only offered if the gate will accept it: the hulls too.
++            from agents.trajectory.tools.hull_clearance import apply_hull_backstop
++            r = apply_hull_backstop(cell_id, timed, r)
+         return bool(r.get("collision_free")), float(r.get("min_clearance_m", 0.0))
+ 
+     orders = list(permutations(names)) if len(names) <= 3 else [tuple(names)]
+@@ -1177,6 +1180,13 @@ def validate_trajectory_set(
+             # a second read taken deeper in the stack.
+             warning_distance_m=_load_collision_config(cell_id)["warning_distance"],
+         )
++        # The exact hull backstop (collision.hull_min_distance) on the same clock
++        # and grid — here, in the caller, so that no sphere implementation of the
++        # gate (a cell without a fitted envelope, a drop-in kernel) can switch it
++        # off. Unavailable hulls are reported; a check that breaks raises and is
++        # refused below ("check_failed").
++        from agents.trajectory.tools.hull_clearance import apply_hull_backstop
++        result = apply_hull_backstop(cell_id, timed, result, n_samples=n_samples)
+         if start_delays:
+             result["start_delays"] = dict(start_delays)
+         if check_joint_limits:
+diff --git a/agents/trajectory/tools/robot_kinematics.py b/agents/trajectory/tools/robot_kinematics.py
+index d2b44a7a832412ff9fefe7edae7163b46e400b2f..55485644dffaf6aca482247ae444653d04d9b603 100644
+--- a/agents/trajectory/tools/robot_kinematics.py
++++ b/agents/trajectory/tools/robot_kinematics.py
+@@ -675,9 +675,15 @@ def _load_collision_config(cell_id: str) -> dict:
+         raise
+     except Exception:  # noqa: BLE001
+         coll = {}
++    # The exact hull backstop of the inter-arm gate (hull_clearance.py): the arms'
++    # URDF collision hulls must stay this far apart. A cell converted before the
++    # key existed reads the converter's default; an explicit ``null`` switches it off.
++    from agents.trajectory.tools.hull_clearance import HULL_MIN_DISTANCE_M
++    hull = coll.get("hull_min_distance", HULL_MIN_DISTANCE_M)
+     return {
+         "warning_distance": float(coll.get("warning_distance", 0.20)),
+         "min_clearance": float(coll.get("min_clearance", 0.05)),
++        "hull_min_distance": None if hull is None else float(hull),
+     }
+ 
+ 
+diff --git a/scripts/convert_isaac_scene.py b/scripts/convert_isaac_scene.py
+index b9762cb8fb5659b2a611549889bfee45f2ecd0f1..62a0769070c2896a4a056daafae5fef493452c02 100644
+--- a/scripts/convert_isaac_scene.py
++++ b/scripts/convert_isaac_scene.py
+@@ -1859,6 +1859,10 @@ def render_robots_yaml(
+     L.append("  min_clearance: 0.05")
+     L.append("  warning_distance: 0.20")
+     L.append("  check_frequency: 100.0")
++    L.append("  # Exact backstop of the arm-vs-arm sphere gate: the arms' URDF collision")
++    L.append("  # hulls must stay this far apart (agents/trajectory/tools/hull_clearance.py;")
++    L.append("  # null = off).")
++    L.append(f"  hull_min_distance: {_fmt(defaults.get('hull_min_distance', 0.03))}")
+     L.append("")
+     L.append("planning:")
+     L.append("  default_planner: RRTConnect")
+@@ -2176,6 +2180,11 @@ def build_parser() -> argparse.ArgumentParser:
+     ap.add_argument("--self-collision-optional", action="store_true",
+                     help="Write self_collision.required: false — plan even when the "
+                          "check cannot run (no meshes). Default: required.")
++    ap.add_argument("--hull-min-distance", type=float, default=0.03, metavar="M",
++                    help="robots.yaml collision.hull_min_distance: the closest the two "
++                         "arms' URDF collision hulls may come, checked exactly on top of "
++                         "the sphere gate (default: 0.03, about one 20 Hz poll of "
++                         "tracking lag)")
+     ap.add_argument("--thermal-spread", choices=["on", "off"], default="on",
+                     help="robots.yaml planning.thermal_spread: spread consecutive "
+                          "welds of an arm apart to limit heat build-up (default: on). "
+@@ -2228,6 +2237,8 @@ def main() -> None:
+             _fatal(f"{flag} must be > 0, got {val}")
+     if args.completion_margin < 0:
+         _fatal(f"--completion-margin must be >= 0, got {args.completion_margin}")
++    if args.hull_min_distance < 0:
++        _fatal(f"--hull-min-distance must be >= 0, got {args.hull_min_distance}")
+     if args.min_home_liftoff > args.home_liftoff:
+         _warn(f"--min-home-liftoff {args.min_home_liftoff} exceeds --home-liftoff "
+               f"{args.home_liftoff}; using {args.home_liftoff}")
+@@ -2722,6 +2733,7 @@ def main() -> None:
+         "home_liftoff_m": args.home_liftoff,
+         "min_home_liftoff_m": min(args.min_home_liftoff, args.home_liftoff),
+         "completion_margin_s": args.completion_margin,
++        "hull_min_distance": args.hull_min_distance,
+         "tool_orientation": {"spin_free": args.tool_spin == "free",
+                              "max_tilt_deg": args.tool_max_tilt,
+                              "axis_tolerance_deg": args.tool_axis_tolerance},
+diff --git a/tests/trajectory/test_hull_backstop.py b/tests/trajectory/test_hull_backstop.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..6e91babf7ca159bae166077eb39ea559082a71b4
+--- /dev/null
++++ b/tests/trajectory/test_hull_backstop.py
+@@ -0,0 +1,155 @@
++"""The exact hull backstop of the inter-arm gate (umarell issue 04, hull_clearance.py).
++
++The sphere gate (``inter_robot_clearance``) is only as good as the spheres it is
++given. A cell converted before ``link_collision`` existed checks the kinematic
++skeleton alone, and a drop-in sphere kernel is whatever it is; the callers of the
++gate therefore also measure the arms' convex URDF hulls exactly. The pair below
++(welding_cell_2_small, found by a seeded local search) has both poses self-free
++and clear of the cell, clears the skeleton-only sphere gate at 0.2293 m (band
++0.20 m), and robot1's tool plate hull is 120 mm deep inside robot2's link_3.
++"""
++import os
++import sys
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++PROJECT_ROOT = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(PROJECT_ROOT))
++
++pytest.importorskip("pinocchio")
++
++CELL = "welding_cell_2_small"
++Q1 = [-1.85498, -0.05732, -0.57356, 2.76669, 0.83775, 2.76688]
++Q2 = [1.21452, -1.26425, -0.8201, 1.07949, -0.9023, -1.18069]
++
++
++def _still(q, t=1.0):
++    return [{"positions": list(q), "time_s": 0.0}, {"positions": list(q), "time_s": t}]
++
++
++@pytest.fixture
++def cell(monkeypatch):
++    for base in (os.environ.get("CELL_BASE_PATH"), str(PROJECT_ROOT / "cells")):
++        if base and (Path(base) / CELL).is_dir():
++            monkeypatch.setenv("CELL_BASE_PATH", base)
++            break
++    from agents.trajectory.tools import hull_clearance as hc
++    from agents.trajectory.tools import robot_kinematics as rk
++    ok, why = hc.available(CELL, "robot1")
++    if not ok:
++        pytest.skip(f"no arm hulls here: {why}")
++    return rk, hc
++
++
++def _without_envelope(rk, monkeypatch):
++    """robots.yaml as a cell converted before link_collision existed."""
++    orig = rk._load_robot_config
++    monkeypatch.setattr(rk, "_load_robot_config",
++                        lambda c, n: {k: v for k, v in orig(c, n).items()
++                                      if k != "link_collision"})
++    monkeypatch.setattr(rk, "_ENVELOPE", {})
++
++
++def _validate(**kw):
++    from agents.trajectory.tools.planning_tools import validate_trajectory_set
++    return validate_trajectory_set.func(cell_id=CELL, suggest_delay=False, **kw)
++
++
++def test_branch_and_bound_is_the_exact_minimum(cell):
++    rk, hc = cell
++    fcl = hc._fcl()
++    rng = np.random.default_rng(4)
++    for _ in range(12):
++        qa, qb = rng.uniform(-2.0, 2.0, 6), rng.uniform(-2.0, 2.0, 6)
++        d, pair = hc.arm_hull_distance(CELL, "robot1", qa, "robot2", qb)
++        A, _ca, _ra = hc._placed(CELL, "robot1", qa)
++        B, _cb, _rb = hc._placed(CELL, "robot2", qb)
++        brute = min(float(fcl.distance(a[1], a[2], b[1], b[2], fcl.DistanceRequest(),
++                                       fcl.DistanceResult())) for a in A for b in B)
++        assert d == pytest.approx(brute, abs=1e-9)
++
++
++def test_a_cell_without_an_envelope_is_still_refused_by_the_hulls(cell, monkeypatch):
++    rk, hc = cell
++    _without_envelope(rk, monkeypatch)
++    legs = {"robot1": _still(Q1), "robot2": _still(Q2)}
++    spheres = rk.inter_robot_clearance(CELL, legs)
++    assert spheres["collision_free"] is True and spheres["min_clearance_m"] > 0.2
++    res = _validate(trajectories=legs)
++    # Each leg is fine on its own: the refusal is the pair's hulls, nothing else.
++    assert not res.get("static_collisions") and res["joint_limits_ok"] is True
++    assert res["collision_free"] is False and res["hull_checked"] is True
++    assert res["min_hull_distance_m"] < -0.1
++    hull = [p for p in res["colliding_pairs"] if "hull_distance_m" in p]
++    assert hull and hull[0]["penetrating"] is True
++
++
++def test_a_replaced_sphere_kernel_cannot_switch_the_hulls_off(cell, monkeypatch):
++    rk, hc = cell
++    from agents.trajectory.tools import planning_tools as pt
++
++    def sphere_only(cell_id, trajectories, **kw):
++        return {"collision_free": True, "min_clearance_m": 1.0,
++                "warning_distance_m": 0.2, "robots": sorted(trajectories)}
++    monkeypatch.setattr(pt, "inter_robot_clearance", sphere_only)
++    res = _validate(trajectories={"robot1": _still(Q1), "robot2": _still(Q2)})
++    assert not res.get("static_collisions")
++    assert res["collision_free"] is False and res["min_hull_distance_m"] < -0.1
++
++
++def test_the_multi_arm_step_gate_refuses_the_pair(cell, monkeypatch):
++    rk, hc = cell
++    _without_envelope(rk, monkeypatch)
++    from agents.trajectory.tools.behaviour_tree import _gate_multi_arm_step
++    rep = _gate_multi_arm_step(CELL, {"robot1": _still(Q1), "robot2": _still(Q2)})
++    assert rep["mode"] is None and not rep.get("leg_faults")
++    monkeypatch.setattr(hc, "hull_min_distance", lambda c: None)   # the hull check off:
++    assert _gate_multi_arm_step(CELL, {"robot1": _still(Q1), "robot2": _still(Q2)}
++                                )["mode"] is not None              # 76ea13a's verdict
++
++
++def test_clear_arms_pass_and_report_the_hull_distance(cell):
++    from agents.home_pose import home_pose
++    res = _validate(trajectories={ns: _still(home_pose(CELL, ns)) for ns in ("robot1", "robot2")})
++    assert res["collision_free"] is True and res["hull_checked"] is True
++    assert res["min_hull_distance_m"] > 0.03
++
++
++def test_unavailable_hulls_change_nothing_and_say_so(cell, monkeypatch):
++    rk, hc = cell
++    monkeypatch.setattr(hc, "available", lambda c, n: (False, "no meshes"))
++    out = hc.apply_hull_backstop(CELL, {"robot1": _still(Q1), "robot2": _still(Q2)},
++                                 {"collision_free": True})
++    assert out["collision_free"] is True and out["hull_checked"] is False
++    assert "no meshes" in out["hull_check_note"]
++
++
++def test_a_check_that_breaks_refuses(cell, monkeypatch):
++    rk, hc = cell
++
++    def broken(*a, **k):
++        raise RuntimeError("GJK blew up")
++    monkeypatch.setattr(hc, "arm_hull_distance", broken)
++    res = _validate(trajectories={"robot1": _still(Q1), "robot2": _still(Q2)})
++    assert res.get("error_kind") == "check_failed"
++
++
++def test_an_old_cell_reads_the_converter_default_and_null_is_off(cell, monkeypatch):
++    rk, hc = cell
++    import importlib.util
++    spec = importlib.util.spec_from_file_location(
++        "convert_isaac_scene", PROJECT_ROOT / "scripts" / "convert_isaac_scene.py")
++    conv = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(conv)
++    default = conv.build_parser().parse_args(["--scene-yaml", "x", "--out-dir", "y"])
++    real = rk._load_robots_config(CELL)
++    coll = {k: v for k, v in (real.get("collision") or {}).items() if k != "hull_min_distance"}
++    monkeypatch.setattr(rk, "_load_robots_config", lambda c: {**real, "collision": coll})
++    assert rk._load_collision_config(CELL)["hull_min_distance"] == default.hull_min_distance
++    monkeypatch.setattr(rk, "_load_robots_config",
++                        lambda c: {**real, "collision": {**coll, "hull_min_distance": None}})
++    assert rk._load_collision_config(CELL)["hull_min_distance"] is None
++    legs = {"robot1": _still(Q1), "robot2": _still(Q2)}
++    assert "hull_checked" not in hc.apply_hull_backstop(CELL, legs, {"collision_free": True})

@@ -1,0 +1,21 @@
+# The scene jam2 of the user's workspace (fitted-robots/jam2.yaml), its asset paths changed to
+# the copies in this fixtures folder.
+name: jam2
+robots:
+- robot_id: kr240r2900__sticktool
+  dressed_urdf: ../../kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position: {x: 2.5, y: 0.0, z: 0.0}
+  orientation: {a: 180.0, b: 0.0, c: 0.0}
+  home_pose_deg: [45.0, -90.0, 90.0, 0.0, 0.0, 0.0]
+  pedestal: {height_mm: 1000.0, diameter_mm: 1500.0}
+- robot_id: kr240r2900__sticktool_2
+  dressed_urdf: ../../kr240r2900__sticktool/kr240r2900__sticktool.urdf
+  position: {x: -2.5, y: 0.0, z: 0.0}
+  orientation: {a: 0.0, b: 0.0, c: 0.0}
+  home_pose_deg: [45.0, -90.0, 90.0, 0.0, 0.0, 0.0]
+  pedestal: {height_mm: 1000.0, diameter_mm: 1500.0}
+fixtures:
+- id: bug_cube
+  urdf: ../../bug_cube/bug_cube.urdf
+  position: {x: 0.0, y: 0.0, z: 0.0}
+  orientation: {a: 0.0, b: 0.0, c: 0.0}

@@ -1,0 +1,11 @@
+[package]
+name = "btgui"
+description = "Standalone window around bt-view."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+bt-view.workspace = true
+eframe.workspace = true
+rfd.workspace = true

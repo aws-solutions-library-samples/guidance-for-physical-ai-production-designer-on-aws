@@ -1,0 +1,13 @@
+[package]
+name = "bt-cell"
+description = "factoryos cell-runner plans on bt-exec: plan parsing, the motion schedule and the cell leaves as native leaves (no UI, wasm-clean)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+bt-core.workspace = true
+bt-exec.workspace = true
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,37 @@
+diff --git a/crates/data_flow/re_importer/src/lib.rs b/crates/data_flow/re_importer/src/lib.rs
+index 5ae64f0a23..e211d1cf8f 100644
+--- a/crates/data_flow/re_importer/src/lib.rs
++++ b/crates/data_flow/re_importer/src/lib.rs
+@@ -552,9 +552,31 @@ static BUILTIN_IMPORTERS: LazyLock<Vec<Arc<dyn Importer>>> = LazyLock::new(|| {
+ });
+ 
+ /// Iterator over all registered [`Importer`]s.
++///
++/// Built-in importers that were replaced with [`override_builtin_importer`] are skipped.
+ #[inline]
+ pub fn iter_importers() -> impl Iterator<Item = Arc<dyn Importer>> {
+-    std::iter::chain(BUILTIN_IMPORTERS.clone(), CUSTOM_IMPORTERS.read().clone())
++    let custom = CUSTOM_IMPORTERS.read().clone();
++    let overridden: Vec<ImporterName> = OVERRIDDEN_BUILTIN_IMPORTERS.read().clone();
++    let builtin = BUILTIN_IMPORTERS
++        .clone()
++        .into_iter()
++        .filter(move |importer| !overridden.contains(&importer.name()));
++    std::iter::chain(builtin, custom)
++}
++
++/// Names of the built-in [`Importer`]s replaced with [`override_builtin_importer`].
++static OVERRIDDEN_BUILTIN_IMPORTERS: LazyLock<parking_lot::RwLock<Vec<ImporterName>>> =
++    LazyLock::new(parking_lot::RwLock::default);
++
++/// Register a custom [`Importer`] that replaces the built-in one with the same [`Importer::name`].
++///
++/// Use this to swap out a built-in importer, e.g. to extend the URDF importer, without both of them
++/// importing the same file.
++/// Without a built-in importer of that name, this is the same as [`register_custom_importer`].
++pub fn override_builtin_importer(importer: impl Importer + 'static) {
++    OVERRIDDEN_BUILTIN_IMPORTERS.write().push(importer.name());
++    register_custom_importer(importer);
+ }
+ 
+ /// Keeps track of all custom [`Importer`]s.

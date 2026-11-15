@@ -1,0 +1,28 @@
+# Fix set v6 (default since 2026-10-23) = the fixes umarell HEAD 76ea13a (76ea13aafdeede10be11936cf0830613e8717907,
+# "Merge pull request #9 from aws-samples/feat/backend-packages") still lacks, rebased onto it; apply in this order on
+# 76ea13a (git apply or patch -p1; umarell_fast/apply.py --with-upstream-fixes, base third_party/sample-umarell-76ea13a)
+# Dropped because upstream ported them (76ea13a contains an equivalent, so re-applying would duplicate or conflict):
+# 01-03 (self-collision, tool spheres, tool vs floor / obstacles), 05-19 (departure drag, fixture blind spot, entry
+# check, 08-11 weld grid / executor margin / trajectory player / pin 2.7 parentJoint, IK spin / tilt, joint limits,
+# dense self-collision, agent-leg / blocked / home lift-off, replan start gap, spline on the validated path) and the
+# link-sphere envelope of 04v2; of 04v2 only the hull backstop is left (04v3). umarell's planner now lives in
+# agents/trajectory/backends/ompl/planner.py (tools/ompl_planner.py is an alias of the same module).
+04v3_hull_backstop.diff
+22v2_no_workpiece_dip.diff
+20v2_driver_continuous.diff
+# 23 and 21 come after 20 (on eccb1bc 23 needed 20 for fjt_trajectory, 21 for robot_agent.py)
+23v2_commanded_acceleration.diff
+21v5_vass_interlocks.diff
+# Our own hook patches (default-off, not correctness fixes) for this base are umarell_fast/patches_76ea13a/
+# (U1_01 agent hooks, U1_02 effort / 1 h cache TTL, U3_01 robots.yaml parse cache, U3_02 OMPL seed); U2_01 was ported
+# upstream (the next leg chains from the emitted end), U1_02's prompt cache and U3_01's model cache are upstream.
+# 2026-10-27 (set v7 = v6 + 24..26): 24 a voxel face on a grid plane goes to the mesh's inner cell (no +x/+y/+z
+# lid), 25 converter --refine-points / --refine-voxel-size / --refine-radius (fine is_workpiece shell
+# <fixture>_f<n> near the welds; needs 24), 26 trajectory_index.json store race (unique temp file + index lock)
+24_voxel_boundary_inward.diff
+25_near_weld_refinement.diff
+26_trajectory_index_race.diff
+# 2026-10-28 (set v8 = v7 + 27): 27 the Hermite fallback (no TOPP-RA: the arm64 hosts) starts and ends every timed
+# path at rest (acceleration-limited speed ramps on the same polyline; btexport's rest check failed 9 of 12 legs of
+# U3's 4-arm body_weld_3 plan: approaches arrived and lift-offs left at 3-4 % v_max)
+27_hermite_rest_ends.diff

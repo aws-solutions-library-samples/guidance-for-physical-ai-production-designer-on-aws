@@ -1,0 +1,2145 @@
+diff --git a/agents/trajectory/tools/behaviour_tree.py b/agents/trajectory/tools/behaviour_tree.py
+index b965f10..b181f4f 100644
+--- a/agents/trajectory/tools/behaviour_tree.py
++++ b/agents/trajectory/tools/behaviour_tree.py
+@@ -1496,7 +1496,8 @@ def _leg_refusal_result(leg_hits: list, step_reports: Optional[list] = None,
+     return {
+         "success": False,
+         "error": ("these legs cannot be executed as planned: they leave their arm's "
+-                  "joint limits, or drive the arm into its OWN collision hulls "
++                  "joint limits, drive the arm into its OWN collision hulls, or drive "
++                  "the tool into a workpiece / fixture away from any weld contact "
+                   "somewhere along the executed path. No ordering or delay fixes that: "
+                   "re-plan each listed operation (another arm via reallocate_operation, "
+                   "a different approach orientation, or a via pose); for a 'home' leg, "
+diff --git a/agents/trajectory/tools/leg_builder.py b/agents/trajectory/tools/leg_builder.py
+index 30db3c0..e053ab9 100644
+--- a/agents/trajectory/tools/leg_builder.py
++++ b/agents/trajectory/tools/leg_builder.py
+@@ -121,12 +121,18 @@ def cartesian_descent(
+     ``why``, when given, is filled with what stopped it — ``{"cause": "ik" |
+     "collision", "step", "collision": info}`` — so the caller can tell an arm that
+     folds into ITSELF on the stroke from one that hits an obstacle.
++
++    The tool may touch material only at the weld it descends onto (umarell issue
++    22): ``goal_xyz`` is a weld contact on top of the cell's program welds, each
++    step is checked with that, and so is the whole stroke, densely
++    (:func:`stroke_tool_breach`).
+     """
+     from agents.trajectory.tools.robot_kinematics import (
+         _config_collision_info, _config_is_free)
+     col_data = model.createData()
+     via = np.asarray(via_xyz, float)
+     goal = np.asarray(goal_xyz, float)
++    static_obstacles = _with_weld(cell_id, static_obstacles, goal, goal - via)
+     warm = list(np.asarray(start_q, float)[:model.nq])
+     wps: list = []
+     for i in range(1, n_steps + 1):
+@@ -154,8 +160,47 @@ def cartesian_descent(
+             return None
+         wps.append(q)
+         warm = ik["joint_positions"]
++    hit = stroke_tool_breach(cell_id, robot_ns, start_q, wps, static_obstacles)
++    if hit is not None:
++        if why is not None:
++            why.update(cause="collision", step=hit.get("sample_index"), steps=n_steps,
++                       collision=hit)
++        return None
+     return wps
+ 
++def _with_weld(cell_id: str, static_obstacles: list, point, approach) -> list:
++    """The obstacles with ``point`` (approach ``approach``) as a weld contact."""
++    try:
++        from agents.trajectory.tools.tool_contact import with_contacts
++        a = np.asarray(approach, float)
++        n = float(np.linalg.norm(a))
++        return with_contacts(cell_id, static_obstacles,
++                             [(np.asarray(point, float).tolist(),
++                               (a / n).tolist() if n > 1e-9 else None)])
++    except Exception:  # noqa: BLE001 — no exemption added: stricter, never looser
++        return static_obstacles
++
++def stroke_tool_breach(cell_id: str, robot_ns: str, start_q, wps: list,
++                       static_obstacles: list) -> Optional[dict]:
++    """The tool-contact rule (issue 22) on a whole Cartesian stroke
++    ``start_q -> wps``, densely: the tool's hulls and spheres out of every obstacle
++    but at a weld contact. None when clear or when the tool's hulls cannot be
++    checked here (the sphere part of the rule ran per step). A check that breaks
++    refuses the stroke."""
++    if not wps:
++        return None
++    try:
++        from agents.trajectory.tools import tool_contact
++        if not tool_contact.available(cell_id, robot_ns)[0]:
++            return None
++        leg = [np.asarray(start_q, float)[:len(wps[0])]] + [np.asarray(w, float) for w in wps]
++        return tool_contact.trajectory_tool_contact_info(
++            cell_id, robot_ns, [{"positions": [float(v) for v in w]} for w in leg],
++            obstacles=static_obstacles)
++    except Exception as e:  # noqa: BLE001 — a check that cannot run has not said yes
++        return {"type": "tool_penetration", "object_id": None, "error": str(e),
++                "sample_index": None}
++
+ def descent_failure(why: dict) -> dict:
+     """The failure for a blocked straight descent, named by what blocked it."""
+     info = why.get("collision") or {}
+@@ -206,11 +251,15 @@ def cartesian_retreat(
+     Returns joint waypoints ending at the standoff, or ``None`` if the lift-off is
+     blocked/unreachable — in which case the caller falls back to planning straight
+     from the seam (degraded, but never a hard failure of the whole plan).
++
++    The tool may touch material only at the weld it leaves (``seam_xyz``, issue
++    22), per step and along the whole stroke (:func:`stroke_tool_breach`).
+     """
+     from agents.trajectory.tools.robot_kinematics import _config_is_free
+     col_data = model.createData()
+     seam = np.asarray(seam_xyz, float)
+     out = np.asarray(retreat_xyz, float)
++    static_obstacles = _with_weld(cell_id, static_obstacles, seam, seam - out)
+     warm = list(np.asarray(start_q, float)[:model.nq])
+     wps: list = []
+     for i in range(1, n_steps + 1):
+@@ -230,6 +279,8 @@ def cartesian_retreat(
+             return None
+         wps.append(q)
+         warm = ik["joint_positions"]
++    if stroke_tool_breach(cell_id, robot_ns, start_q, wps, static_obstacles) is not None:
++        return None
+     return wps
+ 
+ def accel_limits(cell_id: str, rcfg: dict):
+diff --git a/agents/trajectory/tools/leg_verdict.py b/agents/trajectory/tools/leg_verdict.py
+index b6acc84..5894d6a 100644
+--- a/agents/trajectory/tools/leg_verdict.py
++++ b/agents/trajectory/tools/leg_verdict.py
+@@ -7,6 +7,10 @@ assembler before a tree ships, the coordinated assembler, the home reset:
+   * ``limits``  — every sample inside the arm's joint box (``joint_limits``);
+   * ``self``    — the arm against its OWN hulls along the executed path, densely
+                   (``self_collision``);
++  * ``tool``    — the tool's hulls and spheres out of every workpiece / fixture
++                  box along the executed path, densely, except at a program
++                  weld's contact (``tool_contact``, umarell issue 22) — like
++                  ``self``, a fault of the leg itself, so every gate applies it;
+   * ``static``  — the cell's static obstacles at the runtime margins
+                   (``robot_kinematics.leg_static_breach``).
+ 
+@@ -137,6 +141,15 @@ def self_hit(cell_id: str, robot_ns: str, leg) -> tuple:
+     return _run(c.trajectory_violation, leg)
+ 
+ 
++def tool_hit(cell_id: str, robot_ns: str, leg) -> tuple:
++    """The tool in the cell's material away from a weld: ``(status, hit | reason)``."""
++    try:
++        from agents.trajectory.tools import tool_contact
++    except _UNAVAILABLE as exc:
++        return "unavailable", f"{type(exc).__name__}: {exc}"
++    return judged("tool", cell_id, robot_ns, leg, tool_contact.leg_tool_breach)
++
++
+ def static_hit(cell_id: str, robot_ns: str, leg) -> tuple:
+     """The cell's static obstacles: ``(status, hit | reason)``."""
+     try:
+@@ -174,6 +187,19 @@ def refusal(cell_id: str, robot_ns: str, leg, *, static: bool = False) -> Option
+                 "error": (f"{robot_ns}'s leg drives the arm into itself ({hit['object_id']}, "
+                           f"{hit['clearance_m']} m) between samples {hit['sample_index']} "
+                           f"and {hit['sample_index'] + 1}")}
++    status, hit = tool_hit(cell_id, robot_ns, leg)
++    if status == "error":
++        return _error(robot_ns, "tool contact", hit)
++    if status == "hit" and hit is not None:
++        return {"robot_ns": robot_ns, "reason_code": "trajectory_in_collision",
++                "collision": hit,
++                "error": (f"{robot_ns}'s leg drives the tool ({hit.get('body')}) "
++                          f"{-float(hit.get('worst_clearance_m', hit.get('clearance_m')) or 0.0) * 1000:.1f} mm "
++                          f"into '{hit.get('object_id')}' away from any weld contact, "
++                          f"from sample {hit.get('sample_index')} "
++                          f"(+{hit.get('segment_fraction', 0.0)} of the way to the next): "
++                          "leave and enter welds along the approach axis and route "
++                          "transits clear of the part")}
+     if static:
+         status, hit = static_hit(cell_id, robot_ns, leg)
+         if status == "error":
+@@ -191,7 +217,7 @@ def unchecked(cell_id: str, robot_ns: str, leg, *, static: bool = False) -> list
+     """The checks that could not run on ``leg`` (each ``{"check", "reason"}``) —
+     what a caller reports instead of calling the leg checked."""
+     out = []
+-    for name, fn in (("limits", limits), ("self", self_hit)) + (
++    for name, fn in (("limits", limits), ("self", self_hit), ("tool", tool_hit)) + (
+             (("static", static_hit),) if static else ()):
+         status, why = fn(cell_id, robot_ns, leg)
+         if status == "unavailable":
+diff --git a/agents/trajectory/tools/pinocchio.py b/agents/trajectory/tools/pinocchio.py
+index 3c96ef9..5e6c336 100644
+--- a/agents/trajectory/tools/pinocchio.py
++++ b/agents/trajectory/tools/pinocchio.py
+@@ -590,10 +590,18 @@ def validate_approach(
+                                  less — e.g. one that starts standing on the weld —
+                                  has no measurable entry and does NOT match.
+ 
++    Also checked (umarell issue 22): the tool never enters a workpiece or fixture
++    box along the leg (densely, as executed; or at the final pose) except within
++    the contact ball of the weld (``target_position``) or another program weld;
++    ``workpiece_ok`` is False and ``tool_penetration`` names the body, box and
++    depth otherwise.
++
+     Returns:
+         {"matches": bool, "tool_axis_error_deg", "orientation_error_deg",
+          "position_error_m"|null, "approach_direction_error_deg"|null,
+-         "entry_travel_m"|null, "actual_tool_axis", "expected_tool_axis", "reason"}
++         "entry_travel_m"|null, "workpiece_ok": bool, "tool_penetration"?: {...},
++         "tool_hulls_checked": bool, "actual_tool_axis", "expected_tool_axis",
++         "reason"}
+     """
+     try:
+         import pinocchio as pin
+@@ -723,7 +731,26 @@ def validate_approach(
+             trajectory if trajectory else [list(q_final)], _lo, _hi,
+             names=joint_names(rcfg, model))
+         limits_ok = limit_v is None
+-        matches = bool(ori_ok and pos_ok and dir_ok and travel_ok and limits_ok)
++        # The tool may touch material only at the weld contact itself (issue 22):
++        # along the whole leg when given (densely, as executed), else at the final
++        # pose, the tool's hulls and spheres must not enter a workpiece or fixture
++        # box anywhere but within the contact ball of this weld (``target_position``)
++        # or another program weld. A weld leg that dips into the part on its way in
++        # is not a valid approach however well it ends.
++        from agents.trajectory.tools import tool_contact as _tc
++        _contacts = ([(list(map(float, list(target_position)[:3])),
++                       list(approach_vector)[:3] if approach_vector is not None else None)]
++                     if target_position is not None else [])
++        if trajectory:
++            pen = _tc.trajectory_tool_contact_info(cell_id, robot_ns, trajectory,
++                                                   contact_points=_contacts)
++        else:
++            pen = _tc.config_tool_contact_info(cell_id, robot_ns, list(q_final),
++                                               contact_points=_contacts)
++        tool_hulls_ok, tool_hulls_why = _tc.available(cell_id, robot_ns)
++        workpiece_ok = pen is None
++        matches = bool(ori_ok and pos_ok and dir_ok and travel_ok and limits_ok
++                       and workpiece_ok)
+ 
+         reasons = []
+         if not ori_ok:
+@@ -743,6 +770,15 @@ def validate_approach(
+                 f"checked; plan a real terminal stroke along approach_vector")
+         if not limits_ok:
+             reasons.append(_lim_describe(limit_v, robot_ns))
++        if not workpiece_ok:
++            reasons.append(
++                f"the tool ({pen.get('worst_body', pen.get('body'))}) enters "
++                f"'{pen.get('worst_object_id', pen.get('object_id'))}' by "
++                f"{-float(pen.get('worst_clearance_m', pen.get('clearance_m')) or 0.0) * 1000:.1f}mm "
++                f"away from the weld contact (from sample {pen.get('sample_index')}"
++                f"{', ' + str(pen.get('phase')) + ' phase' if pen.get('phase') else ''}); "
++                f"leave and enter welds along the approach axis and keep transits clear "
++                f"of the part")
+         reason = "terminal working approach matches the specification" if matches else "; ".join(reasons)
+ 
+         return {
+@@ -754,6 +790,10 @@ def validate_approach(
+             "entry_travel_m": round(entry_travel, 4) if entry_required else None,
+             "joint_limits_ok": limits_ok,
+             **({"joint_limit_violation": limit_v} if limit_v is not None else {}),
++            "workpiece_ok": workpiece_ok,
++            **({"tool_penetration": pen} if pen is not None else {}),
++            "tool_hulls_checked": bool(tool_hulls_ok),
++            **({"tool_hulls_note": tool_hulls_why} if not tool_hulls_ok else {}),
+             "actual_tool_axis": [round(float(v), 4) for v in actual_axis],
+             "expected_tool_axis": [round(float(v), 4) for v in expected_axis],
+             "reason": reason,
+@@ -789,8 +829,10 @@ def check_self_collision(
+     - Self-collision: the arm's collision hulls against each other
+       (``self_collision`` in the result says whether that check ran)
+     - Floor and static obstacles: the cell's planes (else z = 0), boxes and
+-      spheres, against the arm and the tool's static spheres
+-    - Static obstacles from obstacles.yaml (is_workpiece boxes are skipped)
++      spheres, against the arm and the tool's static spheres. An is_workpiece box
++      keeps the arm at its standoff; the tool (its spheres AND its URDF collision
++      hulls) must not enter any box or sphere except within the contact ball of a
++      program weld (``tool_contact``, umarell issue 22)
+     - Joint limits: all joints within limits from robots.yaml
+ 
+     Args:
+@@ -854,10 +896,14 @@ def check_self_collision(
+                        "box_id": comp["box_id"][m:m + 1] if kind == "box" else [],
+                        "box_c": comp["box_c"][m:m + 1], "box_h": comp["box_h"][m:m + 1],
+                        "box_m": comp["box_m"][m:m + 1],
++                       "box_wp": comp["box_wp"][m:m + 1],
++                       "box_obs": comp["box_obs"][m:m + 1],
+                        "sph_k": comp["sph_k"][m:m + 1] if kind == "sph" else [],
+                        "sph_id": comp["sph_id"][m:m + 1] if kind == "sph" else [],
+                        "sph_c": comp["sph_c"][m:m + 1], "sph_r": comp["sph_r"][m:m + 1],
+-                       "sph_m": comp["sph_m"][m:m + 1]}
++                       "sph_m": comp["sph_m"][m:m + 1],
++                       "sph_wp": comp["sph_wp"][m:m + 1],
++                       "sph_obs": comp["sph_obs"][m:m + 1]}
+                 hit = _static_first_breach(P, R, on_floor if kind == "pl" else
+                                            np.zeros(len(P), bool), label, one, 0.0)
+                 if hit is None:
+@@ -885,6 +931,17 @@ def check_self_collision(
+                 violations.append(f"self-collision: {hit['object_id']} "
+                                   f"(signed distance {hit['clearance_m']:.3f}m)")
+ 
++        # The tool's own URDF collision hulls against every box and sphere (issue
++        # 22): only the weld contact may touch material. Reported as checked or not.
++        from agents.trajectory.tools import tool_contact as _tc
++        tool_hulls_ok, tool_hulls_why = _tc.available(cell_id, robot_ns)
++        pen = (_tc.config_tool_contact_info(cell_id, robot_ns, list(q), obstacles)
++               if tool_hulls_ok else None)
++        if pen is not None:
++            violations.append(
++                f"tool ({pen.get('body')}) penetrates obstacle '{pen.get('object_id')}' "
++                f"away from any weld contact: signed distance {pen.get('clearance_m'):.4f}m")
++
+         if violations:
+             shown = "; ".join(violations[:4])
+             extra = f" (+{len(violations) - 4} more)" if len(violations) > 4 else ""
+@@ -894,6 +951,9 @@ def check_self_collision(
+             "collision_free": len(violations) == 0,
+             "violations":     violations,
+             "self_collision": sc.status(),
++            "tool_hulls_checked": bool(tool_hulls_ok),
++            **({} if tool_hulls_ok else
++               {"tool_hulls_note": f"tool hulls vs obstacles not checked: {tool_hulls_why}"}),
+         }
+     except Exception as e:
+         return {"error": str(e)}
+diff --git a/agents/trajectory/tools/planning_tools.py b/agents/trajectory/tools/planning_tools.py
+index 30a2a6b..ff1d2dd 100644
+--- a/agents/trajectory/tools/planning_tools.py
++++ b/agents/trajectory/tools/planning_tools.py
+@@ -1010,7 +1010,11 @@ def validate_trajectory_set(
+     planner's emitted-trajectory check (floor, fixtures, self-collision — the
+     runtime monitor's rule): a breach sets ``collision_free`` False and lists
+     ``static_collisions``. No start delay fixes one. If the check cannot run, the
+-    arm-vs-arm verdict stands and ``static_obstacles_checked`` is False.
++    arm-vs-arm verdict stands and ``static_obstacles_checked`` is False. This
++    includes the tool-contact rule along the whole interpolated leg (umarell issue
++    22): the tool's own collision hulls and spheres must not enter a workpiece or
++    fixture box except at a program weld (``type: "tool_penetration"``;
++    ``tool_contact_checked`` is False when the cell ships no tool hulls).
+ 
+     ``check_joint_limits`` (default on) checks every sample of every leg (and so,
+     the box being convex, the straight motion between samples) against the arm's
+@@ -1080,6 +1084,10 @@ def validate_trajectory_set(
+         static = _static_collisions(cell_id, trajectories) if check_static_obstacles else None
+         if static is not None:
+             result["static_obstacles_checked"] = static["checked"]
++            ok, note = _tool_contact_checked(cell_id, trajectories)
++            result["tool_contact_checked"] = ok
++            if not ok:
++                result["tool_contact_note"] = note
+             if static.get("error"):
+                 result["static_check_error"] = static["error"]
+             if static.get("failed"):
+@@ -1092,11 +1100,22 @@ def validate_trajectory_set(
+             if static["collisions"]:
+                 result["static_collisions"] = static["collisions"]
+                 result["collision_free"] = False
++                first = static["collisions"][0]
++                if first.get("type") == "tool_penetration":
++                    result["suggestion"] = (
++                        f"{first['robot_ns']}'s leg drives the tool ({first.get('body')}) "
++                        f"into '{first['object_id']}' away from any weld contact (signed "
++                        f"clearance {first.get('clearance_m')} m after sample "
++                        f"{first.get('sample_index')}). The tool may touch material only at "
++                        "the weld point itself; no start delay fixes this: re-plan that "
++                        "robot's leg so it leaves and enters its weld along the approach "
++                        "axis and routes clear of the part (e.g. replan_operation).")
++                    return result
+                 result["suggestion"] = (
+                     "A trajectory breaches a static obstacle or the arm itself "
+-                    f"({static['collisions'][0]['robot_ns']} vs "
+-                    f"{static['collisions'][0]['object_id']} at "
+-                    f"{static['collisions'][0]['time_s']} s). No start delay fixes this: "
++                    f"({first['robot_ns']} vs "
++                    f"{first['object_id']} at "
++                    f"{first['time_s']} s). No start delay fixes this: "
+                     "re-plan that robot's leg (e.g. replan_operation).")
+                 return result
+         from agents.trajectory.tools.coordination import current_planning_mode
+@@ -1177,10 +1196,27 @@ def _static_collisions(cell_id: str, trajectories: dict) -> dict:
+                 "link_index": hit.get("link_index"), "clearance_m": hit.get("clearance_m"),
+                 "sample_index": i, "phase": hit.get("phase"),
+                 "time_s": round(float(traj[min(i, len(traj) - 1)].get("time_s", 0.0)), 4),
++                # The tool-contact rule (issue 22) names the body and where between
++                # two samples it entered the material.
++                **{k: hit[k] for k in ("body", "geometry", "is_workpiece", "segment_fraction",
++                                       "worst_clearance_m", "worst_object_id", "worst_body",
++                                       "tcp_to_weld_m") if k in hit},
+             })
+     return out
+ 
+ 
++def _tool_contact_checked(cell_id: str, trajectories: dict) -> tuple:
++    """``(all checked, note)``: whether every arm's tool HULLS could be checked
++    against the cell's material (the sphere part of the rule always runs)."""
++    try:
++        from agents.trajectory.tools.tool_contact import available
++        notes = [f"{ns}: {why}" for ns, tr in (trajectories or {}).items() if tr
++                 for ok, why in [available(cell_id, ns)] if not ok]
++    except Exception as e:  # noqa: BLE001 — reported, never a verdict
++        return False, str(e)
++    return not notes, "; ".join(notes)
++
++
+ @tool
+ def validate_trajectory_pair(
+     cell_id: str,
+diff --git a/agents/trajectory/tools/robot_kinematics.py b/agents/trajectory/tools/robot_kinematics.py
+index 2b5de8b..bdf02f4 100644
+--- a/agents/trajectory/tools/robot_kinematics.py
++++ b/agents/trajectory/tools/robot_kinematics.py
+@@ -618,7 +618,17 @@ def load_static_obstacles(cell_id: str) -> list:
+     if not cfg:
+         return []
+     obstacles = cfg.get("obstacles", [])
+-    return list(obstacles) if isinstance(obstacles, list) else []
++    obstacles = list(obstacles) if isinstance(obstacles, list) else []
++    # Where the tool may touch material: the boxes a program weld sits on carry
++    # that weld as ``weld_contacts`` (tool_contact.annotate_obstacles, umarell
++    # issue 22). Every other obstacle is returned as the same object. If the
++    # programs cannot be read the list stays unannotated, i.e. no contact is
++    # allowed anywhere (fail-closed).
++    try:
++        from agents.trajectory.tools.tool_contact import annotate_obstacles
++        return annotate_obstacles(cell_id, obstacles)
++    except Exception:  # noqa: BLE001
++        return obstacles
+ 
+ 
+ def _load_collision_config(cell_id: str) -> dict:
+@@ -643,10 +653,17 @@ def _load_collision_config(cell_id: str) -> dict:
+     # key existed reads the converter's default; an explicit ``null`` switches it off.
+     from agents.trajectory.tools.hull_clearance import HULL_MIN_DISTANCE_M
+     hull = coll.get("hull_min_distance", HULL_MIN_DISTANCE_M)
++    # The radius of the weld contact ball, the only place the tool may touch a
++    # workpiece or fixture (tool_contact.py). A cell converted before the key
++    # existed reads the converter's default.
++    from agents.trajectory.tools.tool_contact import TOOL_CONTACT_RADIUS_M
++    contact = coll.get("tool_contact_radius")
+     return {
+         "warning_distance": float(coll.get("warning_distance", 0.20)),
+         "min_clearance": float(coll.get("min_clearance", 0.05)),
+         "hull_min_distance": None if hull is None else float(hull),
++        "tool_contact_radius": (TOOL_CONTACT_RADIUS_M if contact is None
++                                else max(0.0, float(contact))),
+     }
+ 
+ 
+@@ -1150,15 +1167,17 @@ def _compile_static(static_obstacles: list) -> dict:
+         return hit[1]
+     boxes, spheres, planes = [], [], []
+     for k, obs in enumerate(static_obstacles or []):
+-        if obs.get("is_workpiece", False):
+-            continue  # the tool may touch the workpiece
++        # A workpiece is material like any fixture (umarell issue 22): the arm
++        # keeps its standoff from it, and the TOOL must stay out of it except at a
++        # weld contact (``wp`` below; tool_contact.sphere_contact_exempt).
++        wp = bool(obs.get("is_workpiece", False))
+         otype = obs.get("type", "")
+         m = float(obs.get("collision_margin", 0.05))
+         oid = str(obs.get("id", "obstacle"))
+         if otype == "box":
+-            boxes.append((k, oid, obs["center"], obs["half_extents"], m))
++            boxes.append((k, oid, obs["center"], obs["half_extents"], m, wp, obs))
+         elif otype == "sphere":
+-            spheres.append((k, oid, obs["center"], float(obs["radius"]), m))
++            spheres.append((k, oid, obs["center"], float(obs["radius"]), m, wp, obs))
+         elif otype == "plane":
+             n = np.asarray(obs.get("normal", [0.0, 0.0, 1.0]), dtype=float)
+             nn = float(np.linalg.norm(n)) or 1.0
+@@ -1172,10 +1191,14 @@ def _compile_static(static_obstacles: list) -> dict:
+         "box_c": np.asarray([r[2] for r in boxes], float).reshape(-1, 3),
+         "box_h": np.asarray([r[3] for r in boxes], float).reshape(-1, 3),
+         "box_m": np.asarray([r[4] for r in boxes], float),
++        "box_wp": np.asarray([r[5] for r in boxes], bool),
++        "box_obs": [r[6] for r in boxes],
+         "sph_k": [r[0] for r in spheres], "sph_id": [r[1] for r in spheres],
+         "sph_c": np.asarray([r[2] for r in spheres], float).reshape(-1, 3),
+         "sph_r": np.asarray([r[3] for r in spheres], float),
+         "sph_m": np.asarray([r[4] for r in spheres], float),
++        "sph_wp": np.asarray([r[5] for r in spheres], bool),
++        "sph_obs": [r[6] for r in spheres],
+         "pl_id": [r[1] for r in planes],
+         "pl_n": np.asarray([r[2] for r in planes], float).reshape(-1, 3),
+         "pl_d": np.asarray([r[3] for r in planes], float),
+@@ -1207,7 +1230,10 @@ def _static_bodies(model, col_data, base, yaw, spheres, sphere_radius, sphere_ra
+     """
+     n_r = 0 if sphere_radii is None else len(sphere_radii)
+     nframes = len(model.frames) if getattr(model, "frames", None) is not None else 0
+-    pts, rad, floor, label, own_margin = [], [], [], [], []
++    pts, rad, floor, label, own_margin, torch = [], [], [], [], [], []
++    # The torch frames (the TCP and every frame past the tool mount) take the
++    # tool's rule against a workpiece, not the arm's standoff (issue 22).
++    torch0 = _torch_frame_start(model, _tool_cfg_for(model, tool_cfg)) if nframes else 0
+     for idx in range(2, len(spheres)):
+         pts.append(spheres[idx])
+         rad.append(float(sphere_radii[idx]) if idx < n_r else float(sphere_radius))
+@@ -1215,6 +1241,7 @@ def _static_bodies(model, col_data, base, yaw, spheres, sphere_radius, sphere_ra
+         floor.append(not fixed)
+         label.append(idx)
+         own_margin.append(np.nan)                 # the arm: each obstacle's margin
++        torch.append(bool(nframes) and torch0 <= idx < nframes)
+     # The arm's fitted envelope (link_collision): every MOVING sphere of it, at the
+     # arm radius. Spheres on world-fixed links (the base) are structure: a fixture
+     # next to the base would otherwise reject every configuration.
+@@ -1227,6 +1254,7 @@ def _static_bodies(model, col_data, base, yaw, spheres, sphere_radius, sphere_ra
+             floor.append(True)
+             label.append(EnvelopeSphere(j))
+             own_margin.append(np.nan)
++            torch.append(False)
+     tool_cfg = _tool_cfg_for(model, tool_cfg)
+     static = (tool_cfg or {}).get("static_spheres") or []
+     if static:
+@@ -1247,16 +1275,77 @@ def _static_bodies(model, col_data, base, yaw, spheres, sphere_radius, sphere_ra
+             floor.append(True)
+             label.append(("tool", j))
+             own_margin.append(np.nan if tm is None else tm)
++            torch.append(True)
++    tcp = None
++    try:
++        ee = _tcp_index(model)
++        if 0 <= ee < len(spheres):
++            tcp = np.asarray(spheres[ee], float)
++    except Exception:  # noqa: BLE001 — no TCP frame: no weld contact anywhere
++        tcp = None
+     return (np.asarray(pts, float).reshape(-1, 3), np.asarray(rad, float),
+-            np.asarray(floor, bool), _Labels(label, own_margin))
++            np.asarray(floor, bool), _Labels(label, own_margin, torch, tcp))
+ 
+ 
+ class _Labels(list):
+-    """Sphere labels, carrying each sphere's own margin (NaN = the obstacle's)."""
++    """Sphere labels, carrying each sphere's own margin (NaN = the obstacle's), which
++    spheres are TOOL (``torch``: the workpiece rule of issue 22 applies to them) and
++    where the TCP is (the weld contact test)."""
+ 
+-    def __init__(self, labels, margins):
++    def __init__(self, labels, margins, torch=None, tcp=None):
+         super().__init__(labels)
+         self.margins = np.asarray(margins, float)
++        self.torch = (np.zeros(len(labels), bool) if torch is None
++                      else np.asarray(torch, bool))
++        self.tcp = tcp
++
++
++def _torch_frame_start(model, tool_cfg: "Optional[dict]") -> int:
++    """First frame index of the tool for the WORKPIECE rule (issue 22).
++
++    :func:`_tool_frame_start`, except that a cell with no ``tool_collision`` (or a
++    mount that matches no frame) still has a TCP: the end-effector frame and every
++    frame after it are the electrode. Against a workpiece those frames get the
++    tool's penetration rule, not the arm's standoff, or the tip could never reach a
++    weld on the part.
++    """
++    n = len(model.frames)
++    start = _tool_frame_start(model, tool_cfg)
++    if start < n:
++        return start
++    try:
++        return min(n, int(arm_model.ee_frame_id(model)))
++    except Exception:  # noqa: BLE001
++        return n
++
++
++_TCP_INDEX: dict = {}
++
++
++def _tcp_index(model) -> int:
++    """Frame index of the TCP (``arm_model.ee_frame_id``), cached per model."""
++    hit = _TCP_INDEX.get(id(model))
++    if hit is not None and hit[0] is model:
++        return hit[1]
++    i = int(arm_model.ee_frame_id(model))
++    _TCP_INDEX[id(model)] = (model, i)
++    while len(_TCP_INDEX) > 256:
++        _TCP_INDEX.pop(next(iter(_TCP_INDEX)))
++    return i
++
++
++def _workpiece_rule(label, R0, P):
++    """``(torch mask, tcp, base radii, exempt(i, obs))`` for the workpiece rule of
++    the static check, or None when no sphere is tool."""
++    torch = getattr(label, "torch", None)
++    if torch is None or len(torch) != len(P) or not torch.any():
++        return None
++    from agents.trajectory.tools.tool_contact import sphere_contact_exempt
++    tcp = getattr(label, "tcp", None)
++
++    def exempt(i, obs):
++        return sphere_contact_exempt(P[i], float(R0[i]), obs, tcp)
++    return torch, R0, exempt
+ 
+ 
+ def _tool_static_margin(model) -> Optional[float]:
+@@ -1280,7 +1369,7 @@ def _tool_cfg_for(model, tool_cfg):
+ _BOX_CHUNK = 32
+ 
+ 
+-def _first_box_hit(P, R, own, comp, extra_margin, _m):
++def _first_box_hit(P, R, own, comp, extra_margin, _m, wp_rule=None):
+     """``(box m, sphere i, closest point, clearance)`` of the first breached box in
+     declaration order (then sphere order), or None.
+ 
+@@ -1304,7 +1393,21 @@ def _first_box_hit(P, R, own, comp, extra_margin, _m):
+         d = np.linalg.norm(diff - cl, axis=2)
+         need = (R[a:a + _BOX_CHUNK][:, None] + _m(comp["box_m"])[a:a + _BOX_CHUNK][:, near]
+                 + extra_margin)
++        wpc = comp["box_wp"][near] if wp_rule is not None and "box_wp" in comp else None
++        tr = None
++        if wpc is not None and wpc.any():
++            # The tool against a workpiece: its surface stays outside (no margin,
++            # no speed allowance), except at a weld contact.
++            tr = wp_rule[0][a:a + _BOX_CHUNK]
++            if tr.any():
++                need[np.ix_(tr, wpc)] = wp_rule[1][a:a + _BOX_CHUNK][tr][:, None]
++            else:
++                tr = None
+         hit = d < need
++        if tr is not None:
++            for r_, c_ in zip(*np.nonzero(hit & tr[:, None] & wpc[None, :])):
++                if wp_rule[2](a + int(r_), comp["box_obs"][int(near[c_])]):
++                    hit[r_, c_] = False
+         if hit.any():
+             c = int(np.nonzero(hit.any(axis=0))[0][0])
+             r = int(np.nonzero(hit[:, c])[0][0])
+@@ -1319,8 +1422,11 @@ def _static_first_breach(P, R, on_floor, label, comp, extra_margin: float,
+ 
+     ``extra_per_sphere`` (N,) adds each sphere's own allowance — its stopping
+     distance at the speed it moves at — on top of ``extra_margin``."""
++    R0 = np.asarray(R, float)
+     if extra_per_sphere is not None and len(extra_per_sphere) == len(P):
+         R = np.asarray(R, float) + np.asarray(extra_per_sphere, float)
++    wp_rule = _workpiece_rule(label, R0, P) if (
++        np.any(comp.get("box_wp", ())) or np.any(comp.get("sph_wp", ()))) else None
+     own = getattr(label, "margins", None)
+     own = np.full(len(P), np.nan) if own is None or len(own) != len(P) else own
+ 
+@@ -1354,18 +1460,28 @@ def _static_first_breach(P, R, on_floor, label, comp, extra_margin: float,
+ 
+     best = None                                     # (declaration k, sphere i, info)
+     if len(P) and len(comp["box_k"]):
+-        hit_mi = _first_box_hit(P, R, own, comp, extra_margin, _m)
++        hit_mi = _first_box_hit(P, R, own, comp, extra_margin, _m, wp_rule)
+         if hit_mi is not None:
+             m, i, closest, clearance = hit_mi
+             best = (comp["box_k"][m], i, {
+                 "type": "box", "object_id": comp["box_id"][m], **_lp(i),
+                 "point": [round(float(v), 4) for v in closest],
+                 "link_point": [round(float(v), 4) for v in P[i]],
+-                "clearance_m": round(float(clearance), 4)})
++                "clearance_m": round(float(clearance), 4),
++                **({"is_workpiece": True} if _is_wp(comp, "box", m) else {})})
+     if len(P) and len(comp["sph_k"]):
+         d = np.linalg.norm(P[:, None, :] - comp["sph_c"][None, :, :], axis=2)
+         need = R[:, None] + comp["sph_r"][None, :] + _m(comp["sph_m"]) + extra_margin
++        wps = comp.get("sph_wp")
++        if wp_rule is not None and wps is not None and np.any(wps):
++            tr = wp_rule[0]
++            need[np.ix_(tr, wps)] = (wp_rule[1][tr][:, None]
++                                     + comp["sph_r"][wps][None, :])
+         hit = d < need
++        if wp_rule is not None and wps is not None and np.any(wps):
++            for i_, m_ in zip(*np.nonzero(hit & wp_rule[0][:, None] & wps[None, :])):
++                if wp_rule[2](int(i_), comp["sph_obs"][int(m_)]):
++                    hit[i_, m_] = False
+         if hit.any():
+             m = int(np.nonzero(hit.any(axis=0))[0][0])
+             if best is None or comp["sph_k"][m] < best[0]:
+@@ -1374,10 +1490,16 @@ def _static_first_breach(P, R, on_floor, label, comp, extra_margin: float,
+                     "type": "sphere", "object_id": comp["sph_id"][m], **_lp(i),
+                     "point": [round(float(v), 4) for v in comp["sph_c"][m]],
+                     "link_point": [round(float(v), 4) for v in P[i]],
+-                    "clearance_m": round(float(d[i, m] - need[i, m]), 4)})
++                    "clearance_m": round(float(d[i, m] - need[i, m]), 4),
++                    **({"is_workpiece": True} if _is_wp(comp, "sph", m) else {})})
+     return None if best is None else best[2]
+ 
+ 
++def _is_wp(comp: dict, kind: str, m: int) -> bool:
++    wp = comp.get(f"{kind}_wp")
++    return bool(wp is not None and m < len(wp) and wp[m])
++
++
+ def floor_clear(model, col_data, q, base, yaw, static_obstacles: list,
+                 sphere_radius: float = 0.12, sphere_radii=None, tool_cfg=None,
+                 extra_margin: float = 0.0) -> bool:
+@@ -1410,8 +1532,11 @@ def _config_is_free(
+ 
+     Returns ``True`` when configuration ``q`` is collision-free: above the floor,
+     clear of the moving robot-sphere obstacles, and clear of the static
+-    box/sphere obstacles from ``obstacles.yaml`` (``is_workpiece`` boxes are
+-    exempt so the tool tip may reach the weld surface).
++    box/sphere obstacles from ``obstacles.yaml``. An ``is_workpiece`` box keeps the
++    arm at its standoff like any fixture, and the tool (torch frames and tool
++    spheres) out of it except at a weld contact; the tool's own collision hulls
++    are checked exactly against every box and sphere (umarell issue 22,
++    :mod:`agents.trajectory.tools.tool_contact`).
+ 
+     This is the SINGLE source of truth for validity. ``_rrt_single`` calls it per
+     sample, and OMPL's ``StateValidityChecker`` wraps it unchanged, so both
+@@ -1467,11 +1592,49 @@ def _config_is_free(
+                             extra_margin) is not None:
+         return False
+ 
++    # The tool's own collision hulls against the same obstacles: nothing but the
++    # weld contact may touch material (tools/tool_contact.py, issue 22).
++    if not _tool_free(model, q, static_obstacles):
++        return False
++
+     # The arm against ITSELF — last, because it is the costliest check and the
+     # cheap ones above reject most states. See tools/self_collision.py.
+     return _self_free(model, q)
+ 
+ 
++def _tool_free(model, q, static_obstacles) -> bool:
++    """The tool's hulls out of every obstacle but at a weld (or no hulls to check)."""
++    from agents.trajectory.tools import tool_contact
++    owner = tool_contact.owner_with_hulls(model)
++    return True if owner is None else tool_contact.is_tool_free(
++        owner[0], owner[1], q, obstacles=static_obstacles)
++
++
++def _tool_violation(model, q, static_obstacles) -> Optional[dict]:
++    from agents.trajectory.tools import tool_contact
++    owner = tool_contact.owner_with_hulls(model)
++    if owner is None:
++        return None
++    hit = tool_contact.config_tool_contact_info(owner[0], owner[1], q,
++                                                obstacles=static_obstacles)
++    if hit is not None:
++        hit.setdefault("link_index", None)
++    return hit
++
++
++def _tool_violation_along(model, samples: list, static_obstacles) -> Optional[dict]:
++    """The tool-contact rule on the whole executed path (densely, issue 22)."""
++    from agents.trajectory.tools import tool_contact
++    owner = tool_contact.owner_with_hulls(model)
++    if owner is None:
++        return None
++    hit = tool_contact.trajectory_tool_contact_info(owner[0], owner[1], samples,
++                                                    obstacles=static_obstacles)
++    if hit is not None:
++        hit.setdefault("link_index", None)
++    return hit
++
++
+ def _self_free(model, q) -> bool:
+     """No self-collision (or no self check for this model's robot)."""
+     from agents.trajectory.tools.self_collision import checker_for_model
+@@ -1551,6 +1714,10 @@ def _config_collision_info(
+     # Static obstacles from obstacles.yaml (boxes, spheres), arm and tool.
+     hit = _static_first_breach(P, R, np.zeros(len(P), bool), label, comp, extra_margin,
+                                sphere_extra)
++    if hit is not None:
++        return hit
++    # The tool's hulls (issue 22): ``type: "tool_penetration"``.
++    hit = _tool_violation(model, q, static_obstacles)
+     if hit is not None:
+         return hit
+     return _self_violation(model, q)
+@@ -1679,7 +1846,14 @@ def _trajectory_collision_info(
+     # The arm against itself BETWEEN the samples too: the executed motion is the
+     # straight joint-space segment between them, and two clear samples can have a
+     # self-contact in between (umarell issue 14).
+-    return _self_violation_along(model, samples)
++    hit = _self_violation_along(model, samples)
++    if hit is not None:
++        return hit
++    # And the tool against the cell's material, densely along the same segments:
++    # its hulls and spheres never enter a workpiece or fixture except at a weld
++    # contact (umarell issue 22). ``type: "tool_penetration"``, with
++    # ``segment_fraction`` and the deepest point (``worst_*``).
++    return _tool_violation_along(model, samples, static_obstacles)
+ 
+ 
+ def _self_violation_along(model, samples: list) -> Optional[dict]:
+diff --git a/agents/trajectory/tools/tool_contact.py b/agents/trajectory/tools/tool_contact.py
+new file mode 100644
+index 0000000..21ecb50
+--- /dev/null
++++ b/agents/trajectory/tools/tool_contact.py
+@@ -0,0 +1,1009 @@
++"""The tool / electrode never enters a workpiece or fixture box, except at the weld.
++
++umarell's static rules let the welding tool into material in three ways:
++
++* ``is_workpiece`` boxes are skipped outright by the shared static check
++  (``robot_kinematics._compile_static``), so by ``_config_is_free``,
++  ``_config_collision_info``, ``check_self_collision`` and the runtime monitor
++  (arm AND tool): a departure that drags the electrode through the sheet it just
++  welded, or a transit that dips it into the part, passes every gate;
++* the tool is modelled by spheres (the converter's ``static_spheres``, 0.05 m).
++  They cover the tool's surface but are wider than the electrode, so at a weld
++  they always overlap the part, which is why the workpiece had to be exempt at
++  all;
++* every static check runs at the planner's samples only, while the executor
++  interpolates straight joint-space chords between them.
++
++The rule this module owns (issue 22). For every collision hull rigidly attached
++to the tool mount (electrode, stick, plate, flange: the URDF ``<collision>``
++meshes on the mount link) and every box or sphere obstacle of the cell, workpiece
++or fixture, the signed distance must not be negative (more than ``PEN_TOL_M``),
++with ONE exemption, the weld contact itself: a penetration of a box is allowed
++when the TCP is within the contact radius ``r_c`` (``collision.
++tool_contact_radius`` in robots.yaml, default ``TOOL_CONTACT_RADIUS_M`` = 5 mm) of
++a weld point of the cell's task programs that touches that box, and the whole
++intersection hull ∩ box lies inside the ball of radius ``r_c`` around that weld
++point. The same rule is applied to the tool spheres of the sphere model (surface
++outside every box; a sphere that reaches into a weld's contact ball is exempt
++against that weld's box, because the sphere is wider than the electrode, so the
++hull decides there).
++
++Along a leg the check is dense (:func:`trajectory_tool_contact_info`): the
++straight joint-space segment between consecutive samples, which is what the
++executor runs, is walked so that no point of the tool moves more than
++``TOOL_CONTACT_STEP_M`` (1 mm) between two checks where the tool is close to an
++obstacle; where the measured clearance ``d`` is larger the step grows to ``d`` of
++tool-point travel (the obstacles do not move, so the tool cannot reach one in
++less), which can never skip over a contact.
++
++Hooked in like ``self_collision`` (:func:`checker_for_model`): every arm model is
++loaded by ``utils.arm_model.load``, which registers it, so the shared validity
++predicate (``robot_kinematics._config_is_free``: every backend's search, the
++Cartesian descent / lift-off of ``leg_builder``, the IK branch choice), the
++diagnosis and the emitted-trajectory backstop (``_trajectory_collision_info``, so
++``leg_static_breach``, ``validate_trajectory_set`` and the home legs) and
++``leg_verdict`` (the dispatch facade, the assembler's audit of every leg incl. the
++home legs) all apply the same rule without each caller passing the cell.
++
++Availability follows ``leg_verdict``'s policy: a cell without meshes (or an install
++without hpp-fcl/coal) reports ``available() == False`` with the reason; the hull
++check then has no opinion and every report says it did not run
++(``tool_contact_checked`` / ``tool_hulls_checked``). The sphere part of the rule
++still runs in ``robot_kinematics``. A check that ran and broke refuses.
++"""
++from __future__ import annotations
++
++import hashlib
++import os
++import threading
++from collections import OrderedDict
++from typing import Optional
++
++import numpy as np
++
++from utils import arm_model
++
++#: Radius of the weld contact ball (m): the only place the tool may touch material.
++TOOL_CONTACT_RADIUS_M = 0.005
++#: Largest travel of any tool point between two checks near an obstacle (m).
++TOOL_CONTACT_STEP_M = 0.001
++#: Numerical tolerance of the GJK/EPA signed distance (m): a contact, not a dip.
++PEN_TOL_M = 1e-4
++#: Hull/obstacle pairs whose bounding-sphere bound is below this get the exact distance.
++_EXACT_BELOW_M = 0.05
++
++_LOCK = threading.RLock()
++_CACHE: dict = {}
++_TRAJ_CACHE: "OrderedDict" = OrderedDict()
++_TRAJ_CACHE_MAX = 1024
++_ANNOT_CACHE: dict = {}
++_WELD_CACHE: dict = {}
++_WELD_CACHE_TTL_S = 5.0
++_COMP_CACHE: dict = {}
++# The validity checker asks per STATE: the tool model and the contact radius are
++# looked up again (cell files' mtimes, robots.yaml) at most this often.
++_FRESH_S = 1.0
++_FAST: dict = {}
++
++
++class ToolHullsUnavailable(FileNotFoundError):
++    """The tool's hulls cannot be checked here (an availability failure, not a verdict)."""
++
++
++def _fcl():
++    try:
++        import hppfcl as fcl          # pinocchio 2.x
++    except ImportError:               # pragma: no cover - pinocchio >= 3
++        import coal as fcl
++    return fcl
++
++
++# ─── the cell's weld points and the contact radius ─────────────────────────────
++
++def contact_radius(cell_id: str) -> float:
++    """``collision.tool_contact_radius`` from robots.yaml (the converter writes it;
++    a cell converted before reads :data:`TOOL_CONTACT_RADIUS_M`)."""
++    import time
++    from utils import cell_layout
++    key = ("r_c", str(cell_layout.cells_root()), str(cell_id))
++    hit = _FAST.get(key)
++    now = time.monotonic()
++    if hit is not None and now - hit[0] < _FRESH_S:
++        return hit[1]
++    try:
++        from agents.trajectory.tools.robot_kinematics import _load_collision_config
++        v = _load_collision_config(cell_id).get("tool_contact_radius")
++        r = TOOL_CONTACT_RADIUS_M if v is None else max(0.0, float(v))
++    except Exception:  # noqa: BLE001 — the default is the strict value
++        return TOOL_CONTACT_RADIUS_M
++    _FAST[key] = (now, r)
++    return r
++
++
++def _unit(v) -> Optional[list]:
++    try:
++        a = np.asarray([float(x) for x in list(v)[:3]], float)
++    except (TypeError, ValueError):
++        return None
++    n = float(np.linalg.norm(a))
++    return None if n < 1e-12 else (a / n).tolist()
++
++
++def _contact(item) -> tuple:
++    """``(point, approach unit vector or None)`` from ``[x,y,z]`` or ``(p, a)``."""
++    if isinstance(item, dict):
++        return [float(v) for v in item["p"][:3]], _unit(item.get("a")) if item.get("a") else None
++    if len(item) == 2 and hasattr(item[0], "__len__"):
++        return [float(v) for v in list(item[0])[:3]], (_unit(item[1]) if item[1] is not None else None)
++    return [float(v) for v in list(item)[:3]], None
++
++
++def weld_points(cell_id: str) -> list:
++    """``(position, approach unit vector)`` of every ``weld`` operation of every task
++    program of the cell.
++
++    These are the only places the tool may touch material. A target that is not
++    a program weld gets no contact exemption unless a caller names it
++    (fail-closed).
++    """
++    import time
++    from utils import cell_layout, cell_store
++    remote = cell_store.is_remote()
++    key = (str(cell_layout.cells_root()), str(cell_id))
++    if remote:                              # over MCP: a few seconds of cache, as cell_store
++        with _LOCK:
++            hit = _WELD_CACHE.get(key)
++        if hit is not None and time.monotonic() - hit[0] < _WELD_CACHE_TTL_S:
++            return list(hit[1])
++    pts: list = []
++    try:
++        entries = cell_store.list_entries(cell_id, cell_store.KIND_TASKS, suffix=".json")
++    except Exception:  # noqa: BLE001 — no programs readable: no exemption
++        return pts
++    sig = None
++    if not remote:                          # local: re-read only when a program changed
++        sig = tuple((e.get("name"), e.get("mtime_s"), e.get("size_bytes"))
++                    for e in entries if isinstance(e, dict))
++        with _LOCK:
++            hit = _WELD_CACHE.get(key)
++        if hit is not None and hit[0] == sig:
++            return list(hit[1])
++    for e in entries:
++        name = e.get("name") if isinstance(e, dict) else None
++        if not name:
++            continue
++        try:
++            task = cell_store.read_json(cell_id, cell_store.KIND_TASKS, name) or {}
++        except Exception:  # noqa: BLE001
++            continue
++        for op in task.get("operations") or []:
++            if not isinstance(op, dict) or str(op.get("type", "weld")) != "weld":
++                continue
++            p = op.get("position")
++            if isinstance(p, dict):
++                p = [p.get("x"), p.get("y"), p.get("z")]
++            try:
++                pts.append(([float(v) for v in list(p)[:3]],
++                            _unit(op.get("approach_vector") or [0.0, 0.0, -1.0])))
++            except (TypeError, ValueError):
++                continue
++    with _LOCK:
++        _WELD_CACHE[key] = ((time.monotonic() if remote else sig), list(pts))
++    return pts
++
++
++def _point_box_distance(p, center, half) -> float:
++    d = np.abs(np.asarray(p, float) - np.asarray(center, float)) - np.asarray(half, float)
++    return float(np.linalg.norm(np.maximum(d, 0.0)))
++
++
++def _point_obstacle_distance(p, obs) -> Optional[float]:
++    t = obs.get("type", "")
++    if t == "box":
++        return _point_box_distance(p, obs["center"], obs["half_extents"])
++    if t == "sphere":
++        return max(0.0, float(np.linalg.norm(np.asarray(p, float) - np.asarray(obs["center"], float)))
++                   - float(obs["radius"]))
++    return None
++
++
++def annotate_obstacles(cell_id: str, obstacles: list, points: Optional[list] = None,
++                       radius: Optional[float] = None) -> list:
++    """``obstacles`` with ``weld_contacts`` (points), ``weld_axes`` (their approach
++    vectors) and ``contact_radius`` on every box or sphere that a program weld
++    touches (lies within the contact radius of).
++
++    Obstacles no weld touches are returned as the SAME dict objects, and an
++    annotated one is the same copy on every call with the same inputs, so callers
++    that cache by identity (vectorised kernels) keep their caches.
++    """
++    pts = weld_points(cell_id) if points is None else [_contact(p) for p in points]
++    r_c = contact_radius(cell_id) if radius is None else float(radius)
++    if not pts or not obstacles:
++        return list(obstacles)
++    sig = (round(r_c, 9), tuple((tuple(round(v, 9) for v in p),
++                                 None if a is None else tuple(round(v, 9) for v in a))
++                                for p, a in pts))
++    P = np.asarray([p for p, _a in pts], float).reshape(-1, 3)
++    out = list(obstacles)
++    todo = []
++    for k, obs in enumerate(out):
++        if not isinstance(obs, dict) or obs.get("type") not in ("box", "sphere"):
++            continue
++        key = (str(cell_id), id(obs), sig)
++        with _LOCK:
++            hit = _ANNOT_CACHE.get(key)
++        if hit is not None and hit[0] is obs:
++            out[k] = hit[1]
++        else:
++            todo.append((k, key))
++    # One vectorised pass: distance of every weld point to every unseen obstacle.
++    rows = []
++    for k, _key in todo:
++        o = out[k]
++        try:
++            if o["type"] == "box":
++                rows.append((np.asarray(o["center"], float), np.asarray(o["half_extents"], float), None))
++            else:
++                rows.append((np.asarray(o["center"], float), None, float(o["radius"])))
++        except (KeyError, TypeError, ValueError):
++            rows.append(None)
++    for (k, key), row in zip(todo, rows):
++        obs = out[k]
++        near_idx = []
++        if row is not None:
++            c, h, r = row
++            if h is not None:
++                d = np.linalg.norm(np.maximum(np.abs(P - c) - h, 0.0), axis=1)
++            else:
++                d = np.maximum(np.linalg.norm(P - c, axis=1) - r, 0.0)
++            near_idx = [int(i) for i in np.nonzero(d <= r_c + 1e-12)[0]]
++        new = (dict(obs, weld_contacts=[pts[i][0] for i in near_idx],
++                    weld_axes=[pts[i][1] for i in near_idx], contact_radius=r_c)
++               if near_idx else obs)
++        with _LOCK:
++            if len(_ANNOT_CACHE) > 65536:
++                _ANNOT_CACHE.clear()
++            _ANNOT_CACHE[key] = (obs, new)
++        out[k] = new
++    return out
++
++
++def with_contacts(cell_id: str, obstacles: list, points: list) -> list:
++    """``obstacles`` with ``points`` (``[x,y,z]`` or ``(p, approach)``) added to the
++    weld contacts of the boxes / spheres they touch, keeping the contacts already
++    there (the cell's program welds). The planner's Cartesian strokes name the weld
++    they descend onto / lift off from this way."""
++    if not points or not obstacles:
++        return list(obstacles or [])
++    extra = annotate_obstacles(cell_id, obstacles, points=points)
++    out = []
++    for old, new in zip(obstacles, extra):
++        if new is old:
++            out.append(old)
++            continue
++        pts = list(old.get("weld_contacts") or [])
++        axes = list(old.get("weld_axes") or [None] * len(pts))
++        for p, a in zip(new.get("weld_contacts") or [], new.get("weld_axes") or []):
++            if not any(np.allclose(p, q) for q in pts):
++                pts.append(p)
++                axes.append(a)
++        out.append(dict(old, weld_contacts=pts, weld_axes=axes,
++                        contact_radius=new.get("contact_radius")))
++    return out
++
++
++def in_contact_corridor(tcp, p, a, r_c: float) -> bool:
++    """Whether the TCP is ON the weld at ``p`` or on its approach axis above it.
++
++    With an approach vector ``a`` (the direction the TCP travels INTO the weld):
++    at most ``r_c`` off the axis through ``p`` and not more than ``r_c`` past ``p``.
++    Without one: within ``r_c`` of ``p``.
++    """
++    rel = np.asarray(tcp, float) - np.asarray(p, float)
++    if a is None:
++        return float(np.linalg.norm(rel)) <= r_c
++    av = np.asarray(a, float)
++    h = -float(rel @ av)                       # height above the weld, along -a
++    lat = float(np.linalg.norm(rel + h * av))
++    return lat <= r_c and h >= -r_c
++
++
++def sphere_contact_exempt(s_pos, radius: float, obs: dict, tcp) -> bool:
++    """A tool sphere at a weld on ``obs``: exempt from the sphere rule against ``obs``.
++
++    The sphere model is wider than the electrode (the tip sphere's 0.05 m against
++    a cap of 0.002-0.022 m), so on the weld and on the last centimetres of the
++    on-axis descent / lift-off it always overlaps the part. It is exempt when the
++    TCP is in that weld's contact corridor (:func:`in_contact_corridor`) and the
++    sphere reaches the contact ball; the electrode's own hulls decide there
++    (:func:`config_tool_contact_info`). Anywhere else, e.g. a departure that
++    slides off the axis, the sphere rule applies.
++    """
++    pts = obs.get("weld_contacts")
++    if not pts or tcp is None:
++        return False
++    axes = obs.get("weld_axes") or [None] * len(pts)
++    r_c = float(obs.get("contact_radius", TOOL_CONTACT_RADIUS_M))
++    s = np.asarray(s_pos, float)
++    for p, a in zip(pts, axes):
++        if (float(np.linalg.norm(s - np.asarray(p, float))) <= float(radius) + r_c
++                and in_contact_corridor(tcp, p, a, r_c)):
++            return True
++    return False
++
++
++# ─── geometry: the hulls bolted to the tool mount ──────────────────────────────
++
++def _parent_joint(obj) -> int:
++    """The joint a frame / geometry object hangs on (pinocchio 2.x names it
++    ``parent``, 3.x ``parentJoint``)."""
++    v = getattr(obj, "parentJoint", None)
++    if v is None:
++        v = getattr(obj, "parent", 0)
++    return int(v)
++
++
++def _hull_planes(conv, V: np.ndarray):
++    """Outward facet planes ``(n, e)`` with ``n·x <= e`` inside, from the hull's triangles."""
++    tris = []
++    try:
++        for i in range(int(conv.num_polygons)):
++            t = conv.polygons(i)
++            tris.append((int(t[0]), int(t[1]), int(t[2])))
++    except Exception:  # noqa: BLE001 — older/newer bindings
++        tris = []
++    if not tris:
++        try:
++            from scipy.spatial import ConvexHull
++            h = ConvexHull(V)
++            return np.asarray(h.equations[:, :3], float), -np.asarray(h.equations[:, 3], float)
++        except Exception:  # noqa: BLE001
++            return None
++    T = np.asarray(tris, int)
++    a, b, c = V[T[:, 0]], V[T[:, 1]], V[T[:, 2]]
++    n = np.cross(b - a, c - a)
++    nn = np.linalg.norm(n, axis=1)
++    keep = nn > 1e-12
++    n, a = n[keep] / nn[keep, None], a[keep]
++    centroid = V.mean(axis=0)
++    flip = np.einsum("ij,ij->i", n, centroid - a) > 0      # normal must point away
++    n[flip] *= -1.0
++    e = np.einsum("ij,ij->i", n, a)
++    return n, e
++
++
++def _build(cell_id: str, robot_ns: str) -> dict:
++    import pinocchio as pin
++    from agents.trajectory.tools.robot_kinematics import (
++        _load_robot_config, _load_clearance_policy, _tool_offsets,
++    )
++    urdf = arm_model.urdf_path(cell_id, robot_ns)
++    if urdf is None:
++        raise FileNotFoundError(f"no URDF for {robot_ns} in {cell_id}")
++    model = pin.buildModelFromUrdf(str(urdf))
++    cfg = _load_robot_config(cell_id, robot_ns)
++    tool_cfg = cfg.get("tool_collision") or {}
++    token = str(tool_cfg.get("mount_link") or "")
++    # The frame the tool spheres are placed on: the first match, as
++    # robot_kinematics._tool_spheres places them.
++    mount = next((i for i, f in enumerate(model.frames) if token and token in f.name), -1)
++    if mount < 0:
++        tip = str(cfg.get("tip_link") or "")
++        mount = model.getFrameId(tip) if tip and model.existFrame(tip) else -1
++    j_mount = _parent_joint(model.frames[mount]) if mount >= 0 else model.njoints - 1
++    if j_mount <= 0:
++        raise ValueError(f"{robot_ns}: tool mount '{token}' is not on a moving joint")
++    # The hulls need the meshes and hpp-fcl/coal; without them the sphere part of
++    # the rule still runs and ``available()`` says why the hulls were not checked.
++    hulls, hull_reason = [], ""
++    try:
++        geom = pin.buildGeomFromUrdf(model, str(urdf), pin.GeometryType.COLLISION,
++                                     package_dirs=[str(urdf.parent)])
++        for go in geom.geometryObjects:
++            if _parent_joint(go) != j_mount:
++                continue
++            go.geometry.buildConvexRepresentation(False)
++            conv = go.geometry.convex
++            V = np.asarray(conv.points(), float).reshape(-1, 3)
++            planes = _hull_planes(conv, V)
++            lo, hi = V.min(axis=0), V.max(axis=0)
++            P = go.placement                # geometry frame in the mount joint's frame
++            Vj = V @ np.asarray(P.rotation).T + np.asarray(P.translation)
++            hulls.append({"name": go.name,
++                          "mesh": os.path.basename(str(getattr(go, "meshPath", ""))),
++                          "conv": conv, "V": V, "planes": planes, "placement": P,
++                          "centre": 0.5 * (lo + hi),
++                          "radius": 0.5 * float(np.linalg.norm(hi - lo)),
++                          "reach": float(np.max(np.linalg.norm(Vj, axis=1)))})
++        if not hulls:
++            hull_reason = f"{urdf.name}: no collision geometry on the tool mount joint"
++        else:
++            _fcl()
++    except Exception as e:  # noqa: BLE001 — reported by available()
++        hulls, hull_reason = [], f"{type(e).__name__}: {e}"
++    # Tool points of the sphere model, in the mount joint's frame: the TCP first
++    # (the torch frame sphere, at tool_link_radius), then the spheres the static
++    # check places on the tool — the converter's ``static_spheres`` at
++    # ``static_radius_m``, else the arm-vs-arm ``spheres`` / axis / plates at
++    # tool_link_radius (robot_kinematics._static_bodies / _tool_offsets). Offsets
++    # are in the mount LINK frame.
++    amodel, _ad, ee = arm_model.load(cell_id, robot_ns)
++    try:
++        policy = _load_clearance_policy(cell_id)
++        frame_r = float(policy.get("tool", policy.get("normal", 0.12)))
++    except Exception:  # noqa: BLE001
++        frame_r = 0.12
++    pts, radii = [], []
++    if _parent_joint(amodel.frames[ee]) == j_mount:
++        pts.append(np.asarray(amodel.frames[ee].placement.translation, float))
++    else:                                   # TCP not on the tool joint: use the flange
++        pts.append(np.zeros(3))
++    radii.append(frame_r)
++    Mm = model.frames[mount].placement if mount >= 0 else pin.SE3.Identity()
++    static = tool_cfg.get("static_spheres") or []
++    if static:
++        offs = [np.asarray([float(v) for v in c][:3], float) for c in static]
++        off_r = float(tool_cfg.get("static_radius_m") or frame_r)
++    else:
++        offs, off_r = _tool_offsets(cfg.get("tool_collision")), frame_r
++    for off in offs:
++        pts.append(np.asarray(Mm.rotation, float) @ np.asarray(off, float)
++                   + np.asarray(Mm.translation, float))
++        radii.append(off_r)
++    pts = np.asarray(pts, float).reshape(-1, 3)
++    radii = np.asarray(radii, float)
++    tool_r = float(np.max(radii))
++    # One sphere around everything checked here (hull vertices, tool spheres incl.
++    # their radius), in the mount joint's frame: the coarse first filter per pose.
++    allp = np.vstack([pts] + [h["V"] @ np.asarray(h["placement"].rotation).T
++                              + np.asarray(h["placement"].translation) for h in hulls])
++    lo, hi = allp.min(axis=0), allp.max(axis=0)
++    t_centre = 0.5 * (lo + hi)
++    t_radius = float(np.max(np.linalg.norm(allp - t_centre, axis=1))) + tool_r
++    # Lever arms: joint j moving by |dq| moves no tool point by more than |dq| * R_j
++    # (triangle inequality along the chain). None when a joint on the chain is not
++    # a 1-dof joint: then legs are checked at their samples only.
++    reach = max([h["reach"] for h in hulls] + [float(np.max(np.linalg.norm(pts, axis=1)))])
++    levers = np.zeros(model.nq)
++    chain, j = 0.0, j_mount
++    while j > 0 and levers is not None:
++        jm = model.joints[j]
++        if jm.nq != 1:
++            levers = None
++            break
++        kind = jm.shortname().replace("JointModel", "")
++        levers[jm.idx_q] = 1.0 if "P" in kind else chain + reach
++        chain += float(np.linalg.norm(model.jointPlacements[j].translation))
++        j = int(model.parents[j])
++    yaw = float(cfg.get("base_orientation_yaw", 0.0))
++    cy, sy = np.cos(yaw), np.sin(yaw)
++    world = pin.SE3(np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]]),
++                    np.asarray(cfg["base_position"], float))
++    return {"model": model, "data": model.createData(), "j_mount": j_mount,
++            "hulls": hulls, "hull_reason": hull_reason, "points": pts, "radii": radii,
++            "tool_r": tool_r,
++            "levers": levers, "world": world, "t_centre": t_centre, "t_radius": t_radius}
++
++
++def _entry(cell_id: str, robot_ns: str) -> dict:
++    """The arm's tool model, cached per (cells root, cell, robot, cell files'
++    mtimes): a re-converted cell or an edited URDF is checked afresh. A model that
++    cannot be built is reported and NOT cached, so a transient failure (a cell
++    store that was unreachable) does not switch the check off for the process."""
++    import time
++    from utils import cell_layout
++    from agents.trajectory.tools.leg_verdict import cell_stamp
++    name = (str(cell_layout.cells_root()), str(cell_id), str(robot_ns))
++    now = time.monotonic()
++    fast = _FAST.get(name)
++    if fast is not None and now - fast[0] < _FRESH_S:
++        return fast[1]
++    key = (*name, cell_stamp(cell_id, robot_ns) or ())
++    with _LOCK:
++        hit = _CACHE.get(key)
++        if hit is None:
++            try:
++                hit = {"ok": True, **_build(cell_id, robot_ns)}
++                for stale in [k for k in _CACHE if k[:3] == name and k != key]:
++                    del _CACHE[stale]
++                _CACHE[key] = hit
++            except Exception as e:  # noqa: BLE001 — reported, never silent
++                hit = {"ok": False, "reason": f"{type(e).__name__}: {e}"}
++                return hit
++        _FAST[name] = (now, hit)
++        return hit
++
++
++def available(cell_id: str, robot_ns: str) -> tuple:
++    """``(True, "")`` when the tool's collision HULLS can be checked, else
++    ``(False, reason)``. The sphere part of the rule runs whenever the arm model
++    loads."""
++    e = _entry(cell_id, robot_ns)
++    if not e["ok"]:
++        return False, e["reason"]
++    return (True, "") if e["hulls"] else (False, e["hull_reason"] or "no tool hulls")
++
++
++# ─── obstacles, compiled ───────────────────────────────────────────────────────
++
++def _compile(cell_id: str, obstacles: Optional[list], contact_points: Optional[list]) -> dict:
++    """The obstacles as arrays. Cached per obstacle LIST (identity, as
++    ``robot_kinematics._compile_static``) and contact points, so a planner's
++    validity checker that passes the same list per state compiles it once."""
++    if obstacles is None:
++        from agents.trajectory.tools.robot_kinematics import load_static_obstacles
++        obstacles = load_static_obstacles(cell_id)
++        return _compile_now(cell_id, obstacles, contact_points)
++    sig = None
++    try:
++        sig = repr([_contact(c) for c in (contact_points or [])])
++    except Exception:  # noqa: BLE001 — unhashable / odd input: compile afresh
++        return _compile_now(cell_id, obstacles, contact_points)
++    key = (str(cell_id), id(obstacles), len(obstacles), sig, contact_radius(cell_id))
++    with _LOCK:
++        hit = _COMP_CACHE.get(key)
++    if hit is not None and hit[0] is obstacles:
++        return hit[1]
++    comp = _compile_now(cell_id, obstacles, contact_points)
++    with _LOCK:
++        _COMP_CACHE[key] = (obstacles, comp)
++        while len(_COMP_CACHE) > 64:
++            _COMP_CACHE.pop(next(iter(_COMP_CACHE)))
++    return comp
++
++
++def _compile_now(cell_id: str, obstacles: list, contact_points: Optional[list]) -> dict:
++    r_c = contact_radius(cell_id)
++    extra = [_contact(c) for c in (contact_points or [])]
++    boxes, spheres = [], []
++    for obs in obstacles or []:
++        t = obs.get("type", "") if isinstance(obs, dict) else ""
++        if t not in ("box", "sphere"):
++            continue
++        rc = float(obs.get("contact_radius", r_c))
++        pts = list(obs.get("weld_contacts") or [])
++        axes = list(obs.get("weld_axes") or [None] * len(pts))
++        cps = [(np.asarray(p, float), None if a is None else np.asarray(a, float))
++               for p, a in zip(pts, axes)]
++        for p, a in extra:
++            d = _point_obstacle_distance(p, obs)
++            if d is not None and d <= rc + 1e-12 and not any(np.allclose(p, q) for q, _ in cps):
++                cps.append((np.asarray(p, float), None if a is None else np.asarray(a, float)))
++        rec = {"id": str(obs.get("id", "obstacle")), "workpiece": bool(obs.get("is_workpiece", False)),
++               "contacts": cps, "r_c": rc,
++               "obs": {"weld_contacts": [q for q, _ in cps],
++                       "weld_axes": [a for _, a in cps], "contact_radius": rc}}
++        if t == "box":
++            rec.update(c=np.asarray(obs["center"], float), h=np.asarray(obs["half_extents"], float))
++            boxes.append(rec)
++        else:
++            rec.update(c=np.asarray(obs["center"], float), r=float(obs["radius"]))
++            spheres.append(rec)
++    return {
++        "boxes": boxes, "spheres": spheres,
++        "BC": np.asarray([b["c"] for b in boxes], float).reshape(-1, 3),
++        "BH": np.asarray([b["h"] for b in boxes], float).reshape(-1, 3),
++        "BR": np.linalg.norm(np.asarray([b["h"] for b in boxes], float).reshape(-1, 3), axis=1),
++        "SC": np.asarray([s["c"] for s in spheres], float).reshape(-1, 3),
++        "SR": np.asarray([s["r"] for s in spheres], float),
++        "fcl": {},
++    }
++
++
++def _points_box_dist(P: np.ndarray, BC: np.ndarray, BH: np.ndarray) -> np.ndarray:
++    """``(len(P), len(BC))`` unsigned point-box distances (0 inside)."""
++    d = np.abs(P[:, None, :] - BC[None, :, :]) - BH[None, :, :]
++    return np.linalg.norm(np.maximum(d, 0.0), axis=-1)
++
++
++def _box_contains(P: np.ndarray, c, h, eps: float = 1e-9) -> np.ndarray:
++    return np.all(np.abs(P - c) <= h + eps, axis=1)
++
++
++def _intersection_points(Vw: np.ndarray, planes_w, c, h) -> np.ndarray:
++    """A superset of the vertices of hull ∩ box, every point of it inside both.
++
++    Vertices of the intersection of two convex polytopes are hull vertices inside
++    the box, hull edges crossing a box face, or box edges crossing a hull facet.
++    Hull edges are covered by every chord between two hull vertices (each chord
++    lies in the hull, so its face crossings lie in hull ∩ box); box edges are
++    clipped against the hull's facet planes.
++    """
++    out = [Vw[_box_contains(Vw, c, h)]]
++    n = len(Vw)
++    I, J = np.triu_indices(n, 1)
++    A, B = Vw[I], Vw[J]
++    D = B - A
++    lo, hi = c - h, c + h
++    for ax in range(3):
++        for val in (lo[ax], hi[ax]):
++            den = D[:, ax]
++            ok = np.abs(den) > 1e-15
++            t = np.full(len(A), -1.0)
++            t[ok] = (val - A[ok, ax]) / den[ok]
++            m = (t >= 0.0) & (t <= 1.0)
++            if not np.any(m):
++                continue
++            X = A[m] + t[m, None] * D[m]
++            X[:, ax] = val
++            out.append(X[_box_contains(X, c, h)])
++    if planes_w is not None:
++        nrm, e = planes_w
++        corners = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1])
++                            for z in (lo[2], hi[2])])
++        edges = [(i, j) for i in range(8) for j in range(i + 1, 8)
++                 if int(np.sum(corners[i] != corners[j])) == 1]
++        for i, j in edges:
++            a, d = corners[i], corners[j] - corners[i]
++            na, nd = nrm @ a, nrm @ d
++            t0, t1 = 0.0, 1.0
++            feasible = True
++            for k in range(len(e)):
++                if abs(nd[k]) < 1e-15:
++                    if na[k] > e[k] + 1e-12:
++                        feasible = False
++                        break
++                    continue
++                tk = (e[k] - na[k]) / nd[k]
++                if nd[k] > 0:
++                    t1 = min(t1, tk)
++                else:
++                    t0 = max(t0, tk)
++                if t0 > t1:
++                    feasible = False
++                    break
++            if feasible:
++                out.append(np.vstack([a + t0 * d, a + t1 * d]))
++    return np.vstack(out) if out else np.zeros((0, 3))
++
++
++def _hull_exempt(hull: dict, M, box: dict, tcp: np.ndarray) -> Optional[list]:
++    """The weld point whose contact explains this hull ∩ box overlap, or ``None``."""
++    if not box["contacts"]:
++        return None
++    R, t = np.asarray(M.rotation, float), np.asarray(M.translation, float)
++    Vw = hull["V"] @ R.T + t
++    planes_w = None
++    if hull["planes"] is not None:
++        n, e = hull["planes"]
++        nw = n @ R.T
++        planes_w = (nw, e + nw @ t)
++    if planes_w is None:                    # cannot bound the overlap: no exemption
++        return None
++    X = None
++    for p, _a in box["contacts"]:
++        if float(np.linalg.norm(tcp - p)) > box["r_c"]:
++            continue
++        if X is None:
++            X = _intersection_points(Vw, planes_w, box["c"], box["h"])
++        if len(X) == 0 or float(np.max(np.linalg.norm(X - p, axis=1))) <= box["r_c"]:
++            return [round(float(v), 4) for v in p]
++    return None
++
++
++# ─── one configuration ─────────────────────────────────────────────────────────
++
++def _eval(e: dict, comp: dict, q):
++    """``(clearance lower bound, deepest breach or None, exempt contacts)`` at ``q``."""
++    import pinocchio as pin
++    fcl = _fcl() if e["hulls"] else None
++    model, data = e["model"], e["data"]
++    qv = np.zeros(model.nq)
++    qa = np.asarray(q, dtype=float)[: model.nq]
++    qv[: len(qa)] = qa
++    pin.forwardKinematics(model, data, qv)
++    W = e["world"] * data.oMi[e["j_mount"]]
++    Rw, tw = np.asarray(W.rotation, float), np.asarray(W.translation, float)
++    pts = e["points"] @ Rw.T + tw
++    tcp = pts[0]
++    pr = e["radii"]
++    best = float("inf")
++    breach = None
++    contacts = []
++
++    def consider(info):
++        # The deepest breach, the exact hulls ranked before the (coarser) spheres.
++        nonlocal breach
++        rank = (info["geometry"] != "hull", info["clearance_m"])
++        if breach is None or rank < (breach["geometry"] != "hull", breach["clearance_m"]):
++            breach = info
++
++    # Coarse filter: obstacles whose bounding sphere is far from the whole tool's
++    # bounding sphere only bound the clearance; the rest are checked in detail.
++    tc_w = Rw @ e["t_centre"] + tw
++    keep_b = keep_s = None
++    if len(comp["BC"]):
++        dcb = np.linalg.norm(comp["BC"] - tc_w, axis=1) - comp["BR"] - e["t_radius"]
++        keep_b = np.nonzero(dcb < _EXACT_BELOW_M)[0]
++        if len(keep_b) < len(dcb):
++            best = min(best, float(np.min(np.delete(dcb, keep_b))))
++    if len(comp["SC"]):
++        dcs = np.linalg.norm(comp["SC"] - tc_w, axis=1) - comp["SR"] - e["t_radius"]
++        keep_s = np.nonzero(dcs < _EXACT_BELOW_M)[0]
++        if len(keep_s) < len(dcs):
++            best = min(best, float(np.min(np.delete(dcs, keep_s))))
++    if keep_b is not None:
++        boxes = [comp["boxes"][i] for i in keep_b]
++        BC, BH = comp["BC"][keep_b], comp["BH"][keep_b]
++    else:
++        boxes, BC, BH = [], comp["BC"], comp["BH"]
++    if keep_s is not None:
++        spheres = [comp["spheres"][i] for i in keep_s]
++        SC, SR = comp["SC"][keep_s], comp["SR"][keep_s]
++    else:
++        spheres, SC, SR = [], comp["SC"], comp["SR"]
++    # The tool spheres of the sphere model (the TCP frame sphere first): surface
++    # outside every obstacle.
++    if len(pts):
++        S = pts
++        if len(BC):
++            ds = _points_box_dist(S, BC, BH) - pr[:, None]
++            for k, b in zip(*np.nonzero(ds < 0.0)):
++                box = boxes[b]
++                if sphere_contact_exempt(S[k], float(pr[k]), box["obs"], tcp):
++                    continue
++                consider({"type": "tool_penetration", "object_id": box["id"],
++                          "is_workpiece": box["workpiece"], "geometry": "sphere",
++                          "body": "tcp_sphere" if k == 0 else f"tool_sphere_{k - 1}",
++                          "link_point": [round(float(v), 4) for v in S[k]],
++                          "clearance_m": round(float(ds[k, b]), 4)})
++            # Exempt overlaps (a sphere at its weld) still bound the step: the
++            # sphere can leave the contact ball while it still overlaps the box.
++            best = min(best, float(np.min(ds)))
++        if len(SC):
++            dss = (np.linalg.norm(S[:, None, :] - SC[None, :, :], axis=-1) - SR[None, :]
++                   - pr[:, None])
++            for k, s in zip(*np.nonzero(dss < 0.0)):
++                consider({"type": "tool_penetration", "object_id": spheres[s]["id"],
++                          "is_workpiece": spheres[s]["workpiece"], "geometry": "sphere",
++                          "body": "tcp_sphere" if k == 0 else f"tool_sphere_{k - 1}",
++                          "link_point": [round(float(v), 4) for v in S[k]],
++                          "clearance_m": round(float(dss[k, s]), 4)})
++            best = min(best, float(np.min(dss)))
++    # The hulls on the tool mount: exact signed distance where close.
++    hulls = e["hulls"]
++    if not hulls:
++        return best, breach, contacts
++    req = fcl.DistanceRequest()
++    placed = []
++    for hull in hulls:
++        M = W * hull["placement"]
++        R, t = np.asarray(M.rotation, float), np.asarray(M.translation, float)
++        placed.append((M, R, t, R @ hull["centre"] + t))
++    # Broad phase for all hulls at once: bounding sphere vs obstacle (a lower bound).
++    C = np.asarray([pl[3] for pl in placed], float)
++    rad = np.asarray([h["radius"] for h in hulls], float)
++    LB = {}
++    if len(BC):
++        LB["box"] = _points_box_dist(C, BC, BH) - rad[:, None]
++    if len(SC):
++        LB["sphere"] = (np.linalg.norm(C[:, None, :] - SC[None, :, :], axis=-1)
++                        - SR[None, :] - rad[:, None])
++    for kind, lbs in LB.items():
++        near_all = lbs < _EXACT_BELOW_M
++        far = lbs[~near_all]
++        if far.size:
++            best = min(best, float(np.min(far)))
++        for h_i, i in zip(*np.nonzero(near_all)):
++            hull = hulls[h_i]
++            M, R, t, _c = placed[h_i]
++            T = fcl.Transform3f(R, t)
++            ob = boxes[i] if kind == "box" else spheres[i]
++            key = (kind, id(ob))
++            shape = comp["fcl"].get(key)
++            if shape is None:
++                if kind == "box":
++                    shape = (fcl.Box(*(2.0 * ob["h"])), fcl.Transform3f(np.eye(3), ob["c"]))
++                else:
++                    shape = (fcl.Sphere(ob["r"]), fcl.Transform3f(np.eye(3), ob["c"]))
++                comp["fcl"][key] = shape
++            res = fcl.DistanceResult()
++            d = float(fcl.distance(hull["conv"], T, shape[0], shape[1], req, res))
++            best = min(best, d)
++            if d >= -PEN_TOL_M:
++                continue
++            ex = _hull_exempt(hull, M, ob, tcp) if kind == "box" else None
++            if ex is not None:
++                contacts.append({"object_id": ob["id"], "weld": ex, "body": hull["mesh"] or hull["name"],
++                                 "clearance_m": round(d, 4)})
++                continue
++            near_w = None
++            if ob["contacts"]:
++                near_w = round(min(float(np.linalg.norm(tcp - p)) for p, _a in ob["contacts"]), 4)
++            consider({"type": "tool_penetration", "object_id": ob["id"],
++                      "is_workpiece": ob["workpiece"], "geometry": "hull",
++                      "body": hull["mesh"] or hull["name"],
++                      "point": [round(float(v), 4) for v in res.getNearestPoint2()],
++                      "link_point": [round(float(v), 4) for v in res.getNearestPoint1()],
++                      "clearance_m": round(d, 4),
++                      "tcp_to_weld_m": near_w})
++    return best, breach, contacts
++
++
++def config_tool_contact_info(cell_id: str, robot_ns: str, q, obstacles: Optional[list] = None,
++                             contact_points: Optional[list] = None) -> Optional[dict]:
++    """The deepest tool penetration of a box/sphere obstacle at ``q`` that is not
++    the weld contact, or ``None`` (also when the check is unavailable)."""
++    e = _entry(cell_id, robot_ns)
++    if not e["ok"]:
++        return None
++    comp = _compile(cell_id, obstacles, contact_points)
++    if not comp["boxes"] and not comp["spheres"]:
++        return None
++    with _LOCK:
++        _best, breach, _c = _eval(e, comp, q)
++    return breach
++
++
++def is_tool_free(cell_id: str, robot_ns: str, q, obstacles: Optional[list] = None,
++                 contact_points: Optional[list] = None, _comp: Optional[dict] = None) -> bool:
++    """Validity predicate for the planners (True when unavailable: fail-open)."""
++    e = _entry(cell_id, robot_ns)
++    if not e["ok"]:
++        return True
++    comp = _comp if _comp is not None else _compile(cell_id, obstacles, contact_points)
++    if not comp["boxes"] and not comp["spheres"]:
++        return True
++    with _LOCK:
++        _best, breach, _c = _eval(e, comp, q)
++    return breach is None
++
++
++def compile_obstacles(cell_id: str, obstacles: Optional[list] = None,
++                      contact_points: Optional[list] = None) -> dict:
++    """Pre-compiled obstacles for repeated :func:`is_tool_free` calls (``_comp=``)."""
++    return _compile(cell_id, obstacles, contact_points)
++
++
++# ─── a whole leg, densely ──────────────────────────────────────────────────────
++
++def _step(override=None) -> float:
++    """The dense-scan step near an obstacle: the argument, else
++    ``TOOL_CONTACT_STEP_M`` from the environment, else the default. A value that is
++    not a positive finite number is the default (it must not switch the check off)."""
++    import math
++    raw = override if override is not None else os.environ.get(
++        "TOOL_CONTACT_STEP_M", TOOL_CONTACT_STEP_M)
++    try:
++        v = float(raw)
++    except (TypeError, ValueError):
++        return TOOL_CONTACT_STEP_M
++    return v if math.isfinite(v) and v > 0.0 else TOOL_CONTACT_STEP_M
++
++
++def _positions(samples) -> np.ndarray:
++    rows = [(pt.get("positions") if isinstance(pt, dict) else pt) for pt in samples]
++    n = min(len(r) for r in rows)
++    return np.asarray([[float(v) for v in r[:n]] for r in rows], float)
++
++
++def trajectory_tool_contact_info(cell_id: str, robot_ns: str, samples: list,
++                                 obstacles: Optional[list] = None,
++                                 contact_points: Optional[list] = None,
++                                 dense: bool = True,
++                                 max_step_m: Optional[float] = None) -> Optional[dict]:
++    """First pose along the leg at which the tool penetrates an obstacle other than
++    at a weld contact, or ``None``.
++
++    ``dense=True`` (default) checks the executed path: the straight joint-space
++    segment between consecutive samples is walked so that no tool point moves
++    more than ``max_step_m`` (default ``TOOL_CONTACT_STEP_M``, env
++    ``TOOL_CONTACT_STEP_M``) between checks where the tool is close to an
++    obstacle; where the clearance ``d`` is larger the step is ``d`` of tool-point
++    travel. The result names ``sample_index`` (start of the segment),
++    ``segment_fraction``, the deepest breach (``worst_*``) and the number of
++    ``checks``; ``weld_contacts`` lists the exempt contacts that were seen.
++    ``None`` also when the check is unavailable (see :func:`available`).
++    """
++    if not samples:
++        return None
++    e = _entry(cell_id, robot_ns)
++    if not e["ok"]:
++        return None
++    comp = _compile(cell_id, obstacles, contact_points)
++    if not comp["boxes"] and not comp["spheres"]:
++        return None
++    step = _step(max_step_m)
++    Q = _positions(samples)
++    osig = comp.get("osig")
++    if osig is None:                        # once per compiled obstacle set
++        osig = comp["osig"] = hashlib.sha1(repr(
++            [(b["id"], b["c"].tolist(), b["h"].tolist(),
++              [(p.tolist(), None if a is None else a.tolist()) for p, a in b["contacts"]],
++              b["r_c"]) for b in comp["boxes"]]
++            + [(s["id"], s["c"].tolist(), s["r"]) for s in comp["spheres"]]
++        ).encode()).hexdigest()
++    key = (str(cell_id), str(robot_ns), bool(dense), step, osig,
++           hashlib.sha1(np.ascontiguousarray(Q).tobytes()).hexdigest())
++    with _LOCK:
++        if key in _TRAJ_CACHE:
++            _TRAJ_CACHE.move_to_end(key)
++            hit = _TRAJ_CACHE[key]
++            return None if hit is None else dict(hit)
++        info = _scan(e, comp, Q, dense, step)
++        if info is not None:
++            pt = samples[info["sample_index"]]
++            info["phase"] = pt.get("phase", "transit") if isinstance(pt, dict) else None
++        _TRAJ_CACHE[key] = None if info is None else dict(info)
++        while len(_TRAJ_CACHE) > _TRAJ_CACHE_MAX:
++            _TRAJ_CACHE.popitem(last=False)
++    return info
++
++
++def _scan(e: dict, comp: dict, Q: np.ndarray, dense: bool, step: float) -> Optional[dict]:
++    levers = e["levers"]
++    if levers is None:                          # cannot bound motion: samples only
++        dense, levers = False, np.ones(Q.shape[1])
++    state = {"first": None, "worst": None, "checks": 0, "contacts": {}}
++
++    def check(q, i, s):
++        d, breach, contacts = _eval(e, comp, q)
++        state["checks"] += 1
++        for c in contacts:
++            state["contacts"].setdefault((c["object_id"], tuple(c["weld"])), c)
++        if breach is not None:
++            rec = (breach, int(i), round(float(s), 4), q)
++            if state["first"] is None:
++                state["first"] = rec
++            w = state["worst"]
++            if w is None or ((breach["geometry"] != "hull", breach["clearance_m"])
++                             < (w[0]["geometry"] != "hull", w[0]["clearance_m"])):
++                state["worst"] = rec
++        return d
++
++    d0 = check(Q[0], 0, 0.0)
++    for i in range(len(Q) - 1):
++        qa, qb = Q[i], Q[i + 1]
++        n = min(len(levers), len(qa))
++        travel = float(np.abs(qb[:n] - qa[:n]) @ levers[:n])   # m of tool travel per unit s
++        if travel <= 0.0:
++            continue                                            # standing still: same pose
++        if dense:
++            s, d = 0.0, d0
++            while True:
++                s += max(step, d) / travel
++                if s >= 1.0:
++                    break
++                d = check(qa + s * (qb - qa), i, s)
++        d0 = check(qb, i + 1, 0.0)
++    if state["first"] is None:
++        return None
++    b, i, s, q = state["first"]
++    wb, wi, ws, _wq = state["worst"]
++    return {**b, "sample_index": i, "segment_fraction": s,
++            "positions": [round(float(v), 6) for v in q],
++            "worst_clearance_m": wb["clearance_m"], "worst_object_id": wb["object_id"],
++            "worst_body": wb["body"], "worst_geometry": wb["geometry"],
++            "worst_sample_index": wi, "worst_segment_fraction": ws,
++            "dense": bool(dense), "checks": state["checks"],
++            "weld_contacts": list(state["contacts"].values())[:8]}
++
++
++# ─── hooks: the shared predicates and leg_verdict ──────────────────────────────
++
++def owner_with_hulls(model) -> Optional[tuple]:
++    """``(cell_id, robot_ns)`` of a model loaded by ``utils.arm_model.load`` whose
++    tool hulls can be checked, else None — what the shared collision predicates
++    (``robot_kinematics``) use, as ``self_collision.checker_for_model``."""
++    owner = arm_model.owner_of(model)
++    if owner is None:
++        return None
++    return owner if available(*owner)[0] else None
++
++
++def leg_tool_breach(cell_id: str, robot_ns: str, samples: list) -> Optional[dict]:
++    """The dense tool-contact breach of one leg against the cell's obstacles (its
++    program welds the only contacts), or None — ``leg_verdict``'s ``tool`` check.
++    Raises :class:`ToolHullsUnavailable` when the tool's hulls cannot be checked
++    (no opinion), anything else when the check broke (refused)."""
++    ok, why = available(cell_id, robot_ns)
++    if not ok:
++        raise ToolHullsUnavailable(why)
++    return trajectory_tool_contact_info(cell_id, robot_ns, samples)
++
++
++def clear_cache() -> None:
++    with _LOCK:
++        for c in (_CACHE, _TRAJ_CACHE, _ANNOT_CACHE, _WELD_CACHE, _COMP_CACHE, _FAST):
++            c.clear()
+diff --git a/scripts/convert_isaac_scene.py b/scripts/convert_isaac_scene.py
+index 3d1cd8f..995b964 100644
+--- a/scripts/convert_isaac_scene.py
++++ b/scripts/convert_isaac_scene.py
+@@ -1543,6 +1543,10 @@ def render_robots_yaml(
+     L.append("  # hulls must stay this far apart (agents/trajectory/tools/hull_clearance.py;")
+     L.append("  # null = off).")
+     L.append(f"  hull_min_distance: {_fmt(defaults.get('hull_min_distance', 0.03))}")
++    L.append("  # The only place the tool may touch a workpiece or fixture: within this")
++    L.append("  # radius of a program weld that sits on it (agents/trajectory/tools/")
++    L.append("  # tool_contact.py). Anywhere else its hulls and spheres stay out of material.")
++    L.append(f"  tool_contact_radius: {_fmt(defaults.get('tool_contact_radius', 0.005))}")
+     L.append("")
+     L.append("planning:")
+     L.append("  default_planner: RRTConnect")
+@@ -1615,9 +1619,12 @@ def render_obstacles_yaml(cell_id: str, fixtures: list, obstacle_mode: str,
+     L.append("# The floor plan is NOT here: it is a 2D CAD overlay for the viewer, not")
+     L.append("# collision geometry. Cell walls are not modelled as obstacles.")
+     L.append("#")
+-    L.append("# is_workpiece: set true on the box(es) covering the surface being welded")
+-    L.append("# so the tool tip may touch it (arm links are still checked). This is a")
+-    L.append("# semantic call best made from the task's weld points; left false here.")
++    L.append("# is_workpiece: set true on the box(es) covering the part being welded.")
++    L.append("# A workpiece is material like a fixture: the arm keeps its standoff from")
++    L.append("# it, and the tool (its spheres and collision hulls) may touch it only")
++    L.append("# within robots.yaml collision.tool_contact_radius of a program weld on")
++    L.append("# it. This is a semantic call best made from the task's weld points; left")
++    L.append("# false here.")
+     L.append("#")
+     L.append("# Schema:")
+     L.append("#   box    — center [x,y,z] + half_extents [hx,hy,hz]")
+@@ -1818,6 +1825,10 @@ def build_parser() -> argparse.ArgumentParser:
+                          "arms' URDF collision hulls may come, checked exactly on top of "
+                          "the sphere gate (default: 0.03, about one 20 Hz poll of "
+                          "tracking lag)")
++    ap.add_argument("--tool-contact-radius", type=float, default=0.005, metavar="M",
++                    help="robots.yaml collision.tool_contact_radius: the weld contact "
++                         "ball, the only place the tool may touch a workpiece or fixture "
++                         "box (default: 0.005; the electrode face is about 2 mm)")
+     ap.add_argument("--thermal-spread", choices=["on", "off"], default="on",
+                     help="robots.yaml planning.thermal_spread: spread consecutive "
+                          "welds of an arm apart to limit heat build-up (default: on). "
+@@ -1872,6 +1883,8 @@ def main() -> None:
+         _fatal(f"--completion-margin must be >= 0, got {args.completion_margin}")
+     if args.hull_min_distance < 0:
+         _fatal(f"--hull-min-distance must be >= 0, got {args.hull_min_distance}")
++    if args.tool_contact_radius < 0:
++        _fatal(f"--tool-contact-radius must be >= 0, got {args.tool_contact_radius}")
+     if args.min_home_liftoff > args.home_liftoff:
+         _warn(f"--min-home-liftoff {args.min_home_liftoff} exceeds --home-liftoff "
+               f"{args.home_liftoff}; using {args.home_liftoff}")
+@@ -2218,6 +2231,7 @@ def main() -> None:
+         "min_home_liftoff_m": min(args.min_home_liftoff, args.home_liftoff),
+         "completion_margin_s": args.completion_margin,
+         "hull_min_distance": args.hull_min_distance,
++        "tool_contact_radius": args.tool_contact_radius,
+         "tool_orientation": {"spin_free": args.tool_spin == "free",
+                              "max_tilt_deg": args.tool_max_tilt,
+                              "axis_tolerance_deg": args.tool_axis_tolerance},
+diff --git a/tests/trajectory/test_static_obstacles_generic.py b/tests/trajectory/test_static_obstacles_generic.py
+index 92cb082..e2dbb17 100644
+--- a/tests/trajectory/test_static_obstacles_generic.py
++++ b/tests/trajectory/test_static_obstacles_generic.py
+@@ -81,7 +81,45 @@ def test_the_first_breach_is_in_declaration_order_then_sphere_order():
+             "collision_margin": 0.0}]
+     hit = _breach([[3, 3, 3], [0, 0, 1.25], [0, 0, 1.0]], [0.1, 0.1, 0.1], obs)
+     assert hit["object_id"] == "b1" and hit["link_index"] == 1
+-    assert _breach([[0, 0, 1.0]], [0.1], [{**obs[1], "is_workpiece": True}, obs[3]]) is None
++    # A workpiece is NOT skipped any more (umarell issue 22): it is material like
++    # any fixture, so an arm sphere keeps its standoff from it. (The old rule
++    # skipped is_workpiece boxes for the whole arm, which let a departure drag the
++    # electrode through the part; only the TOOL may touch it, at a weld contact —
++    # see test_the_tool_may_touch_a_workpiece_only_at_its_weld below.)
++    wp = _breach([[0, 0, 1.0]], [0.1], [{**obs[1], "is_workpiece": True}, obs[3]])
++    assert wp is not None and wp["object_id"] == "b1" and wp["is_workpiece"] is True
++
++
++def test_the_tool_may_touch_a_workpiece_only_at_its_weld():
++    rk = _rk()
++    sheet = {"id": "sheet", "type": "box", "is_workpiece": True, "collision_margin": 0.05,
++             "center": [0, 0, 0.98], "half_extents": [.1, .1, .02],
++             "weld_contacts": [[0.0, 0.0, 1.0]], "weld_axes": [[0.0, 0.0, -1.0]],
++             "contact_radius": 0.005}
++    floor = {"id": "floor", "type": "plane", "normal": [0, 0, 1], "offset": 0.0,
++             "collision_margin": 0.0}
++
++    def tool(P, tcp):
++        P = np.asarray(P, float).reshape(-1, 3)
++        lab = rk._Labels(list(range(len(P))), [np.nan] * len(P), [True] * len(P),
++                         np.asarray(tcp, float))
++        return rk._static_first_breach(P, np.full(len(P), 0.05), np.ones(len(P), bool),
++                                       lab, rk._compile_static([sheet, floor]), 0.0)
++    # On the weld, the TCP sphere overlaps the sheet: the weld contact.
++    assert tool([[0, 0, 1.0]], [0, 0, 1.0]) is None
++    # On the approach axis 3 cm above it, still on the contact corridor: legal.
++    assert tool([[0, 0, 1.03]], [0, 0, 1.03]) is None
++    # 3 cm beside the weld, at the same height: the tool is in the part.
++    hit = tool([[0.03, 0, 1.0]], [0.03, 0, 1.0])
++    assert hit is not None and hit["object_id"] == "sheet" and hit["is_workpiece"] is True
++    # No margin for the tool against a workpiece: 1 mm clear is clear.
++    assert tool([[0.08, 0, 1.051]], [0.08, 0, 1.051]) is None
++    # Without a weld on the sheet, nothing may touch it.
++    bare = {k: v for k, v in sheet.items() if not k.startswith(("weld_", "contact_"))}
++    P = np.asarray([[0, 0, 1.0]])
++    lab = rk._Labels([0], [np.nan], [True], P[0])
++    assert rk._static_first_breach(P, np.full(1, 0.05), np.ones(1, bool), lab,
++                                   rk._compile_static([bare, floor]), 0.0) is not None
+ 
+ 
+ # ── the real cells ───────────────────────────────────────────────────────────
+diff --git a/tests/trajectory/test_tool_contact.py b/tests/trajectory/test_tool_contact.py
+new file mode 100644
+index 0000000..916583a
+--- /dev/null
++++ b/tests/trajectory/test_tool_contact.py
+@@ -0,0 +1,256 @@
++"""The tool never enters a workpiece or fixture box except at the weld contact (issue 22).
++
++A 4 cm sheet (``is_workpiece``) whose top face holds W08 is added to
++welding_cell_2_small in-process. robot2's poses are inlined (vertical tool, the
++program's W08 weld_orientation); their TCP is asserted, so a drift in the model
++fails loudly instead of silently testing something else.
++
++The rule is hooked into the shared predicates (``_config_is_free``,
++``_config_collision_info``, ``_trajectory_collision_info``) and ``leg_verdict``,
++so every backend and every gate applies it without being told the cell.
++"""
++import os
++import sys
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++PROJECT_ROOT = Path(__file__).resolve().parents[2]
++sys.path.insert(0, str(PROJECT_ROOT))
++
++pytest.importorskip("pinocchio")
++
++CELL = "welding_cell_2_small"
++NS = "robot2"
++W08 = np.array([-0.975, -1.225, 1.35])
++SHEET = {"id": "TEST_W08_sheet", "type": "box", "is_workpiece": True, "collision_margin": 0.03,
++         "center": [-0.975, -1.225, 1.33], "half_extents": [0.08, 0.08, 0.02]}
++Q_WELD = [1.481707, -1.182402, 1.108870, 3.141593, -1.644327, 1.481707]        # TCP on W08
++Q_UP_20 = [1.481707, -1.181794, 1.092312, 3.141593, -1.660279, 1.481707]       # 20 mm above
++Q_UP_50 = [1.481707, -1.180418, 1.066780, 3.141593, -1.684434, 1.481707]       # 50 mm above
++Q_UP_100 = [1.481707, -1.176833, 1.022258, 3.141593, -1.725371, 1.481707]      # standoff
++Q_BESIDE_DEEP = [1.481691, -1.171410, 1.100871, 3.141593, -1.641336, 1.481691]  # 15 mm off, 10 mm deep
++
++
++@pytest.fixture
++def cell(monkeypatch):
++    # Sibling tests leave CELL_BASE_PATH pointing at their tmp dirs; pin a base
++    # that has the cell (the environment's, else this checkout's cells/).
++    for base in (os.environ.get("CELL_BASE_PATH"), str(PROJECT_ROOT / "cells")):
++        if base and (Path(base) / CELL).is_dir():
++            monkeypatch.setenv("CELL_BASE_PATH", base)
++            break
++    from agents.trajectory.tools import robot_kinematics as rk
++    from agents.trajectory.tools import tool_contact as tc
++    try:
++        model, data = rk._load_pinocchio_model(CELL, NS)
++    except Exception as e:  # noqa: BLE001
++        pytest.skip(f"{CELL} cannot be loaded here: {e}")
++    orig = rk._read_obstacles_yaml
++
++    def read(cell_id):
++        cfg = dict(orig(cell_id) or {})
++        cfg["obstacles"] = list(cfg.get("obstacles") or []) + [SHEET]
++        return cfg
++    monkeypatch.setattr(rk, "_read_obstacles_yaml", read)
++    tc._TRAJ_CACHE.clear()
++    cfg = rk._load_robot_config(CELL, NS)
++    base = np.array(cfg["base_position"])
++    yaw = float(cfg.get("base_orientation_yaw", 0.0))
++    tool_cfg = cfg.get("tool_collision")
++    static = rk.load_static_obstacles(CELL)
++    policy = rk._load_clearance_policy(CELL)
++    radii = rk._cell_sphere_radii(CELL, model, tool_cfg)
++
++    class C:
++        pass
++    c = C()
++    c.rk, c.tc, c.static = rk, tc, static
++
++    def tcp(q):
++        return rk._fk_ee(model, data, np.asarray(q, float), base, yaw)
++
++    def free(q, obstacles=None):
++        return bool(rk._config_is_free(model, model.createData(), np.asarray(q, float), base, yaw,
++                                       [], static if obstacles is None else obstacles,
++                                       sphere_radius=policy["normal"], tool_cfg=tool_cfg,
++                                       sphere_radii=radii))
++
++    def info(leg, tool=True):
++        if not tool:                         # the samples only, as before the dense rule
++            for i, pt in enumerate(leg):
++                hit = rk._config_collision_info(
++                    model, model.createData(), np.asarray(pt["positions"], float), base,
++                    yaw, [], static, sphere_radius=policy["normal"], sphere_radii=radii)
++                if hit is not None:
++                    return {**hit, "sample_index": i}
++            return None
++        return rk._trajectory_collision_info(
++            model, model.createData(), leg, base, yaw, [], static,
++            sphere_radius=policy["normal"], sphere_radii=radii)
++    c.tcp, c.free, c.info = tcp, free, info
++    np.testing.assert_allclose(tcp(Q_WELD), W08, atol=2e-4)
++    np.testing.assert_allclose(tcp(Q_UP_100), W08 + [0, 0, 0.1], atol=2e-4)
++    return c
++
++
++def _leg(qs, dt=0.1):
++    return [{"positions": list(map(float, q)), "time_s": round(dt * i, 4)} for i, q in enumerate(qs)]
++
++
++def _hulls(c):
++    ok, why = c.tc.available(CELL, NS)
++    if not ok:
++        pytest.skip(f"tool hulls unavailable: {why}")
++
++
++def test_the_sheet_carries_the_weld_that_sits_on_it(cell):
++    sheet = [o for o in cell.static if o.get("id") == SHEET["id"]][0]
++    assert [list(p) for p in sheet["weld_contacts"]] == [list(W08)]
++    assert sheet["weld_axes"] == [[0.0, 0.0, -1.0]]
++    # Untouched obstacles stay the same objects, and the annotated copy is stable
++    # (callers that cache by identity, e.g. vectorised kernels, keep their caches).
++    floor = {"id": "floor", "type": "plane", "normal": [0, 0, 1], "offset": -0.05}
++    far = {"id": "far", "type": "box", "center": [5.0, 5.0, 1.0], "half_extents": [0.1, 0.1, 0.1]}
++    raw = [floor, far, SHEET]
++    one = cell.tc.annotate_obstacles(CELL, raw)
++    two = cell.tc.annotate_obstacles(CELL, raw)
++    assert one[0] is floor and one[1] is far and one[2] is not SHEET
++    assert [id(o) for o in one] == [id(o) for o in two]
++    assert "weld_contacts" not in SHEET
++
++
++def test_the_weld_pose_is_legal_and_the_tool_in_the_part_is_not(cell):
++    assert cell.free(Q_WELD)
++    assert cell.free(Q_UP_20)
++    assert not cell.free(Q_BESIDE_DEEP)          # sphere rule: off the weld's axis, inside
++
++
++def test_without_a_weld_on_the_box_nothing_may_touch_it(cell):
++    raw = [o for o in cell.static if o.get("id") != SHEET["id"]] + [dict(SHEET)]
++    assert not cell.free(Q_WELD, obstacles=raw)
++
++
++def test_the_hull_inside_the_part_is_found(cell):
++    _hulls(cell)
++    hit = cell.tc.config_tool_contact_info(CELL, NS, Q_BESIDE_DEEP, cell.static)
++    assert hit is not None and hit["geometry"] == "hull" and hit["clearance_m"] < -0.005
++    assert hit["object_id"] == SHEET["id"]
++    assert cell.tc.config_tool_contact_info(CELL, NS, Q_WELD, cell.static) is None
++
++
++def test_a_dip_between_two_clear_samples_is_found(cell):
++    _hulls(cell)
++    a, b = list(Q_BESIDE_DEEP), list(Q_BESIDE_DEEP)
++    a[0] -= 0.07
++    b[0] += 0.07                                 # A1 only: the TCP arc crosses the sheet
++    assert cell.free(a) and cell.free(b)
++    leg = _leg([a, b], dt=1.0)
++    assert cell.info(leg, tool=False) is None    # the samples are clear
++    hit = cell.info(leg)
++    assert hit is not None and hit["type"] == "tool_penetration"
++    assert 0.0 < hit["segment_fraction"] < 1.0
++    assert hit["worst_clearance_m"] < -0.005
++
++
++def test_the_weld_itself_descent_dwell_liftoff_is_legal(cell):
++    _hulls(cell)
++    leg = _leg([Q_UP_100, Q_UP_50, Q_UP_20, Q_WELD, Q_WELD, Q_UP_20, Q_UP_50, Q_UP_100])
++    assert cell.info(leg) is None
++
++
++def test_a_departure_that_slides_off_the_weld_is_not(cell):
++    _hulls(cell)
++    leg = _leg([Q_WELD, Q_BESIDE_DEEP, Q_UP_100])
++    hit = cell.info(leg)
++    assert hit is not None and hit["object_id"] == SHEET["id"]
++
++
++def test_validate_trajectory_set_reports_it(cell):
++    from agents.trajectory.tools.planning_tools import validate_trajectory_set
++    _hulls(cell)
++    bad = validate_trajectory_set.func(cell_id=CELL, trajectories={NS: _leg([Q_WELD, Q_BESIDE_DEEP])},
++                                       suggest_delay=False)
++    assert bad["collision_free"] is False and bad["static_collisions"]
++    ok = validate_trajectory_set.func(cell_id=CELL, trajectories={NS: _leg([Q_UP_100, Q_WELD, Q_UP_100])},
++                                      suggest_delay=False)
++    assert ok["collision_free"] is True and ok["tool_contact_checked"] is True
++
++
++def test_the_contact_corridor():
++    from agents.trajectory.tools.tool_contact import in_contact_corridor
++    p, a = [0.0, 0.0, 0.0], [0.0, 0.0, -1.0]
++    assert in_contact_corridor([0.0, 0.0, 0.08], p, a, 0.005)        # above, on the axis
++    assert in_contact_corridor([0.004, 0.0, -0.004], p, a, 0.005)    # at the weld
++    assert not in_contact_corridor([0.006, 0.0, 0.03], p, a, 0.005)  # off the axis
++    assert not in_contact_corridor([0.0, 0.0, -0.006], p, a, 0.005)  # through the weld
++    assert not in_contact_corridor([0.0, 0.0, 0.03], p, None, 0.005)  # no axis: ball only
++
++
++def test_the_overlap_of_a_hull_and_a_box_is_bounded_exactly():
++    from agents.trajectory.tools.tool_contact import _intersection_points
++    V = np.array([[x, y, z] for x in (-1.0, 1.0) for y in (-1.0, 1.0) for z in (-1.0, 1.0)])
++    n = np.array([[1.0, 0, 0], [-1.0, 0, 0], [0, 1.0, 0], [0, -1.0, 0], [0, 0, 1.0], [0, 0, -1.0]])
++    X = _intersection_points(V, (n, np.ones(6)), np.array([1.0, 0.0, 0.0]),
++                             np.array([0.5, 0.5, 0.5]))
++    # cube ∩ box = [0.5, 1] x [-0.5, 0.5]^2: every vertex present, nothing outside it
++    assert np.all(X[:, 0] >= 0.5 - 1e-9) and np.all(X[:, 0] <= 1.0 + 1e-9)
++    assert np.all(np.abs(X[:, 1:]) <= 0.5 + 1e-9)
++    corners = [[x, y, z] for x in (0.5, 1.0) for y in (-0.5, 0.5) for z in (-0.5, 0.5)]
++    for c in corners:
++        assert np.min(np.linalg.norm(X - c, axis=1)) < 1e-9
++
++
++def test_every_gate_refuses_the_dip_through_leg_verdict(cell):
++    from agents.trajectory.tools import leg_verdict as lv
++    _hulls(cell)
++    lv.clear_cache()
++    why = lv.refusal(CELL, NS, _leg([Q_WELD, Q_BESIDE_DEEP, Q_UP_100]))
++    assert why is not None and why["reason_code"] == "trajectory_in_collision"
++    assert why["collision"]["type"] == "tool_penetration"
++    assert lv.refusal(CELL, NS, _leg([Q_UP_100, Q_UP_20, Q_WELD, Q_UP_20, Q_UP_100])) is None
++
++
++def test_validate_approach_refuses_a_weld_leg_that_dips(cell):
++    from agents.trajectory.tools.pinocchio import validate_approach
++    _hulls(cell)
++    ori = {"x": 0.0, "y": 1.0, "z": 0.0, "w": 0.0}
++    ok = validate_approach.func(cell_id=CELL, robot_ns=NS, expected_orientation=ori,
++                                trajectory=_leg([Q_UP_100, Q_UP_50, Q_UP_20, Q_WELD]),
++                                target_position=list(W08), approach_vector=[0, 0, -1])
++    assert ok["workpiece_ok"] is True and ok["tool_hulls_checked"] is True
++    bad = validate_approach.func(cell_id=CELL, robot_ns=NS, expected_orientation=ori,
++                                 trajectory=_leg([Q_UP_100, Q_BESIDE_DEEP, Q_WELD]),
++                                 target_position=list(W08), approach_vector=[0, 0, -1])
++    assert bad["matches"] is False and bad["workpiece_ok"] is False
++    assert bad["tool_penetration"]["object_id"] == SHEET["id"]
++
++
++def test_check_self_collision_sees_the_tool_in_the_part(cell):
++    from agents.trajectory.tools.pinocchio import check_self_collision
++    _hulls(cell)
++    bad = check_self_collision.func(cell_id=CELL, robot_ns=NS, joint_positions=Q_BESIDE_DEEP)
++    assert bad["collision_free"] is False and bad["tool_hulls_checked"] is True
++    assert check_self_collision.func(cell_id=CELL, robot_ns=NS,
++                                     joint_positions=Q_WELD)["collision_free"] is True
++
++
++def test_an_old_cell_reads_the_converter_default_contact_radius(cell, monkeypatch):
++    import importlib.util
++    rk = cell.rk
++    spec = importlib.util.spec_from_file_location(
++        "convert_isaac_scene", PROJECT_ROOT / "scripts" / "convert_isaac_scene.py")
++    conv = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(conv)
++    default = conv.build_parser().parse_args(["--scene-yaml", "x", "--out-dir", "y"])
++    real = rk._load_robots_config(CELL)
++    coll = {k: v for k, v in (real.get("collision") or {}).items()
++            if k != "tool_contact_radius"}
++    monkeypatch.setattr(rk, "_load_robots_config", lambda c: {**real, "collision": coll})
++    cell.tc.clear_cache()
++    assert cell.tc.contact_radius(CELL) == default.tool_contact_radius
++    monkeypatch.setattr(rk, "_load_robots_config",
++                        lambda c: {**real, "collision": {**coll, "tool_contact_radius": 0.002}})
++    cell.tc.clear_cache()
++    assert cell.tc.contact_radius(CELL) == 0.002

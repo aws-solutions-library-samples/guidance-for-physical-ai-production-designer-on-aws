@@ -1,0 +1,252 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1790934549_welding_cell_2_small",
+  "cell_id": "welding_cell_2_small",
+  "plan_id": "16#F77E",
+  "profile": "sim",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot2",
+    "tag": "R2",
+    "controller": "robot2",
+    "model": "KR240R2900_ULTRA",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11,
+    125
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "73c6e0e604264fa8"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "0f727b8046d91ba6"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "48459b851b781535"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.dat",
+      "fnv1a64": "6bb7bef65a72f4ed"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge125.src",
+      "fnv1a64": "eb297807554d55ff"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.dat",
+      "fnv1a64": "48c2adc86bdd9d68"
+    },
+    {
+      "path": "KRC/R1/Program/bt_cell.src",
+      "fnv1a64": "3ed4056d66d15ffd"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "c5970634b2f4c64e"
+    },
+    {
+      "path": "KRC/R1/System/bt_sps.src",
+      "fnv1a64": "c568947375c0e09d"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "W13",
+      "zone_mask": "16#00000002",
+      "waypoints": 41,
+      "points": 14,
+      "est_s": 9.12,
+      "est_motion_s": 8.62,
+      "planned_motion_s": 9.186,
+      "expected_s": 9.686,
+      "limit_s": 19.529
+    },
+    {
+      "index": 2,
+      "operation_id": "W15",
+      "zone_mask": "16#00000001",
+      "waypoints": 36,
+      "points": 13,
+      "est_s": 7.978,
+      "est_motion_s": 7.478,
+      "planned_motion_s": 7.925,
+      "expected_s": 8.425,
+      "limit_s": 17.638
+    },
+    {
+      "index": 3,
+      "operation_id": "W14",
+      "zone_mask": "16#00000002",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.561,
+      "est_motion_s": 4.061,
+      "planned_motion_s": 4.224,
+      "expected_s": 4.724,
+      "limit_s": 12.086
+    },
+    {
+      "index": 4,
+      "operation_id": "W10",
+      "zone_mask": "16#00000001",
+      "waypoints": 24,
+      "points": 11,
+      "est_s": 4.914,
+      "est_motion_s": 4.414,
+      "planned_motion_s": 4.492,
+      "expected_s": 4.992,
+      "limit_s": 12.488
+    },
+    {
+      "index": 5,
+      "operation_id": "W11",
+      "zone_mask": "16#00000002",
+      "waypoints": 24,
+      "points": 11,
+      "est_s": 4.946,
+      "est_motion_s": 4.446,
+      "planned_motion_s": 4.536,
+      "expected_s": 5.036,
+      "limit_s": 12.554
+    },
+    {
+      "index": 6,
+      "operation_id": "W12",
+      "zone_mask": "16#00000001",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.83,
+      "est_motion_s": 4.33,
+      "planned_motion_s": 4.321,
+      "expected_s": 4.821,
+      "limit_s": 12.232
+    },
+    {
+      "index": 7,
+      "operation_id": "W09",
+      "zone_mask": "16#00000001",
+      "waypoints": 15,
+      "points": 5,
+      "est_s": 2.69,
+      "est_motion_s": 2.19,
+      "planned_motion_s": 2.199,
+      "expected_s": 2.699,
+      "limit_s": 9.048
+    },
+    {
+      "index": 8,
+      "operation_id": "W08",
+      "zone_mask": "16#00000000",
+      "waypoints": 22,
+      "points": 11,
+      "est_s": 4.461,
+      "est_motion_s": 3.961,
+      "planned_motion_s": 4.094,
+      "expected_s": 4.594,
+      "limit_s": 11.891
+    },
+    {
+      "index": 9,
+      "operation_id": "W07",
+      "zone_mask": "16#00000002",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.652,
+      "est_motion_s": 4.152,
+      "planned_motion_s": 4.269,
+      "expected_s": 4.769,
+      "limit_s": 12.154
+    },
+    {
+      "index": 10,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000000",
+      "waypoints": 32,
+      "points": 11,
+      "est_s": 6.168,
+      "est_motion_s": 6.168,
+      "planned_motion_s": 6.229,
+      "expected_s": 6.229,
+      "limit_s": 14.344
+    }
+  ],
+  "warnings": [],
+  "check": {
+    "profile": "sim",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      256
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [],
+    "reserved_in": [],
+    "request_base": 225,
+    "grant_base": 97,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "BT_STEP=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 3,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 4,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 5,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 6,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 7,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 8,
+        "mask": 0,
+        "hold_ms": 500
+      },
+      {
+        "index": 9,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 10,
+        "mask": 0,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

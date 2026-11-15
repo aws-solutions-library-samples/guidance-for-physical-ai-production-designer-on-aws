@@ -1,0 +1,35 @@
+# A test server's <cell>/plan2cell/plan2cell.toml, for the real-CLI test of services/hardware.rs: plan2cell/infra/
+# test-server's (checked there: the_test_server_fixtures_are_the_test_servers_files). The base of every Control Code
+# Export on the test server's virtual cell: KUKA VCs in EXT, simulation-only safety bypass.
+# [plc] keeps every bt2plc default, so PLAN_ID and the PLC goldens stay as they are.
+# Both robots are modelled as KR240 R2900 ultra without external axes.
+
+[[krl.robot]]
+ns = "robot1"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+
+[[krl.robot]]
+ns = "robot2"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+
+# Both robots run on KUKA virtual controllers (PROFINET devices over VXLAN), not CODESYS simulators.
+[[plc.robot]]
+ns = "robot1"
+external = true
+safety_bypass = true
+safety_module = false  # SIMULATION ONLY: DAP DIM 3, slot 1 empty (KSS rejects PROFIsafe without a safety app)
+
+[[plc.robot]]
+ns = "robot2"
+external = true
+safety_bypass = true
+safety_module = false  # SIMULATION ONLY: DAP DIM 3, slot 1 empty (KSS rejects PROFIsafe without a safety app)
+
+[plc.opcua]
+symbols = true
+
+[plc.network]
+# The KUKA VCs' KLI gateway: with another (or no) gateway the head sends DCP Set IP.
+gateway = "192.168.100.1"

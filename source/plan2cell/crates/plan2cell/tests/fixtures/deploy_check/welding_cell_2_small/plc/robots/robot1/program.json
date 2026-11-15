@@ -1,0 +1,46 @@
+{
+  "schema": "bt2plc/robot-program@1",
+  "schema_minor": 1,
+  "protocol": {
+    "step": {
+      "byte": 4,
+      "len": 2,
+      "endian": "little",
+      "dir": "robot_to_plc"
+    },
+    "request": {
+      "byte": 28,
+      "len": 4,
+      "endian": "little",
+      "dir": "robot_to_plc"
+    },
+    "grant": {
+      "byte": 12,
+      "len": 4,
+      "endian": "little",
+      "dir": "plc_to_robot"
+    },
+    "plan_id": {
+      "byte": 4,
+      "len": 2,
+      "endian": "little",
+      "dir": "plc_to_robot"
+    },
+    "permit_bit": 31,
+    "handshake": "4-phase: step := k; REQUEST := mask; wait GRANT&mask = mask; [delay] move; hold; REQUEST := 0; wait GRANT&mask = 0",
+    "grant_policy": "planned",
+    "profile": "sim",
+    "job_number": "word_le",
+    "error_codes": {
+      "unknown_folge": 257,
+      "plan_mismatch": 259,
+      "start_deviation": 513
+    },
+    "at_home_tol_deg": 0.5,
+    "start_tol_deg": 1.0,
+    "home_return_time_s": 7.0,
+    "handshake_s": 5.0,
+    "abort_limit_s": 10.0,
+    "home_limit_s": 15.5
+  }
+}

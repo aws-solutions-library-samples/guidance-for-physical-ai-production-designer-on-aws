@@ -1,0 +1,62 @@
+# sticktool (spot-weld stick electrode): what the planner needs that umarell's converter does not fit
+# to the meshes. Prepare Cell writes it into every cell using the tool (agentic_planner/config/
+# robots.yaml collision.tool_contact_radius, the largest of the cell's tools); editing this file
+# makes those cells stale, so the next Prepare Cell / plan picks it up.
+#
+# Only the weld contact radius is set here. The converter's own fit to the dressed robot's tool
+# hulls stays (tool_collision: 21 arm-vs-arm spheres and 219 static spheres of r 0.05 m on link_6;
+# obstacles.yaml tool_link_radius 0.05 m, the tool's largest distance from its axis within 0.05 m of
+# the TCP). That fit is in the dressed robot's link_6 frame, and the same tool is dressed with
+# other mountings, so a tool_collision block here would be wrong for some of them. One number is
+# not tied to a frame.
+#
+# collision.tool_contact_radius (r_c): the weld contact of the cell planner's umarell fix 22
+# (docs/upstream/22_no_workpiece_dip.md). A tool sphere may overlap an is_workpiece box only while
+# the TCP is in a program weld's contact corridor (at most r_c off the weld's axis, at most r_c past
+# the weld) and the sphere's centre is within its radius + r_c of the weld point. The tool's
+# collision hulls may enter the box only inside the ball of radius r_c around the weld. The
+# converter's 0.005 m is the electrode face. It is too small for this tool's sphere cover:
+#   - The dressed hulls, measured from the TCP (tcp_offset [-0.9092, 0.0056, 0.0005] in link_6; the
+#     tool points along -x): the electrode cap (World_hull_0) reaches the TCP and is at most
+#     2.1 mm off the axis within 20 mm of it (22.1 mm at most). The stick (World_hull_4) starts
+#     36.4 mm behind the TCP and reaches 46.8 mm off the axis. The cap's visual mesh ends 1.6 mm
+#     short of the TCP.
+#   - The converter covers the stick's front corners with static spheres of r 0.05 m.
+#     [-0.8728, 0.0218, -0.0432] and [-0.8728, 0.0476, 0.0157] sit 36.4 mm behind the TCP and
+#     46.6 / 44.7 mm off the axis. On a perpendicular descent onto a flat face, each dips below the
+#     face once the TCP is less than 13.6 mm above it, by 13.6 mm at the weld. Its centre is then
+#     sqrt(46.6^2 + 50^2) - 50 = 18 mm outside r + r_c, unless r_c >= 18 mm. With 0.005 m every
+#     weld on a flat is_workpiece face is goal_in_collision at descent step 5/6. With the tool leant
+#     max_tilt_deg 4.5 it needs 20.1 mm; at 9 deg, 21.8 mm.
+#   - 0.025 m covers that, with 3 mm to spare at a 9 deg lean. It is still smaller than the 36.4 mm
+#     from the TCP to the stick. The hull rule therefore still refuses the stick (or anything but
+#     the electrode cap) in the part, near the weld or not. Checked against the cube_weld_2r layout
+#     with the cell planner's umarell (76ea13a + fix set v8, and 08d5a39 + v10):
+#       - 8/8 straight descents and lift-offs become legal, as does every 4.5 deg candidate.
+#       - Still refused: the tool on the face 40 mm beside a weld, or 8 mm above that point; the
+#         TCP 30 mm into the part at the weld; a 45 deg lean on a flat face (the stick's edge is in
+#         the face).
+#       - Allowed within r_c: the TCP past the weld along its axis (20 mm in was accepted; the
+#         corridor allows up to r_c). A program weld must therefore sit on the surface, not in it.
+#     With 0.05 m (half the stick's width), the tool on the face 40 mm beside the weld and a 30 mm
+#     plunge would pass.
+#
+# What 0.025 m relaxes, in every cell with a *__sticktool robot (the release catalogue is always
+# looked up, so existing legacy copies, migrated @variants and welding_cell_2t's FactoryOS copy too):
+#   - Only is_workpiece boxes. Fix 22 keeps every other box (fixture, clamp, wall) at
+#     tool_link_radius + collision_margin, so the tool still may not touch those.
+#   - Inside a workpiece it is 25 mm, not the 5 mm electrode face: every box within 25 mm of a weld
+#     is a contact box (a flange or corner wall 10-25 mm from the weld included; the electrode cap
+#     may touch it while the hull overlap stays in the 25 mm ball), and the TCP may go up to 25 mm
+#     past the weld (a weld point up to ~25 mm inside the part, e.g. under a face the converter
+#     snapped outward, is accepted instead of goal_in_collision).
+#   - Prepare writes one cell-wide tool_contact_radius, the largest of the cell's tools: the other
+#     robots of a mixed cell get 0.025 m too. umarell_jam's geometry backstop applies it to every
+#     fixture mesh for electrodes carved from a tip.obj; the sticktool has none, so only a mixed
+#     cell with a tip.obj tool is affected there.
+#   - The sample cell welding_cell_2_small does not need it (its welds are 0.20 m above a
+#     non-workpiece fixture); cube-weld-2r + weld_cube and every product-derived flat face do.
+#   - Plans of umarell's own patched copy of a training cell (router u3_own_cell False) use umarell's
+#     config and are unaffected.
+collision:
+  tool_contact_radius: 0.025

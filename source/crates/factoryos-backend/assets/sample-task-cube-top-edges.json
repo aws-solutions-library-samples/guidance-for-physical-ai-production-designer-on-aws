@@ -1,0 +1,410 @@
+{
+  "program": "cube_top_edges",
+  "cell_id": "cube_weld_2r",
+  "version": "1.0.0",
+  "description": "Pretend spot welding of the four top edges of the 1 m weld cube (top face at z = 1.0 m): 3 welds per edge (at -0.3, 0, +0.3 m along it), 12 in total. The tool stays vertical (top-down) for approach and weld. The two edges facing the robots (x = -0.5 near robot1, x = +0.5 near robot2) are welded first, then the two side edges; the planner allocates welds to robots.",
+  "trajectory_backend": "ompl",
+  "extensions": {
+    "strategy": {
+      "parallel_within_group": true,
+      "sequence_groups_order": [
+        "facing_edges",
+        "side_edges"
+      ],
+      "max_concurrent_robots": 2,
+      "collision_avoidance": "collaborative_planner"
+    },
+    "cycle_time": {
+      "target_s": 20.0,
+      "max_s": 30.0
+    },
+    "weld_params": {
+      "weld_type": "spot",
+      "welding_duration_s": 2.0,
+      "approach_offset_z": 0.05,
+      "retract_offset_z": 0.05,
+      "weld_phases": [
+        {
+          "phase": "approach",
+          "type": "move",
+          "speed_percentage": 60
+        },
+        {
+          "phase": "contact",
+          "type": "move",
+          "speed_percentage": 10
+        },
+        {
+          "phase": "squeeze",
+          "type": "wait",
+          "duration_s": 0.1
+        },
+        {
+          "phase": "weld",
+          "type": "weld_pulse",
+          "duration_s": 2.0
+        },
+        {
+          "phase": "hold",
+          "type": "wait",
+          "duration_s": 0.1
+        },
+        {
+          "phase": "retract",
+          "type": "move",
+          "speed_percentage": 80
+        }
+      ]
+    }
+  },
+  "operations": [
+    {
+      "id": "W01",
+      "type": "weld",
+      "position": [
+        -0.5,
+        -0.3,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=-0.5 (faces robot1)"
+    },
+    {
+      "id": "W02",
+      "type": "weld",
+      "position": [
+        -0.5,
+        0.0,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=-0.5 (faces robot1)"
+    },
+    {
+      "id": "W03",
+      "type": "weld",
+      "position": [
+        -0.5,
+        0.3,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=-0.5 (faces robot1)"
+    },
+    {
+      "id": "W04",
+      "type": "weld",
+      "position": [
+        0.5,
+        -0.3,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=+0.5 (faces robot2)"
+    },
+    {
+      "id": "W05",
+      "type": "weld",
+      "position": [
+        0.5,
+        0.0,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=+0.5 (faces robot2)"
+    },
+    {
+      "id": "W06",
+      "type": "weld",
+      "position": [
+        0.5,
+        0.3,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "facing_edges",
+      "priority": 1,
+      "description": "top edge x=+0.5 (faces robot2)"
+    },
+    {
+      "id": "W07",
+      "type": "weld",
+      "position": [
+        -0.3,
+        -0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=-0.5"
+    },
+    {
+      "id": "W08",
+      "type": "weld",
+      "position": [
+        0.0,
+        -0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=-0.5"
+    },
+    {
+      "id": "W09",
+      "type": "weld",
+      "position": [
+        0.3,
+        -0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=-0.5"
+    },
+    {
+      "id": "W10",
+      "type": "weld",
+      "position": [
+        -0.3,
+        0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=+0.5"
+    },
+    {
+      "id": "W11",
+      "type": "weld",
+      "position": [
+        0.0,
+        0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=+0.5"
+    },
+    {
+      "id": "W12",
+      "type": "weld",
+      "position": [
+        0.3,
+        0.5,
+        1.0
+      ],
+      "approach_vector": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "weld_orientation": {
+        "x": 0.0,
+        "y": -0.7071,
+        "z": 0.0,
+        "w": 0.7071
+      },
+      "sequence_group": "side_edges",
+      "priority": 2,
+      "description": "top edge y=+0.5"
+    }
+  ]
+}

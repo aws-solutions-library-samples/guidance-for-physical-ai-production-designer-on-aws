@@ -1,0 +1,229 @@
+// KRL (KUKA Robot Language) PEG grammar for pest
+// Focused on extracting motion commands, point data, and frame definitions
+
+WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ ";" ~ (!NEWLINE ~ ANY)* }
+header_line = _{ "&" ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
+
+// Top-level: a KRL file is a sequence of lines
+file = { SOI ~ (header_line | NEWLINE)* ~ (module_data | module_routines) ~ EOI }
+
+module_routines = { main_routine ~ (sub_routine | NEWLINE)* }
+main_routine = { procedure_definition | function_definition }
+sub_routine = { procedure_definition | function_definition }
+
+procedure_definition = { global_kw? ~ def_kw ~ identifier ~ formal_parameters ~ NEWLINE ~ routine_body ~ end_kw }
+function_definition = { global_kw? ~ deffct_kw ~ type_spec ~ identifier ~ formal_parameters ~ NEWLINE ~ routine_body ~ endfct_kw }
+
+module_data = { defdat_kw ~ identifier ~ public_kw? ~ NEWLINE ~ data_list ~ enddat_kw ~ NEWLINE* }
+
+data_list = { (NEWLINE | data_list_entry ~ NEWLINE)* }
+data_list_entry = { forward_declaration | type_declaration | variable_declaration_data | array_initialisation | import_statement }
+
+array_initialisation = { identifier ~ array_suffix ~ "=" ~ unary_expr }
+
+type_declaration = { structure_definition | enum_definition }
+structure_definition = { global_kw? ~ struc_kw ~ identifier ~ type_spec ~ identifier ~ variable_list_rest ~ ("," ~ type_spec ~ identifier ~ variable_list_rest)* }
+enum_definition = { global_kw? ~ enum_kw ~ identifier ~ identifier ~ ("," ~ identifier)* }
+
+variable_declaration = { decl_kw? ~ (type_spec ~ variable_name ~ variable_list_rest | signal_declaration) }
+signal_declaration = { signal_kw ~ identifier ~ primary ~ (to_kw ~ primary)? }
+
+variable_declaration_data = { decl_kw? ~ global_kw? ~ const_kw? ~ (type_spec ~ variable_name ~ (variable_list_rest | variable_initialisation) | signal_declaration) }
+
+variable_list_rest = { ("," ~ variable_name)* }
+variable_initialisation = { "=" ~ unary_expr }
+
+formal_parameters = { "(" ~ (parameter ~ ("," ~ parameter)*)? ~ ")" }
+parameter = { variable_name ~ parameter_call_type? }
+parameter_call_type = { ":" ~ identifier }
+
+formal_parameters_with_type = { "(" ~ (param_with_type ~ ("," ~ param_with_type)*)? ~ ")" }
+param_with_type = { type_spec ~ parameter_call_type? }
+
+forward_declaration = { ext_kw ~ identifier ~ formal_parameters_with_type | extfct_kw ~ type_spec ~ identifier ~ formal_parameters_with_type }
+
+import_statement = { import_kw ~ type_spec ~ variable_name ~ is_kw ~ "/R1/" ~ identifier ~ ".." ~ variable_name }
+
+routine_body = { routine_data_section ~ routine_impl_section }
+routine_data_section = { (forward_declaration ~ NEWLINE | variable_declaration ~ NEWLINE | NEWLINE ~ NEWLINE | import_statement ~ NEWLINE)* }
+routine_impl_section = { statement* }
+
+statement = {
+    continue_kw ~ NEWLINE
+    | exit_kw ~ NEWLINE
+    | for_statement
+    | goto_kw ~ identifier ~ NEWLINE
+    | halt_kw ~ NEWLINE
+    | if_statement
+    | loop_statement
+    | repeat_statement
+    | switch_statement
+    | wait_for_statement
+    | wait_sec_statement
+    | while_statement
+    | return_statement
+    | brake_kw ~ identifier? ~ NEWLINE
+    | ptp_statement
+    | lin_statement
+    | lin_rel_statement
+    | circ_statement
+    | trigger_statement
+    | interrupt_decl_statement
+    | interrupt_statement
+    | anout_statement
+    | anin_statement
+    | label_statement
+    | assignment_statement
+    | NEWLINE
+}
+
+ptp_statement = { (ptp_rel_kw | ptp_kw) ~ geometric_expr ~ (c_ptp_kw ~ (c_dis_kw | c_ori_kw | c_vel_kw)?)? ~ NEWLINE }
+lin_statement = { lin_kw ~ geometric_expr ~ (c_dis_kw | c_ori_kw | c_vel_kw)? ~ NEWLINE }
+lin_rel_statement = { lin_rel_kw ~ geometric_expr ~ (c_dis_kw | c_ori_kw | c_vel_kw)? ~ enum_element? ~ NEWLINE }
+circ_statement = { (circ_rel_kw | circ_kw) ~ geometric_expr ~ "," ~ geometric_expr ~ ("," ~ identifier ~ primary)? ~ (c_dis_kw | c_ori_kw | c_vel_kw)? ~ NEWLINE }
+
+for_statement = { for_kw ~ identifier ~ "=" ~ expression ~ to_kw ~ expression ~ (identifier ~ expression)? ~ NEWLINE ~ statement* ~ endfor_kw ~ NEWLINE? }
+if_statement = { if_kw ~ expression ~ then_kw ~ NEWLINE ~ statement* ~ (else_kw ~ NEWLINE ~ statement*)? ~ endif_kw ~ NEWLINE }
+loop_statement = { loop_kw ~ NEWLINE ~ statement* ~ endloop_kw ~ NEWLINE }
+repeat_statement = { repeat_kw ~ NEWLINE ~ statement* ~ until_kw ~ expression ~ NEWLINE }
+switch_statement = { switch_kw ~ expression ~ NEWLINE ~ switch_body ~ endswitch_kw ~ NEWLINE }
+switch_body = { NEWLINE* ~ (case_label ~ statement*)+ ~ (default_label ~ statement*)? }
+case_label = { case_kw ~ expression ~ ("," ~ expression)* ~ NEWLINE }
+default_label = { default_kw ~ NEWLINE }
+
+wait_for_statement = { wait_kw ~ for_kw ~ expression ~ NEWLINE }
+wait_sec_statement = { wait_kw ~ sec_kw ~ expression ~ NEWLINE }
+while_statement = { while_kw ~ expression ~ NEWLINE ~ statement* ~ endwhile_kw ~ NEWLINE }
+return_statement = { return_kw ~ assignment_expression? ~ NEWLINE }
+
+trigger_statement = { trigger_kw ~ when_kw ~ identifier ~ "=" ~ expression ~ delay_kw ~ "=" ~ expression ~ do_kw ~ assignment_expression ~ (prio_kw ~ "=" ~ expression)? ~ NEWLINE }
+interrupt_decl_statement = { global_kw? ~ interrupt_kw ~ decl_kw ~ primary ~ when_kw ~ expression ~ do_kw ~ assignment_expression ~ NEWLINE }
+interrupt_statement = { interrupt_kw ~ identifier ~ primary? ~ NEWLINE }
+
+anout_statement = { anout_kw ~ (identifier ~ assignment_expression ~ (identifier ~ "=" ~ literal)* | identifier ~ identifier) ~ NEWLINE }
+anin_statement = { anin_kw ~ (identifier ~ assignment_expression | identifier ~ identifier) ~ NEWLINE }
+
+label_statement = { identifier ~ ":" ~ NEWLINE }
+assignment_statement = { assignment_expression ~ NEWLINE }
+
+// Expressions
+assignment_expression = { expression ~ ("=" ~ expression)* }
+expression = { cond_or_expr ~ (relational_op ~ cond_or_expr)* }
+relational_op = { "==" | "<>" | "<=" | ">=" | "<" | ">" }
+cond_or_expr = { xor_expr ~ ((or_kw | b_or_kw) ~ xor_expr)* }
+xor_expr = { cond_and_expr ~ ((exor_kw | b_exor_kw) ~ cond_and_expr)* }
+cond_and_expr = { additive_expr ~ ((and_kw | b_and_kw) ~ additive_expr)* }
+additive_expr = { mult_expr ~ ((add_op) ~ mult_expr)* }
+add_op = { "+" | "-" }
+mult_expr = { geometric_expr ~ ((mult_op) ~ geometric_expr)* }
+mult_op = { "*" | "/" }
+geometric_expr = { unary_not_expr ~ (":" ~ unary_not_expr)* }
+unary_not_expr = { (not_kw | b_not_kw) ~ unary_not_expr | unary_expr }
+unary_expr = { ("+" | "-") ~ unary_expr | primary }
+
+primary = { par_expression | literal | variable_access }
+par_expression = { "(" ~ assignment_expression ~ ")" }
+variable_access = { identifier ~ ("." ~ identifier)* ~ arguments? }
+arguments = { "(" ~ (expression_list)? ~ ")" }
+expression_list = { assignment_expression ~ ("," ~ assignment_expression)* }
+
+// Struct literal: { FRAME: X 100.0, Y 200.0, ... }
+struct_literal = { "{" ~ (identifier ~ ":")? ~ struct_element_list ~ "}" }
+struct_element_list = { struct_element ~ ("," ~ struct_element)* }
+struct_element = { variable_name ~ unary_expr }
+
+variable_name = { identifier ~ array_suffix? }
+array_suffix = { "[" ~ (expression ~ ("," ~ (expression ~ ("," ~ expression?)?)?)?)? ~ "]" }
+
+// Literals
+literal = { float_literal | int_literal | string_literal | char_literal | struct_literal | true_kw | false_kw | enum_element }
+float_literal = @{ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT* ~ exponent? | "." ~ ASCII_DIGIT+ ~ exponent? | ASCII_DIGIT+ ~ exponent }
+exponent = _{ ^"e" ~ ("+" | "-")? ~ ASCII_DIGIT+ }
+int_literal = @{ ASCII_DIGIT+ | "'" ~ ^"h" ~ ASCII_HEX_DIGIT+ ~ "'" | "'" ~ ^"b" ~ ("0" | "1")+ ~ "'" }
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+char_literal = @{ "'" ~ (!"'" ~ ANY) ~ "'" }
+enum_element = { "#" ~ identifier }
+
+// Type
+type_spec = { primitive_type ~ ("[" ~ int_literal? ~ "]")? | identifier ~ ("[" ~ int_literal? ~ "]")? }
+primitive_type = { bool_kw | char_kw | int_kw | real_kw }
+
+// Identifier
+identifier = @{ (ASCII_ALPHA | "_" | "$") ~ (ASCII_ALPHANUMERIC | "_" | "$")* }
+
+// Case-insensitive keywords
+global_kw = _{ ^"global" }
+def_kw = _{ ^"def" }
+deffct_kw = _{ ^"deffct" }
+end_kw = _{ ^"end" }
+endfct_kw = _{ ^"endfct" }
+defdat_kw = _{ ^"defdat" }
+enddat_kw = _{ ^"enddat" }
+public_kw = _{ ^"public" }
+decl_kw = _{ ^"decl" }
+const_kw = _{ ^"const" }
+struc_kw = _{ ^"struc" }
+enum_kw = _{ ^"enum" }
+signal_kw = _{ ^"signal" }
+ext_kw = _{ ^"ext" }
+extfct_kw = _{ ^"extfct" }
+import_kw = _{ ^"import" }
+is_kw = _{ ^"is" }
+ptp_kw = { ^"ptp" }
+ptp_rel_kw = { ^"ptp_rel" }
+lin_kw = { ^"lin" }
+lin_rel_kw = { ^"lin_rel" }
+circ_kw = { ^"circ" }
+circ_rel_kw = { ^"circ_rel" }
+c_ptp_kw = _{ ^"c_ptp" }
+c_dis_kw = _{ ^"c_dis" }
+c_ori_kw = _{ ^"c_ori" }
+c_vel_kw = _{ ^"c_vel" }
+continue_kw = _{ ^"continue" }
+exit_kw = _{ ^"exit" }
+for_kw = _{ ^"for" }
+to_kw = _{ ^"to" }
+goto_kw = _{ ^"goto" }
+halt_kw = _{ ^"halt" }
+if_kw = _{ ^"if" }
+then_kw = _{ ^"then" }
+else_kw = _{ ^"else" }
+endif_kw = _{ ^"endif" }
+loop_kw = _{ ^"loop" }
+endloop_kw = _{ ^"endloop" }
+repeat_kw = _{ ^"repeat" }
+until_kw = _{ ^"until" }
+switch_kw = _{ ^"switch" }
+case_kw = _{ ^"case" }
+default_kw = _{ ^"default" }
+endswitch_kw = _{ ^"endswitch" }
+wait_kw = _{ ^"wait" }
+sec_kw = _{ ^"sec" }
+while_kw = _{ ^"while" }
+endwhile_kw = _{ ^"endwhile" }
+endfor_kw = _{ ^"endfor" }
+return_kw = _{ ^"return" }
+brake_kw = _{ ^"brake" }
+trigger_kw = _{ ^"trigger" }
+when_kw = _{ ^"when" }
+delay_kw = _{ ^"delay" }
+do_kw = _{ ^"do" }
+prio_kw = _{ ^"prio" }
+interrupt_kw = _{ ^"interrupt" }
+anout_kw = _{ ^"anout" }
+anin_kw = _{ ^"anin" }
+and_kw = _{ ^"and" }
+or_kw = _{ ^"or" }
+exor_kw = _{ ^"exor" }
+not_kw = _{ ^"not" }
+b_and_kw = _{ ^"b_and" }
+b_or_kw = _{ ^"b_or" }
+b_exor_kw = _{ ^"b_exor" }
+b_not_kw = _{ ^"b_not" }
+true_kw = { ^"true" }
+false_kw = { ^"false" }
+bool_kw = _{ ^"bool" }
+char_kw = _{ ^"char" }
+int_kw = _{ ^"int" }
+real_kw = _{ ^"real" }

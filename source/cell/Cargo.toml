@@ -1,0 +1,10 @@
+# The cell runtime: cell-runner (KRL/trajectory simulation, Pinocchio + Coal via C++) and
+# cell-rerun-server, the supervisor that embeds it (and its shared libraries) into one binary the
+# backend starts.
+#
+# A workspace of its own: it needs the Pinocchio/Coal C++ toolchain (infra cell image).
+# Build it with cell/scripts/build-cell-rerun-server.sh.
+
+[workspace]
+resolver = "2"
+members = ["cell-runner", "krl-parser", "cell-rerun-server"]

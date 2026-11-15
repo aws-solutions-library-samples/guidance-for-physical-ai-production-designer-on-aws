@@ -1,0 +1,941 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "robo-fitting-room API",
+    "description": "Versioned REST API exposed by `robo-fitting-room serve`. Handlers under `/api/v1/*` are stable; the unversioned `/api/*` aliases are deprecated and will be removed in the next release. Liveness / readiness probes sit at the root (`/healthz`, `/readyz`).",
+    "license": {
+      "name": "MIT OR Apache-2.0"
+    },
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/api/v1/assets/fixtures": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "List the fixtures under urdf-fixture-collection/.",
+        "description": "One entry per `<asset_root>/urdf-fixture-collection/<id>/<id>.urdf`, sorted\nby `id`; `urdf_rel` is that URDF's path relative to the asset root.",
+        "operationId": "list_fixtures",
+        "responses": {
+          "200": {
+            "description": "Fixture catalogue listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assets/floor-plans": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "List the floor plans (.obj, .dxf) in floor-plans/.",
+        "description": "The `*.obj` and `*.dxf` files directly in `<asset_root>/floor-plans/`\n(extension in any case), sorted by name; `rel` is the file's path relative\nto the asset root.",
+        "operationId": "list_floor_plans",
+        "responses": {
+          "200": {
+            "description": "Floor-plan catalogue listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FloorPlanEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assets/floor-plans/upload-obj": {
+      "post": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "Upload an OBJ floor plan into floor-plans/.",
+        "description": "A multipart upload: the `file` part is stored as\n`<asset_root>/floor-plans/<filename>`, replacing a file of that name.\nReturns `stored_path`, the stored file's path relative to the asset root,\nand its size in `bytes`.",
+        "operationId": "upload_floor_plan_obj",
+        "requestBody": {
+          "description": "Form fields: `filename` (text) and `file` (the OBJ payload).",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadObjForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Upload accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing filename / non-OBJ extension",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Filesystem write failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assets/robots": {
+      "get": {
+        "tags": [
+          "assets"
+        ],
+        "summary": "List the dressed robots under urdf-dressed-robots/.",
+        "description": "One entry per `<asset_root>/urdf-dressed-robots/<id>/<id>.urdf`, sorted by\n`id`; `urdf_rel` is that URDF's path relative to the asset root.",
+        "operationId": "list_robots",
+        "responses": {
+          "200": {
+            "description": "Dressed-robot catalogue listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssetEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/compose": {
+      "post": {
+        "tags": [
+          "compose"
+        ],
+        "summary": "Compose a manifest on disk into a USDA scene zip.",
+        "description": "Runs the compose pipeline against the manifest at `manifest_path` under\n`asset_root`. The zip, holding the manifest and the composed\n`<stem>.usda` stage, is streamed back as the response body with\nContent-Type `application/zip` and the download name `<stem>.zip`. The\nmanifest is validated first: its errors return 400 `manifest_invalid`.",
+        "operationId": "compose_scene",
+        "parameters": [
+          {
+            "name": "manifest_path",
+            "in": "query",
+            "description": "Path under asset_root pointing at an existing manifest YAML, e.g.\n`fitted-robots/scene.yaml`. Absolute paths and `..` segments are\nrejected.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "full_robots",
+            "in": "query",
+            "description": "Keep the robots' full visual meshes. `false` (the default) drops them\nand shows the collision hulls instead: a leaner zip, the same physics.\nFixtures always keep theirs.",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "full_tools",
+            "in": "query",
+            "description": "Keep the tools' full visual meshes (default `true`); `false` shows only\ntheir collision hulls. Independent of `full_robots`.",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Composed scene zip",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Manifest path / validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Compose pipeline failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/compose-urdf-bundle": {
+      "post": {
+        "tags": [
+          "compose"
+        ],
+        "summary": "Bundle a manifest's source URDFs and meshes into one zip.",
+        "description": "Builds the self-contained URDF-source bundle for the manifest at\n`manifest_path` under `asset_root` and streams it back as\n`application/zip`, with the download name `<stem>-urdf.zip`. The bundle\nholds the scene YAML (rewritten to reference the URDFs by relative path)\nplus every source URDF copied verbatim (each in its own folder with its\n`meshes/` subtree) and the floor-plan OBJ when present. The manifest is\nvalidated first: its errors return 400 `manifest_invalid`. This is a\nSEPARATE artifact from `/compose`; the editor calls both when the user\nopts in.",
+        "operationId": "compose_urdf_bundle",
+        "parameters": [
+          {
+            "name": "manifest_path",
+            "in": "query",
+            "description": "Path under asset_root pointing at an existing manifest YAML, e.g.\n`fitted-robots/scene.yaml`. Absolute paths and `..` segments are\nrejected.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "URDF-source bundle zip",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Manifest path / validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Bundle build failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/floor-plan": {
+      "post": {
+        "tags": [
+          "floor-plan"
+        ],
+        "summary": "Read a floor-plan OBJ's line segments.",
+        "description": "Body `{path, footprint_layers?}`. Parses the OBJ at the given relative\npath through `floor_plan::load_floor_plan_with_footprint_layers` — the\nmanifest's `floor_plan.footprint_layers` split off as footprints, as\ncompose does — and returns the segment arrays as JSON. The editor's canvas\nrenders these directly. A DXF file isn't read (BL-22): a 400 says so.\n\nOffset and scale are deliberately set to identity here — the editor\nrenders in DXF/OBJ-local coordinates and applies the user's\n`cell_origin_dxf` pick on its own. The compose pipeline applies\nthe offset later.",
+        "operationId": "get_floor_plan_segments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FloorPlanQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Parsed floor-plan segments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorPlanSegments"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path resolution or OBJ parse error, or a DXF file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scenes/load": {
+      "post": {
+        "tags": [
+          "scene"
+        ],
+        "summary": "Read a scene manifest's YAML text.",
+        "description": "Body `{path}`. Returns the raw YAML at `<asset_root>/<path>`, unchanged,\nwith Content-Type `application/x-yaml`. A missing file, or one that can't\nbe read as UTF-8 text, is 404 `manifest_not_found`.",
+        "operationId": "load_scene",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Manifest YAML body",
+            "content": {
+              "application/x-yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path resolution failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Manifest not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/scenes/save": {
+      "post": {
+        "tags": [
+          "scene"
+        ],
+        "summary": "Write a scene manifest's YAML text.",
+        "description": "Body `{path, yaml}`. Path is resolved against `asset_root`; the YAML is\nwritten verbatim, without validation, replacing any file there and\ncreating missing parent folders.",
+        "operationId": "save_scene",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenePathBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Manifest persisted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path resolution failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Filesystem write failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/urdf/joints": {
+      "post": {
+        "tags": [
+          "urdf"
+        ],
+        "summary": "List a URDF's actuated joints and their limits.",
+        "description": "Body `{path}`. Parses the URDF at `<asset_root>/<path>` and returns the\nactuated (non-Fixed) joints in declaration order, with their limits in\ndegrees, or in metres for a prismatic joint. Used by the editor to render\none home-pose row per joint.",
+        "operationId": "list_urdf_joints",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Actuated-joint listing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrdfJointsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Path resolution or URDF parse error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/validate": {
+      "post": {
+        "tags": [
+          "compose"
+        ],
+        "summary": "Validate a scene manifest given as YAML text.",
+        "description": "The body is the raw manifest YAML (`application/x-yaml` or `text/plain`);\nits relative paths resolve against `<asset_root>/fitted-robots/`, as for a\nmanifest saved there. Returns `{ok, errors[], warnings[]?}`. The 200\nresponse is used both for valid and invalid manifests; the `errors` array\nis the success/fail signal, `warnings` (`scene::scene_warnings`, absent\nwhen empty) what composes but probably not as meant. YAML that doesn't\nparse, or a referenced file that can't be found, populates `errors` rather\nthan a 4xx.",
+        "operationId": "validate_scene",
+        "requestBody": {
+          "description": "The manifest's YAML text.",
+          "content": {
+            "application/x-yaml": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness probe: always 200 with the crate version.",
+        "description": "Answers as soon as axum is accepting connections. The `version` field is\nsourced from `CARGO_PKG_VERSION` at compile time.",
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "description": "Service is alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Readiness probe: 200 once the asset root holds a URDF, else 503.",
+        "description": "200 when the asset root canonicalises and at least one `*.urdf` is\ndiscoverable; 503 otherwise, with `ready: false` and the reasons in\n`errors`. The walk is shallow (depth 4) so a misconfigured asset_root with\na giant filesystem doesn't stall the probe.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AssetEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "urdf_rel"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "urdf_rel": {
+            "type": "string"
+          }
+        }
+      },
+      "ComposeQuery": {
+        "type": "object",
+        "description": "Query parameters for compose: the CLI's `--full-robots` / `--full-tools`\nflags, with the same defaults.",
+        "required": [
+          "manifest_path"
+        ],
+        "properties": {
+          "full_robots": {
+            "type": "boolean",
+            "description": "Keep the robots' full visual meshes. `false` (the default) drops them\nand shows the collision hulls instead: a leaner zip, the same physics.\nFixtures always keep theirs.",
+            "default": false
+          },
+          "full_tools": {
+            "type": "boolean",
+            "description": "Keep the tools' full visual meshes (default `true`); `false` shows only\ntheir collision hulls. Independent of `full_robots`.",
+            "default": true
+          },
+          "manifest_path": {
+            "type": "string",
+            "description": "Path under asset_root pointing at an existing manifest YAML, e.g.\n`fitted-robots/scene.yaml`. Absolute paths and `..` segments are\nrejected."
+          }
+        }
+      },
+      "ErrorEnvelope": {
+        "type": "object",
+        "description": "Uniform error body for every 4xx/5xx response. Wire schema documented\nin `docs/api.md`. `code` is a stable machine-readable token (no spaces);\n`message` is human-readable; `hint` is an optional remediation pointer.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "hint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "FloorPlanEntry": {
+        "type": "object",
+        "required": [
+          "name",
+          "ext",
+          "rel"
+        ],
+        "properties": {
+          "ext": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rel": {
+            "type": "string"
+          }
+        }
+      },
+      "FloorPlanQuery": {
+        "type": "object",
+        "description": "A floor-plan request: the OBJ's path under the asset root and, optionally, the manifest's\n`floor_plan.footprint_layers`, so the preview splits footprints as compose does.",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "footprint_layers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The layers (or OBJ groups) drawn as footprints, by name, case-insensitively; layers named\nlike \"footprint\" are footprints anyway. Default: none.",
+            "default": []
+          },
+          "path": {
+            "type": "string",
+            "description": "The OBJ's path relative to the asset root, e.g. `floor-plans/plan.obj`. Absolute paths\nand `..` segments are rejected."
+          }
+        }
+      },
+      "FloorPlanSegments": {
+        "type": "object",
+        "required": [
+          "segments",
+          "footprint_segments"
+        ],
+        "properties": {
+          "footprint_segments": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "double"
+                }
+              }
+            }
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "double"
+                }
+              }
+            },
+            "description": "Each segment is [[x, y, z], [x, y, z]]."
+          }
+        }
+      },
+      "HealthDto": {
+        "type": "object",
+        "description": "Liveness probe response. `GET /healthz` always returns 200 with this.",
+        "required": [
+          "status",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "JointInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "axis"
+        ],
+        "properties": {
+          "axis": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "kind": {
+            "type": "string",
+            "description": "\"revolute\" / \"continuous\" / \"prismatic\" — non-Fixed only."
+          },
+          "lower_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "A revolute or continuous joint's URDF limits, degrees."
+          },
+          "lower_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "A prismatic joint's URDF limits, metres (its home value is in metres too)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "upper_deg": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "upper_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "PathQuery": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file's path relative to the asset root, e.g. `urdf-dressed-robots/r1/r1.urdf` or\n`fitted-robots/scene.yaml`. Absolute paths and `..` segments are rejected."
+          }
+        }
+      },
+      "ReadinessDto": {
+        "type": "object",
+        "description": "Readiness probe response. `GET /readyz` returns 200 with `ready: true`\nwhen the asset_root canonicalises and at least one URDF is discoverable;\notherwise 503 with `ready: false` and a populated `errors` list.",
+        "required": [
+          "ready",
+          "asset_root",
+          "urdf_count"
+        ],
+        "properties": {
+          "asset_root": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "urdf_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SaveResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ScenePathBody": {
+        "type": "object",
+        "required": [
+          "path",
+          "yaml"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The manifest's path relative to the asset root, e.g. `fitted-robots/scene.yaml`; missing\nparent folders are created. Absolute paths and `..` segments are rejected."
+          },
+          "yaml": {
+            "type": "string",
+            "description": "The manifest's YAML text, written verbatim (not validated)."
+          }
+        }
+      },
+      "UploadObjForm": {
+        "type": "object",
+        "description": "The `multipart/form-data` fields of an OBJ floor-plan upload.",
+        "required": [
+          "filename",
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "The OBJ file."
+          },
+          "filename": {
+            "type": "string",
+            "description": "The name to store the file under, e.g. `plan.obj`; it must end in\n`.obj` (any case). Only its last path component is kept, and every\ncharacter other than an ASCII letter, a digit, `.`, `_` or `-` becomes `_`."
+          }
+        }
+      },
+      "UploadResponse": {
+        "type": "object",
+        "required": [
+          "stored_path",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stored_path": {
+            "type": "string"
+          }
+        }
+      },
+      "UrdfBundleQuery": {
+        "type": "object",
+        "description": "Query parameters for the URDF-source bundle. The compose fidelity flags\n(`full_robots`/`full_tools`) are USDA-only knobs and don't apply here, so\nthis endpoint takes just the manifest path.",
+        "required": [
+          "manifest_path"
+        ],
+        "properties": {
+          "manifest_path": {
+            "type": "string",
+            "description": "Path under asset_root pointing at an existing manifest YAML, e.g.\n`fitted-robots/scene.yaml`. Absolute paths and `..` segments are\nrejected."
+          }
+        }
+      },
+      "UrdfJointsResponse": {
+        "type": "object",
+        "required": [
+          "joints"
+        ],
+        "properties": {
+          "joints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JointInfo"
+            }
+          }
+        }
+      },
+      "ValidateResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "errors"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What composes, but probably not as the manifest means it (`scene_warnings`); these don't\nfail validation. Absent when there are none."
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "assets",
+      "description": "Catalogue listings + uploads under `<asset_root>`."
+    },
+    {
+      "name": "urdf",
+      "description": "URDF parsing helpers (joint listing)."
+    },
+    {
+      "name": "floor-plan",
+      "description": "Floor-plan OBJ → segment arrays."
+    },
+    {
+      "name": "scene",
+      "description": "Manifest YAML round-trip (load + save)."
+    },
+    {
+      "name": "compose",
+      "description": "Validate manifests; compose `.zip` packages."
+    },
+    {
+      "name": "system",
+      "description": "Liveness + readiness probes."
+    }
+  ]
+}

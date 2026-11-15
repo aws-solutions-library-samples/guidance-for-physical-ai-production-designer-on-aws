@@ -1,0 +1,36 @@
+# plan2cell.toml for the example cells (profile sim, the docker simulation).
+# [plc] keeps every bt2plc default, so PLAN_ID and the PLC goldens stay as they are.
+# Both robots are modelled as KR240 R2900 ultra without external axes.
+
+[[krl.robot]]
+ns = "robot1"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+
+[[krl.robot]]
+ns = "robot2"
+model = "KR240R2900_ULTRA"
+e_axes = "none"
+
+# KUKA virtual controllers instead of the CODESYS robot simulators (docs/CELL.md "KUKA virtual controllers",
+# stage 2; SIMULATION ONLY). Uncomment, and set the same stations / addresses as the VC host's
+# /etc/plan2cell/kvc-cell.env (infra/kuka-vc/kvc-cell.example.env):
+#
+# [plc.network]
+# gateway = "192.168.100.1"     # = KLI_GW: external robots' expected gateway; the head then sends no DCP Set IP
+#
+# [[plc.robot]]
+# ns = "robot1"
+# station = "kuka-robi1"        # = C1_STATION
+# ip = "192.168.100.11"         # = C1_KLI_IP
+# external = true               # a KUKA VC: no RobotSim project, the PLC host stops its simulator container
+# safety_bypass = true          # the head ignores the PROFIsafe slot-1 bits
+# safety_module = false         # head device on DAP "DIM 3", slot 1 empty, DIO256 in slot 2 (= SAFETY_MODULE=0)
+#
+# [[plc.robot]]
+# ns = "robot2"
+# station = "kuka-robi2"
+# ip = "192.168.100.12"
+# external = true
+# safety_bypass = true
+# safety_module = false

@@ -1,0 +1,28 @@
+{
+ "models": [
+  {
+   "joints": {
+    "joint_a1": 0.0,
+    "joint_a2": 0.0,
+    "joint_a3": 0.0,
+    "joint_a4": 0.0,
+    "joint_a5": 0.0,
+    "joint_a6": 0.0
+   },
+   "node": "world/robots/robot1"
+  },
+  {
+   "joints": {
+    "joint_a1": 0.0,
+    "joint_a2": 0.0,
+    "joint_a3": 0.0,
+    "joint_a4": 0.0,
+    "joint_a5": 0.0,
+    "joint_a6": 0.0
+   },
+   "node": "world/robots/robot2"
+  }
+ ],
+ "sceneId": "cell/welding_cell_2_small/1790000000000",
+ "t": 1790000000.0
+}

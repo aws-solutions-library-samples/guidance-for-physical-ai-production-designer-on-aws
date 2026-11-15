@@ -1,0 +1,2820 @@
+{
+ "generator": "trajgen",
+ "status": "complete",
+ "scene": "scenes/welding_cell_2_small/scene.yaml",
+ "task": "/home/ubuntu/industrial/kuka_weld_rl/scenes/welding_cell_2_small/task.json",
+ "cell_id": "welding_cell_2_small",
+ "robots": [
+  "robot1",
+  "robot2"
+ ],
+ "speed": "umarell",
+ "seed": 0,
+ "coordination": "steps",
+ "options": {
+  "n_candidates": 1,
+  "check_hz": 100.0,
+  "clearance_margin_m": 0.01,
+  "max_tilt_deg": 3.5,
+  "margin_m": 0.015,
+  "assignment": "auto",
+  "window": 2,
+  "group_order": "per_arm",
+  "umarell_parity": true,
+  "beam": 32,
+  "k_cand": 6,
+  "objective": "executor",
+  "allow_thin": false,
+  "map_stride": 2,
+  "n_branch": 1,
+  "h_weights": [
+   1.0,
+   1.6
+  ],
+  "per_done_set": 0,
+  "allow_partial": false,
+  "skew_s": 0.1,
+  "n_orders": 4,
+  "sync_waits": true,
+  "workers": 64,
+  "park": true,
+  "search": "wide",
+  "repair_pool": 6,
+  "lateness_pool": 16,
+  "delay_search": true,
+  "thin_dropped": [
+   [
+    "W01",
+    "robot1"
+   ],
+   [
+    "W04",
+    "robot1"
+   ]
+  ]
+ },
+ "steps_portfolio": [
+  [
+   32,
+   6
+  ],
+  [
+   32,
+   8
+  ],
+  [
+   64,
+   6
+  ]
+ ],
+ "umarell_parity_model": {
+  "available": true,
+  "cell_id": "welding_cell_2_small",
+  "gate_m": 0.2,
+  "pair_radius_m": 0.12,
+  "geometry": "the scene's own robots (URDF, bases, homes) with umarell's tool_collision grid"
+ },
+ "scene_warnings": [
+  "W10: placeholder position [-1.075, -0.9375, 1.4] (moved clear of fixture (no CAD); replace with CAD value)",
+  "W13: placeholder position [-1.275, -0.65, 1.35] (moved clear of fixture (no CAD); replace with CAD value)",
+  "W14: placeholder position [-0.975, -0.725, 1.475] (moved clear of fixture (no CAD); replace with CAD value)",
+  "W15: placeholder position [-0.9, -0.575, 1.5] (moved clear of fixture (no CAD); replace with CAD value)",
+  "tool axis leans > 30 deg off approach_vector (entry is not along the electrode): W01 45, W03 45, W04 45, W06 45, W07 45, W09 45, W10 45, W12 45, W13 45, W15 45"
+ ],
+ "reach": {
+  "W01": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "only thin options (another robot has a comfortable one)",
+    "best": null,
+    "thin_dropped": "only thin options (another robot has a comfortable one)"
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 1.0,
+     "min_self_dist_mm": 23.8,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W02": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.7,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "no IK solution for the weld pose (position + tool axis) within the joint limits",
+    "best": null
+   }
+  },
+  "W03": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.2,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "no IK solution for the weld pose (position + tool axis) within the joint limits",
+    "best": null
+   }
+  },
+  "W04": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "only thin options (another robot has a comfortable one)",
+    "best": null,
+    "thin_dropped": "only thin options (another robot has a comfortable one)"
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 66.6,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W05": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.8,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 57.5,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W06": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.5,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 33.4,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W07": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "IK branches found but every one fails: self_collision x4, no_valid_descent x4",
+    "best": null
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 76.1,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W08": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 74.1,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 76.9,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W09": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.2,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 55.4,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W10": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "no IK solution for the weld pose (position + tool axis) within the joint limits",
+    "best": null
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.2,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W11": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 48.7,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.7,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W12": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 79.3,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 60.7,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W13": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "no IK solution for the weld pose (position + tool axis) within the joint limits",
+    "best": null
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 73.8,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W14": {
+   "robot1": {
+    "n_options": 0,
+    "comfortable": 0,
+    "reason": "no IK solution for the weld pose (position + tool axis) within the joint limits",
+    "best": null
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 75.6,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  },
+  "W15": {
+   "robot1": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 72.5,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   },
+   "robot2": {
+    "n_options": 6,
+    "comfortable": 6,
+    "reason": null,
+    "best": {
+     "spin_deg": 0.0,
+     "tilt_deg": 0.0,
+     "min_self_dist_mm": 43.8,
+     "standoff_m": 0.1,
+     "thin": false
+    }
+   }
+  }
+ },
+ "wall_s": {
+  "reach": 23.5,
+  "coordination": 150.2,
+  "verify": 11.6,
+  "total": 186.0
+ },
+ "speeds": {
+  "robot1": {
+   "vscale": {
+    "transit": 0.7,
+    "approach": 0.27999999999999997,
+    "home": 0.4
+   },
+   "accel_frac": {
+    "transit": 0.48999999999999994,
+    "approach": 0.07839999999999998,
+    "home": 0.16000000000000003
+   },
+   "jerk_factor": 4.0
+  },
+  "robot2": {
+   "vscale": {
+    "transit": 0.7,
+    "approach": 0.27999999999999997,
+    "home": 0.4
+   },
+   "accel_frac": {
+    "transit": 0.48999999999999994,
+    "approach": 0.07839999999999998,
+    "home": 0.16000000000000003
+   },
+   "jerk_factor": 4.0
+  }
+ },
+ "early_home": [],
+ "park": [
+  {
+   "robot": "robot1",
+   "after_weld": "W02",
+   "next": "W03",
+   "how": "in_leg",
+   "step": 1,
+   "step_shortened_s": 0.0
+  },
+  {
+   "robot": "robot2",
+   "after_weld": "W13",
+   "next": "W01",
+   "how": "in_leg",
+   "step": 2,
+   "step_shortened_s": 0.0
+  }
+ ],
+ "searches": [
+  {
+   "label": "free_h1",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 82.2,
+   "executor_end_after_post_passes_s": 82.2,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 6,
+   "steps": 14,
+   "wall_s": 101.2,
+   "stats": {
+    "legs": 327,
+    "maps": 3308,
+    "exact_checks": 417,
+    "exact_fail": 11,
+    "expanded": 406,
+    "dead_end_fallback": 1
+   }
+  },
+  {
+   "label": "free_h1.6",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 83.45,
+   "executor_end_after_post_passes_s": 83.45,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 6,
+   "steps": 14,
+   "wall_s": 104.8,
+   "stats": {
+    "legs": 333,
+    "maps": 3463,
+    "exact_checks": 412,
+    "exact_fail": 8,
+    "expanded": 404,
+    "dead_end_fallback": 2
+   }
+  },
+  {
+   "label": "alloc_k5_h1",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 82.05,
+   "executor_end_after_post_passes_s": 82.05,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 6,
+   "steps": 14,
+   "wall_s": 42.0,
+   "stats": {
+    "legs": 168,
+    "maps": 1146,
+    "exact_checks": 384,
+    "exact_fail": 2,
+    "expanded": 382,
+    "dead_end_fallback": 13
+   }
+  },
+  {
+   "label": "alloc_k5_h1.6",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 81.35,
+   "executor_end_after_post_passes_s": 81.35,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 6,
+   "steps": 13,
+   "wall_s": 41.3,
+   "stats": {
+    "legs": 184,
+    "maps": 1151,
+    "exact_checks": 367,
+    "exact_fail": 6,
+    "expanded": 361,
+    "dead_end_fallback": 12
+   }
+  },
+  {
+   "label": "free_h1_b32k8",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 80.95,
+   "executor_end_after_post_passes_s": 80.95,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 8,
+   "steps": 14,
+   "wall_s": 126.3,
+   "stats": {
+    "legs": 375,
+    "maps": 4075,
+    "exact_checks": 409,
+    "exact_fail": 1,
+    "expanded": 408,
+    "dead_end_fallback": 4
+   }
+  },
+  {
+   "label": "free_h1.6_b32k8",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 76.85,
+   "executor_end_after_post_passes_s": 76.85,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 8,
+   "steps": 13,
+   "wall_s": 127.8,
+   "stats": {
+    "legs": 380,
+    "maps": 4170,
+    "exact_checks": 376,
+    "exact_fail": 9,
+    "expanded": 367
+   }
+  },
+  {
+   "label": "alloc_k5_h1_b32k8",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 82.05,
+   "executor_end_after_post_passes_s": 82.05,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 8,
+   "steps": 14,
+   "wall_s": 42.1,
+   "stats": {
+    "legs": 168,
+    "maps": 1146,
+    "exact_checks": 384,
+    "exact_fail": 2,
+    "expanded": 382,
+    "dead_end_fallback": 13
+   }
+  },
+  {
+   "label": "alloc_k5_h1.6_b32k8",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 81.35,
+   "executor_end_after_post_passes_s": 81.35,
+   "rest_on_weld_s": 0.0,
+   "beam": 32,
+   "k_cand": 8,
+   "steps": 13,
+   "wall_s": 40.8,
+   "stats": {
+    "legs": 184,
+    "maps": 1151,
+    "exact_checks": 367,
+    "exact_fail": 6,
+    "expanded": 361,
+    "dead_end_fallback": 12
+   }
+  },
+  {
+   "label": "free_h1_b64k6",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 81.6,
+   "executor_end_after_post_passes_s": 81.6,
+   "rest_on_weld_s": 0.0,
+   "beam": 64,
+   "k_cand": 6,
+   "steps": 14,
+   "wall_s": 140.6,
+   "stats": {
+    "legs": 461,
+    "maps": 4834,
+    "exact_checks": 799,
+    "exact_fail": 18,
+    "expanded": 781,
+    "dead_end_fallback": 10
+   }
+  },
+  {
+   "label": "free_h1.6_b64k6",
+   "queues_in": null,
+   "complete": true,
+   "objective_s": 78.5,
+   "executor_end_after_post_passes_s": 78.5,
+   "rest_on_weld_s": 0.0,
+   "beam": 64,
+   "k_cand": 6,
+   "steps": 13,
+   "wall_s": 149.8,
+   "stats": {
+    "legs": 460,
+    "maps": 5152,
+    "exact_checks": 740,
+    "exact_fail": 16,
+    "expanded": 724,
+    "dead_end_fallback": 5
+   }
+  },
+  {
+   "label": "alloc_k5_h1_b64k6",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 82.05,
+   "executor_end_after_post_passes_s": 82.05,
+   "rest_on_weld_s": 0.0,
+   "beam": 64,
+   "k_cand": 6,
+   "steps": 14,
+   "wall_s": 57.1,
+   "stats": {
+    "legs": 196,
+    "maps": 1520,
+    "exact_checks": 720,
+    "exact_fail": 2,
+    "expanded": 718,
+    "dead_end_fallback": 27
+   }
+  },
+  {
+   "label": "alloc_k5_h1.6_b64k6",
+   "queues_in": {
+    "robot1": [
+     "W06",
+     "W03",
+     "W12",
+     "W02",
+     "W05",
+     "W08",
+     "W09"
+    ],
+    "robot2": [
+     "W15",
+     "W14",
+     "W11",
+     "W10",
+     "W13",
+     "W01",
+     "W04",
+     "W07"
+    ]
+   },
+   "complete": true,
+   "objective_s": 81.35,
+   "executor_end_after_post_passes_s": 81.35,
+   "rest_on_weld_s": 0.0,
+   "beam": 64,
+   "k_cand": 6,
+   "steps": 13,
+   "wall_s": 59.8,
+   "stats": {
+    "legs": 204,
+    "maps": 1655,
+    "exact_checks": 678,
+    "exact_fail": 7,
+    "expanded": 671,
+    "dead_end_fallback": 23
+   }
+  }
+ ],
+ "allocation": {
+  "forced": {
+   "robot1": [
+    "W02",
+    "W03"
+   ],
+   "robot2": [
+    "W01",
+    "W04",
+    "W07",
+    "W10",
+    "W13",
+    "W14"
+   ]
+  },
+  "shared": [
+   "W05",
+   "W09",
+   "W08",
+   "W12",
+   "W06",
+   "W11",
+   "W15"
+  ],
+  "unreachable": []
+ },
+ "failed_welds": [],
+ "chosen": {
+  "search": "free_h1.6_b32k8",
+  "queues": {
+   "robot1": [
+    "W02",
+    "W03",
+    "W15"
+   ],
+   "robot2": [
+    "W14",
+    "W13",
+    "W01",
+    "W04",
+    "W05",
+    "W06",
+    "W12",
+    "W11",
+    "W10",
+    "W07",
+    "W08",
+    "W09"
+   ]
+  },
+  "unreachable": [],
+  "steps": [
+   {
+    "t0": 0.0,
+    "dur": 5.0,
+    "note": "parallel",
+    "legs": {
+     "robot1": {
+      "target": "W02",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.9
+     },
+     "robot2": {
+      "target": "W14",
+      "wait_s": 1.0,
+      "vias": 0,
+      "T_s": 4.5
+     }
+    },
+    "min_clearance_m": 0.2256
+   },
+   {
+    "t0": 5.0,
+    "dur": 6.6,
+    "note": "parallel+park_in_leg",
+    "legs": {
+     "robot1": {
+      "target": "W03",
+      "wait_s": 0.4,
+      "vias": 0,
+      "T_s": 6.1
+     },
+     "robot2": {
+      "target": "W13",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.8
+     }
+    },
+    "min_clearance_m": 0.2657
+   },
+   {
+    "t0": 11.6,
+    "dur": 6.5,
+    "note": "parallel+park_in_leg",
+    "legs": {
+     "robot1": {
+      "target": "W15",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 6.0
+     },
+     "robot2": {
+      "target": "W01",
+      "wait_s": 0.2,
+      "vias": 0,
+      "T_s": 6.0
+     }
+    },
+    "min_clearance_m": 0.2981
+   },
+   {
+    "t0": 18.1,
+    "dur": 5.6,
+    "note": "parallel+yield",
+    "legs": {
+     "robot1": {
+      "target": "home",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 5.6
+     },
+     "robot2": {
+      "target": "W04",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 5.05
+     }
+    },
+    "min_clearance_m": 0.3168
+   },
+   {
+    "t0": 23.7,
+    "dur": 4.55,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W05",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 4.05
+     }
+    },
+    "min_clearance_m": 1.8931
+   },
+   {
+    "t0": 28.25,
+    "dur": 4.7,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W06",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 4.2
+     }
+    },
+    "min_clearance_m": 1.5857
+   },
+   {
+    "t0": 32.95,
+    "dur": 4.65,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W12",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 4.15
+     }
+    },
+    "min_clearance_m": 1.5857
+   },
+   {
+    "t0": 37.6,
+    "dur": 4.1,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W11",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.6
+     }
+    },
+    "min_clearance_m": 2.1205
+   },
+   {
+    "t0": 41.7,
+    "dur": 4.1,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W10",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.6
+     }
+    },
+    "min_clearance_m": 2.3904
+   },
+   {
+    "t0": 45.8,
+    "dur": 5.2,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W07",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 4.7
+     }
+    },
+    "min_clearance_m": 1.9392
+   },
+   {
+    "t0": 51.0,
+    "dur": 4.25,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W08",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.75
+     }
+    },
+    "min_clearance_m": 2.1397
+   },
+   {
+    "t0": 55.25,
+    "dur": 4.25,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "W09",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 3.75
+     }
+    },
+    "min_clearance_m": 1.8505
+   },
+   {
+    "t0": 59.5,
+    "dur": 4.35,
+    "note": "alone",
+    "legs": {
+     "robot2": {
+      "target": "home",
+      "wait_s": 0.0,
+      "vias": 0,
+      "T_s": 4.35
+     }
+    },
+    "min_clearance_m": 1.8402
+   }
+  ]
+ },
+ "makespan": {
+  "executor_end_s": 76.85,
+  "executor_motion_end_s": 75.85,
+  "executor_last_weld_done_s": 70.5,
+  "executor_margin_s": 1.0,
+  "n_legs": 17,
+  "motion_s": 63.85,
+  "motion_last_weld_done_s": 59.5,
+  "n_steps": 13
+ },
+ "plan_consistency": {
+  "max_start_error_s": 1.7763568394002505e-15,
+  "missing": [],
+  "replay_vs_legs_max_rad": 4.999511469261364e-07,
+  "player_replay_max_rad": 0.0,
+  "player_replay_end_s": 76.85
+ },
+ "planner_stats": {
+  "transit_direct": 0,
+  "transit_via": 0,
+  "transit_rrt": 0,
+  "transit_fail": 0,
+  "pair_checks": 0,
+  "sphere_pairs": 0,
+  "sphere_pairs_exact": 0,
+  "sphere_pairs_need": 0
+ },
+ "phase_caps": {
+  "max_vel_over_phase_cap": 0.9868,
+  "at_v": [
+   "robot1",
+   "W03",
+   "transit",
+   8.5
+  ],
+  "max_acc_over_phase_cap": 0.999,
+  "at_a": [
+   "robot2",
+   "W04",
+   "transit/transit",
+   21.55
+  ],
+  "note": "20 Hz sample differences, each leg padded with its rest samples at both ends; 'wait' samples use the transit caps"
+ },
+ "workload": {
+  "per_robot": {
+   "robot1": {
+    "welds": 3,
+    "yields": 0,
+    "parks": 0,
+    "busy_s": 26.7,
+    "motion_s": 21.2,
+    "idle_s": 1.0,
+    "end_s": 27.7
+   },
+   "robot2": {
+    "welds": 12,
+    "yields": 0,
+    "parks": 0,
+    "busy_s": 73.35,
+    "motion_s": 54.35,
+    "idle_s": 3.5,
+    "end_s": 76.85
+   }
+  },
+  "busy_lower_bound_s": 73.35,
+  "makespan_over_lb": 1.048,
+  "mean_busy_s": 50.025,
+  "makespan_over_mean_busy": 1.536,
+  "end_spread_s": 49.15,
+  "note": "busy_lower_bound = max over robots of its own motion + holds + margins in THIS plan (no waits): it depends on the allocation, so 1.00 does not mean balanced; mean_busy = sum(busy) / N is the allocation-independent reference (perfect balance of this plan's work)"
+ },
+ "weld_stays": {
+  "min_expected_s": 1.5,
+  "max_stay_s": 3.8,
+  "max_at": {
+   "robot": "robot2",
+   "weld": "W13",
+   "next": "W01",
+   "stay_s": 3.8,
+   "excess_s": 2.3
+  },
+  "per_robot_max_s": {
+   "robot1": 2.1,
+   "robot2": 3.8
+  },
+  "total_excess_s": 2.95,
+  "n_flagged": 1,
+  "flag_above_s": 3.0,
+  "longest": [
+   {
+    "robot": "robot2",
+    "weld": "W13",
+    "next": "W01",
+    "stay_s": 3.8,
+    "excess_s": 2.3
+   },
+   {
+    "robot": "robot1",
+    "weld": "W02",
+    "next": "W03",
+    "stay_s": 2.1,
+    "excess_s": 0.6
+   },
+   {
+    "robot": "robot2",
+    "weld": "W04",
+    "next": "W05",
+    "stay_s": 1.55,
+    "excess_s": 0.05
+   },
+   {
+    "robot": "robot1",
+    "weld": "W03",
+    "next": "W15",
+    "stay_s": 1.5,
+    "excess_s": 0.0
+   },
+   {
+    "robot": "robot1",
+    "weld": "W15",
+    "next": "home",
+    "stay_s": 1.5,
+    "excess_s": 0.0
+   }
+  ],
+  "note": "the tool stays on the weld point while the robot waits for other robots (the lift-off is the start of the next leg); informational"
+ },
+ "group_order_check": {
+  "group_order": "per_arm",
+  "groups": [
+   "structural",
+   "secondary"
+  ],
+  "n_inversions": 0,
+  "examples": [],
+  "note": "per_arm orders the groups within each robot only; global plans each group as a cell-wide phase"
+ },
+ "verify_executor": {
+  "grid_hz": 100.0,
+  "samples": 7686,
+  "t_end_s": 76.85,
+  "robots": [
+   "robot1",
+   "robot2"
+  ],
+  "arm_arm_spheres": {
+   "min_clearance_m": 0.3807,
+   "gate_m": 0.2,
+   "samples_le_gate": 0,
+   "pairs": {
+    "robot1|robot2": {
+     "min_clearance_m": 0.3807,
+     "t_min_s": 18.61,
+     "samples_le_gate": 0,
+     "umarell_35_spheres_min_m": 0.2458,
+     "umarell_samples_le_gate": 0
+    }
+   },
+   "umarell_35_spheres_min_m": 0.2458,
+   "umarell_samples_le_gate": 0,
+   "umarell_parity_model": {
+    "available": true,
+    "cell_id": "welding_cell_2_small",
+    "gate_m": 0.2,
+    "pair_radius_m": 0.12,
+    "geometry": "the scene's own robots (URDF, bases, homes) with umarell's tool_collision grid"
+   }
+  },
+  "arm_arm_hull": {
+   "contact_samples": 0,
+   "samples_lt_min": 0,
+   "hull_min_distance_m": 0.03,
+   "certified_continuous_min_m": null,
+   "certified_ok": true,
+   "certify_evals": 1522,
+   "min_signed_distance_m": 0.08,
+   "distance_cap_m": 0.08,
+   "distance_grid_hz": 100.0,
+   "pairs": {
+    "robot1|robot2": {
+     "contact_samples": 0,
+     "samples_lt_min": 0,
+     "first": [],
+     "min_signed_distance_m": 0.08,
+     "t_min_s": 0.0,
+     "certified_lower_bound_m": 0.0313
+    }
+   },
+   "enforced": true
+  },
+  "self_hull": {
+   "contact_samples": 0,
+   "first": [],
+   "coal_distance": {
+    "robot1": {
+     "min_m": 0.0725,
+     "t_min_s": 17.85,
+     "samples_lt_min": 0
+    },
+    "robot2": {
+     "min_m": 0.0238,
+     "t_min_s": 17.45,
+     "samples_lt_min": 0
+    }
+   }
+  },
+  "static": {
+   "robot1": {
+    "joint": 0.5059,
+    "floor_sphere": 0.6906,
+    "floor_hull": 0.2535,
+    "box": null
+   },
+   "robot2": {
+    "joint": 0.2611,
+    "floor_sphere": 0.6906,
+    "floor_hull": 0.2535,
+    "box": null
+   }
+  },
+  "floor_mujoco_contact_samples": 0,
+  "box_hull": {
+   "enabled": false,
+   "min_distance_m": 0.0,
+   "violation_samples": 0,
+   "first": []
+  },
+  "rule_W": {
+   "rule": "wedge",
+   "per_weld_overrides": 0,
+   "max_depth_m": 0.0,
+   "max_excess_over_tol_m": -0.003,
+   "tol_m": 0.003,
+   "violation_samples": 0,
+   "first_violation_s": null,
+   "dense_tcp": {
+    "grid_hz": 1000.0,
+    "violation_samples": 0,
+    "max_excess_over_tol_m": -0.003,
+    "first_violation_s": null
+   }
+  },
+  "welds": {
+   "rows": [
+    {
+     "robot": "robot1",
+     "weld": "W02",
+     "t_arrive_s": 3.9,
+     "t_end_dwell_s": 4.4,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.004,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1007,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W14",
+     "t_arrive_s": 4.5,
+     "t_end_dwell_s": 5.0,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W13",
+     "t_arrive_s": 9.8,
+     "t_end_dwell_s": 10.3,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.008,
+     "liftoff_lateral_mm": 0.008,
+     "liftoff_on_axis_m": 0.1005,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot1",
+     "weld": "W03",
+     "t_arrive_s": 12.1,
+     "t_end_dwell_s": 12.6,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1016,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.102,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot1",
+     "weld": "W15",
+     "t_arrive_s": 19.6,
+     "t_end_dwell_s": 20.1,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.008,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1011,
+     "descent_lateral_mm": 0.008,
+     "liftoff_lateral_mm": 0.008,
+     "liftoff_on_axis_m": 0.1001,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W01",
+     "t_arrive_s": 19.6,
+     "t_end_dwell_s": 20.1,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 1.0,
+     "rot_err_deg": 1.0,
+     "entry_dir_err_deg": 0.014,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.011,
+     "liftoff_lateral_mm": 0.011,
+     "liftoff_on_axis_m": 0.1013,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W04",
+     "t_arrive_s": 26.15,
+     "t_end_dwell_s": 26.65,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.001,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1004,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W05",
+     "t_arrive_s": 31.75,
+     "t_end_dwell_s": 32.25,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W06",
+     "t_arrive_s": 37.45,
+     "t_end_dwell_s": 37.95,
+     "pos_err_mm": 0.002,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1005,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W12",
+     "t_arrive_s": 43.1,
+     "t_end_dwell_s": 43.6,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1003,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W11",
+     "t_arrive_s": 48.2,
+     "t_end_dwell_s": 48.7,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.005,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.005,
+     "liftoff_lateral_mm": 0.005,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W10",
+     "t_arrive_s": 53.3,
+     "t_end_dwell_s": 53.8,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W07",
+     "t_arrive_s": 59.5,
+     "t_end_dwell_s": 60.0,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1007,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W08",
+     "t_arrive_s": 64.75,
+     "t_end_dwell_s": 65.25,
+     "pos_err_mm": 0.002,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W09",
+     "t_arrive_s": 70.0,
+     "t_end_dwell_s": 70.5,
+     "pos_err_mm": 0.001,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    }
+   ],
+   "n_ok": 15,
+   "n_task": 15,
+   "missing": [],
+   "duplicates": [],
+   "worst_pos_err_mm": 0.002,
+   "worst_tool_axis_err_deg": 1.0,
+   "worst_spin_rot_err_deg": 1.0,
+   "spin_free": true,
+   "worst_entry_dir_err_deg": 0.014,
+   "min_descent_straight_m": 0.1,
+   "min_liftoff_on_axis_m": 0.1
+  },
+  "end_at_home_max_rad": 0.0,
+  "dynamics": {
+   "grid_hz": 200.0,
+   "fd_h_s": 0.05,
+   "samples": 15371,
+   "T_s": 76.85,
+   "vel_frac_vmax": {
+    "max": 0.691,
+    "t_max_s": 9.305,
+    "at": "robot1 a1",
+    "p99": 0.688,
+    "per_joint_max": {
+     "robot1": [
+      0.691,
+      0.303,
+      0.492,
+      0.421,
+      0.332,
+      0.295
+     ],
+     "robot2": [
+      0.501,
+      0.287,
+      0.463,
+      0.47,
+      0.536,
+      0.285
+     ]
+    }
+   },
+   "acc_frac_amax": {
+    "max": 0.49,
+    "t_max_s": 24.35,
+    "at": "robot2 a3",
+    "p99": 0.484,
+    "per_joint_max": {
+     "robot1": [
+      0.482,
+      0.209,
+      0.34,
+      0.348,
+      0.242,
+      0.341
+     ],
+     "robot2": [
+      0.484,
+      0.297,
+      0.49,
+      0.481,
+      0.474,
+      0.352
+     ]
+    }
+   },
+   "jerk_amax_per_s": {
+    "max": 4.0,
+    "t_max_s": 24.075,
+    "at": "robot2 a3",
+    "p99": 3.812,
+    "per_joint_max": {
+     "robot1": [
+      3.909,
+      1.792,
+      2.725,
+      2.819,
+      1.929,
+      2.766
+     ],
+     "robot2": [
+      3.931,
+      2.4,
+      4.0,
+      3.891,
+      3.801,
+      2.823
+     ]
+    }
+   },
+   "acc_frac_samples_over": {
+    "0.49": 0.0,
+    "0.7": 0.0,
+    "1.0": 0.0
+   }
+  },
+  "skew_tolerance": {
+   "gate_m": 0.2,
+   "hull_min_distance_m": 0.03,
+   "hull_distance_cap_m": 0.08,
+   "grid_s": 0.01,
+   "window": {
+    "skew_s": 0.1,
+    "sphere_min_m": 0.3806,
+    "hull_min_m": 0.08,
+    "certified_hull_min_m": null,
+    "certified_ok": true,
+    "certify_evals": 1932,
+    "certified_note": "certified lower bound of the continuous minimum over the window (time between samples and shifts between the grid shifts; branch and bound, within ~0.5 mm of the true minimum in the tested cases); None: the sampled minimum is at the detection cap, certified >= hull_min only",
+    "hull_ok": true,
+    "pairs": {
+     "robot1|robot2": {
+      "sphere_min_m": 0.3806,
+      "hull_min_m": 0.08,
+      "hull_at_shift_s": null
+     }
+    }
+   },
+   "rows": {
+    "robot1 -0.05s": 0.3806,
+    "robot1 +0.05s": 0.3806,
+    "robot1 -0.1s": 0.3806,
+    "robot1 +0.1s": 0.3806,
+    "robot2 -0.05s": 0.3806,
+    "robot2 +0.05s": 0.3806,
+    "robot2 -0.1s": 0.3806,
+    "robot2 +0.1s": 0.3806
+   },
+   "min_clearance_m": 0.3806,
+   "all_above_gate": true,
+   "umarell_rows": {
+    "robot1 -0.05s": 0.2459,
+    "robot1 +0.05s": 0.2457,
+    "robot1 -0.1s": 0.2462,
+    "robot1 +0.1s": 0.2256,
+    "robot2 -0.05s": 0.2457,
+    "robot2 +0.05s": 0.2459,
+    "robot2 -0.1s": 0.2256,
+    "robot2 +0.1s": 0.2462
+   },
+   "umarell_min_clearance_m": 0.2256,
+   "umarell_all_above_gate": true,
+   "per_robot": {
+    "robot1": {
+     "sphere_gate_late_s": 0.18,
+     "sphere_gate_early_s": ">= 0.3",
+     "hull_contact_free_late_s": ">= 0.3",
+     "hull_contact_free_early_s": ">= 0.3",
+     "hull_min_late_s": ">= 0.3",
+     "hull_min_early_s": ">= 0.3"
+    },
+    "robot2": {
+     "sphere_gate_late_s": ">= 0.3",
+     "sphere_gate_early_s": 0.18,
+     "hull_contact_free_late_s": ">= 0.3",
+     "hull_contact_free_early_s": ">= 0.3",
+     "hull_min_late_s": ">= 0.3",
+     "hull_min_early_s": ">= 0.3"
+    }
+   },
+   "scan_max_s": 0.3,
+   "note": "per_robot: largest constant lag (late) / lead (early) of one robot against all others that keeps each criterion at every smaller shift; '>= x' = holds over the whole scan"
+  },
+  "continuous": {
+   "method": "piecewise-linear joint paths between the timeline's knots; provable chain displacement bound per point; interval bound (g_a + g_b - L) / 2; bisection to min_dt (trajgen.certify, docs/p3_tgcert.md)",
+   "min_dt_s": 1e-06,
+   "report_tol_m": 0.001,
+   "checks": {
+    "floor_spheres": true,
+    "floor_hull": true,
+    "rule_W": true,
+    "self_hull": true,
+    "arm_arm_spheres": true,
+    "arm_arm_umarell_spheres": true,
+    "arm_arm_hull": true
+   },
+   "rows": {
+    "floor_spheres": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.689639,
+       "t_lower_bound_s": 24.35,
+       "at": "robot1 sphere 6",
+       "evaluated_min": 0.690625,
+       "t_evaluated_min_s": 23.575,
+       "nodes": 7140,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.689642,
+       "t_lower_bound_s": 40.9,
+       "at": "robot2 sphere 6",
+       "evaluated_min": 0.690625,
+       "t_evaluated_min_s": 0.025,
+       "nodes": 3931,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.689639
+    },
+    "floor_hull": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.252483,
+       "t_lower_bound_s": 24.65,
+       "at": "robot1 hull frame 1",
+       "evaluated_min": 0.253482,
+       "t_evaluated_min_s": 2.675,
+       "nodes": 11644,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.252497,
+       "t_lower_bound_s": 15.35,
+       "at": "robot2 hull frame 1",
+       "evaluated_min": 0.253482,
+       "t_evaluated_min_s": 8.675,
+       "nodes": 6467,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.252483
+    },
+    "rule_W": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.002028,
+       "t_lower_bound_s": 19.5,
+       "at": "robot1",
+       "evaluated_min": 0.003,
+       "t_evaluated_min_s": 12.075,
+       "nodes": 448,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.002113,
+       "t_lower_bound_s": 39.05,
+       "at": "robot2",
+       "evaluated_min": 0.002999,
+       "t_evaluated_min_s": 43.075,
+       "nodes": 1391,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.002028
+    },
+    "self_hull": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.049021,
+       "t_lower_bound_s": 10.05,
+       "at": "robot1",
+       "evaluated_min": 0.072485,
+       "t_evaluated_min_s": 17.825,
+       "nodes": 4206,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.022807,
+       "t_lower_bound_s": 17.3125,
+       "at": "robot2",
+       "evaluated_min": 0.023779,
+       "t_evaluated_min_s": 17.425,
+       "nodes": 3263,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.022807
+    },
+    "joint_limits": {
+     "note": "certified by convexity: between two knots every joint moves linearly, so a path whose knots are within the limits stays within them (knots checked by the sampled verdict)"
+    },
+    "arm_arm_spheres": {
+     "threshold_m": 0.2,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.379713,
+       "t_lower_bound_s": 22.2875,
+       "at": "robot1 sphere 48 / robot2 sphere 30",
+       "evaluated_min": 0.380713,
+       "t_evaluated_min_s": 18.607,
+       "nodes": 2164,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.379713,
+     "note": "corrected spheres, clearance must stay > gate"
+    },
+    "arm_arm_umarell_spheres": {
+     "threshold_m": 0.2,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.244793,
+       "t_lower_bound_s": 2.8156,
+       "at": "robot1 sphere 58 / robot2 sphere 47",
+       "evaluated_min": 0.245792,
+       "t_evaluated_min_s": 2.8266,
+       "nodes": 1680,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.244793,
+     "note": "umarell 35-sphere parity gate"
+    },
+    "arm_arm_hull": {
+     "threshold_m": 0.03,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.06904,
+       "t_lower_bound_s": 17.2875,
+       "at": "robot1|robot2",
+       "evaluated_min": 0.08,
+       "t_evaluated_min_s": 0.025,
+       "nodes": 23620,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.06904,
+     "note": "MuJoCo hull distance >= hull_min (capped at the 0.080 m detection band)"
+    }
+   },
+   "all_ok": true,
+   "wall_s": 3.1,
+   "knots_on_check_grid": true,
+   "skew_window_exact": true
+  },
+  "checks": {
+   "arm_arm_spheres": true,
+   "arm_arm_umarell_spheres": true,
+   "arm_arm_hull": true,
+   "self_hull": true,
+   "floor_spheres": true,
+   "floor_hull": true,
+   "boxes": true,
+   "box_hull": true,
+   "joint_limits": true,
+   "rule_W": true,
+   "welds": true,
+   "straight_strokes": true,
+   "ends_at_home": true,
+   "arm_arm_hull_skew": true,
+   "continuous": true
+  },
+  "all_pass": true
+ },
+ "verify_motion": {
+  "grid_hz": 100.0,
+  "samples": 6386,
+  "t_end_s": 63.85,
+  "robots": [
+   "robot1",
+   "robot2"
+  ],
+  "arm_arm_spheres": {
+   "min_clearance_m": 0.3807,
+   "gate_m": 0.2,
+   "samples_le_gate": 0,
+   "pairs": {
+    "robot1|robot2": {
+     "min_clearance_m": 0.3807,
+     "t_min_s": 16.61,
+     "samples_le_gate": 0,
+     "umarell_35_spheres_min_m": 0.2458,
+     "umarell_samples_le_gate": 0
+    }
+   },
+   "umarell_35_spheres_min_m": 0.2458,
+   "umarell_samples_le_gate": 0,
+   "umarell_parity_model": {
+    "available": true,
+    "cell_id": "welding_cell_2_small",
+    "gate_m": 0.2,
+    "pair_radius_m": 0.12,
+    "geometry": "the scene's own robots (URDF, bases, homes) with umarell's tool_collision grid"
+   }
+  },
+  "arm_arm_hull": {
+   "contact_samples": 0,
+   "samples_lt_min": 0,
+   "hull_min_distance_m": 0.03,
+   "certified_continuous_min_m": null,
+   "certified_ok": true,
+   "certify_evals": 1522,
+   "min_signed_distance_m": 0.08,
+   "distance_cap_m": 0.08,
+   "distance_grid_hz": 100.0,
+   "pairs": {
+    "robot1|robot2": {
+     "contact_samples": 0,
+     "samples_lt_min": 0,
+     "first": [],
+     "min_signed_distance_m": 0.08,
+     "t_min_s": 0.0,
+     "certified_lower_bound_m": 0.0313
+    }
+   },
+   "enforced": true
+  },
+  "self_hull": {
+   "contact_samples": 0,
+   "first": [],
+   "coal_distance": {
+    "robot1": {
+     "min_m": 0.0725,
+     "t_min_s": 15.85,
+     "samples_lt_min": 0
+    },
+    "robot2": {
+     "min_m": 0.0238,
+     "t_min_s": 15.45,
+     "samples_lt_min": 0
+    }
+   }
+  },
+  "static": {
+   "robot1": {
+    "joint": 0.5059,
+    "floor_sphere": 0.6906,
+    "floor_hull": 0.2535,
+    "box": null
+   },
+   "robot2": {
+    "joint": 0.2611,
+    "floor_sphere": 0.6906,
+    "floor_hull": 0.2535,
+    "box": null
+   }
+  },
+  "floor_mujoco_contact_samples": 0,
+  "box_hull": {
+   "enabled": false,
+   "min_distance_m": 0.0,
+   "violation_samples": 0,
+   "first": []
+  },
+  "rule_W": {
+   "rule": "wedge",
+   "per_weld_overrides": 0,
+   "max_depth_m": 0.0,
+   "max_excess_over_tol_m": -0.003,
+   "tol_m": 0.003,
+   "violation_samples": 0,
+   "first_violation_s": null,
+   "dense_tcp": {
+    "grid_hz": 1000.0,
+    "violation_samples": 0,
+    "max_excess_over_tol_m": -0.003,
+    "first_violation_s": null
+   }
+  },
+  "welds": {
+   "rows": [
+    {
+     "robot": "robot1",
+     "weld": "W02",
+     "t_arrive_s": 3.9,
+     "t_end_dwell_s": 4.4,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.005,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1007,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W14",
+     "t_arrive_s": 4.5,
+     "t_end_dwell_s": 5.0,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W13",
+     "t_arrive_s": 8.8,
+     "t_end_dwell_s": 9.3,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.008,
+     "liftoff_lateral_mm": 0.008,
+     "liftoff_on_axis_m": 0.1005,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot1",
+     "weld": "W03",
+     "t_arrive_s": 11.1,
+     "t_end_dwell_s": 11.6,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1016,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.102,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot1",
+     "weld": "W15",
+     "t_arrive_s": 17.6,
+     "t_end_dwell_s": 18.1,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.008,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1011,
+     "descent_lateral_mm": 0.008,
+     "liftoff_lateral_mm": 0.008,
+     "liftoff_on_axis_m": 0.1001,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W01",
+     "t_arrive_s": 17.6,
+     "t_end_dwell_s": 18.1,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 1.0,
+     "rot_err_deg": 1.0,
+     "entry_dir_err_deg": 0.014,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.01,
+     "liftoff_lateral_mm": 0.01,
+     "liftoff_on_axis_m": 0.1013,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W04",
+     "t_arrive_s": 23.15,
+     "t_end_dwell_s": 23.65,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.0,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1004,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W05",
+     "t_arrive_s": 27.75,
+     "t_end_dwell_s": 28.25,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.006,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W06",
+     "t_arrive_s": 32.45,
+     "t_end_dwell_s": 32.95,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1005,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W12",
+     "t_arrive_s": 37.1,
+     "t_end_dwell_s": 37.6,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1003,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W11",
+     "t_arrive_s": 41.2,
+     "t_end_dwell_s": 41.7,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.005,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W10",
+     "t_arrive_s": 45.3,
+     "t_end_dwell_s": 45.8,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W07",
+     "t_arrive_s": 50.5,
+     "t_end_dwell_s": 51.0,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1007,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W08",
+     "t_arrive_s": 54.75,
+     "t_end_dwell_s": 55.25,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.008,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.006,
+     "liftoff_lateral_mm": 0.006,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    },
+    {
+     "robot": "robot2",
+     "weld": "W09",
+     "t_arrive_s": 59.0,
+     "t_end_dwell_s": 59.5,
+     "pos_err_mm": 0.0,
+     "tool_axis_err_deg": 0.0,
+     "rot_err_deg": 0.0,
+     "entry_dir_err_deg": 0.007,
+     "dwell_drift_mm": 0.0,
+     "descent_straight_m": 0.1,
+     "descent_lateral_mm": 0.007,
+     "liftoff_lateral_mm": 0.007,
+     "liftoff_on_axis_m": 0.1,
+     "ok": true,
+     "stroke_ok": true
+    }
+   ],
+   "n_ok": 15,
+   "n_task": 15,
+   "missing": [],
+   "duplicates": [],
+   "worst_pos_err_mm": 0.0,
+   "worst_tool_axis_err_deg": 1.0,
+   "worst_spin_rot_err_deg": 1.0,
+   "spin_free": true,
+   "worst_entry_dir_err_deg": 0.014,
+   "min_descent_straight_m": 0.1,
+   "min_liftoff_on_axis_m": 0.1
+  },
+  "end_at_home_max_rad": 0.0,
+  "dynamics": {
+   "grid_hz": 200.0,
+   "fd_h_s": 0.05,
+   "samples": 12771,
+   "T_s": 63.85,
+   "vel_frac_vmax": {
+    "max": 0.691,
+    "t_max_s": 8.32,
+    "at": "robot1 a1",
+    "p99": 0.689,
+    "per_joint_max": {
+     "robot1": [
+      0.691,
+      0.303,
+      0.492,
+      0.421,
+      0.332,
+      0.295
+     ],
+     "robot2": [
+      0.501,
+      0.287,
+      0.463,
+      0.47,
+      0.536,
+      0.285
+     ]
+    }
+   },
+   "acc_frac_amax": {
+    "max": 0.49,
+    "t_max_s": 20.85,
+    "at": "robot2 a3",
+    "p99": 0.49,
+    "per_joint_max": {
+     "robot1": [
+      0.482,
+      0.209,
+      0.34,
+      0.348,
+      0.242,
+      0.341
+     ],
+     "robot2": [
+      0.484,
+      0.297,
+      0.49,
+      0.481,
+      0.474,
+      0.352
+     ]
+    }
+   },
+   "jerk_amax_per_s": {
+    "max": 3.994,
+    "t_max_s": 21.075,
+    "at": "robot2 a3",
+    "p99": 3.852,
+    "per_joint_max": {
+     "robot1": [
+      3.904,
+      1.796,
+      2.724,
+      2.818,
+      1.93,
+      2.764
+     ],
+     "robot2": [
+      3.925,
+      2.4,
+      3.994,
+      3.89,
+      3.801,
+      2.823
+     ]
+    }
+   },
+   "acc_frac_samples_over": {
+    "0.49": 0.0,
+    "0.7": 0.0,
+    "1.0": 0.0
+   }
+  },
+  "continuous": {
+   "method": "piecewise-linear joint paths between the timeline's knots; provable chain displacement bound per point; interval bound (g_a + g_b - L) / 2; bisection to min_dt (trajgen.certify, docs/p3_tgcert.md)",
+   "min_dt_s": 1e-06,
+   "report_tol_m": 0.001,
+   "checks": {
+    "floor_spheres": true,
+    "floor_hull": true,
+    "rule_W": true,
+    "self_hull": true,
+    "arm_arm_spheres": true,
+    "arm_arm_umarell_spheres": true,
+    "arm_arm_hull": true
+   },
+   "rows": {
+    "floor_spheres": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.689639,
+       "t_lower_bound_s": 21.35,
+       "at": "robot1 sphere 6",
+       "evaluated_min": 0.690625,
+       "t_evaluated_min_s": 20.575,
+       "nodes": 7140,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.689642,
+       "t_lower_bound_s": 35.4,
+       "at": "robot2 sphere 6",
+       "evaluated_min": 0.690625,
+       "t_evaluated_min_s": 0.025,
+       "nodes": 3930,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.689639
+    },
+    "floor_hull": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.252483,
+       "t_lower_bound_s": 21.65,
+       "at": "robot1 hull frame 1",
+       "evaluated_min": 0.253482,
+       "t_evaluated_min_s": 2.675,
+       "nodes": 11644,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.252497,
+       "t_lower_bound_s": 13.35,
+       "at": "robot2 hull frame 1",
+       "evaluated_min": 0.253482,
+       "t_evaluated_min_s": 7.675,
+       "nodes": 6466,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.252483
+    },
+    "rule_W": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.002028,
+       "t_lower_bound_s": 18.15,
+       "at": "robot1",
+       "evaluated_min": 0.003,
+       "t_evaluated_min_s": 11.075,
+       "nodes": 448,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.002113,
+       "t_lower_bound_s": 33.05,
+       "at": "robot2",
+       "evaluated_min": 0.003,
+       "t_evaluated_min_s": 17.575,
+       "nodes": 1390,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.002028
+    },
+    "self_hull": {
+     "per_robot": {
+      "robot1": {
+       "ok": true,
+       "certified_lower_bound": 0.049021,
+       "t_lower_bound_s": 9.05,
+       "at": "robot1",
+       "evaluated_min": 0.072485,
+       "t_evaluated_min_s": 15.825,
+       "nodes": 4206,
+       "uncertified": 0,
+       "violations": []
+      },
+      "robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.022807,
+       "t_lower_bound_s": 15.3125,
+       "at": "robot2",
+       "evaluated_min": 0.023779,
+       "t_evaluated_min_s": 15.425,
+       "nodes": 3262,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.022807
+    },
+    "joint_limits": {
+     "note": "certified by convexity: between two knots every joint moves linearly, so a path whose knots are within the limits stays within them (knots checked by the sampled verdict)"
+    },
+    "arm_arm_spheres": {
+     "threshold_m": 0.2,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.379713,
+       "t_lower_bound_s": 19.1687,
+       "at": "robot1 sphere 48 / robot2 sphere 30",
+       "evaluated_min": 0.380713,
+       "t_evaluated_min_s": 16.607,
+       "nodes": 2166,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.379713,
+     "note": "corrected spheres, clearance must stay > gate"
+    },
+    "arm_arm_umarell_spheres": {
+     "threshold_m": 0.2,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.244794,
+       "t_lower_bound_s": 2.8156,
+       "at": "robot1 sphere 58 / robot2 sphere 47",
+       "evaluated_min": 0.245793,
+       "t_evaluated_min_s": 2.8266,
+       "nodes": 1678,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.244794,
+     "note": "umarell 35-sphere parity gate"
+    },
+    "arm_arm_hull": {
+     "threshold_m": 0.03,
+     "pairs": {
+      "robot1|robot2": {
+       "ok": true,
+       "certified_lower_bound": 0.06904,
+       "t_lower_bound_s": 15.2688,
+       "at": "robot1|robot2",
+       "evaluated_min": 0.08,
+       "t_evaluated_min_s": 0.025,
+       "nodes": 23618,
+       "uncertified": 0,
+       "violations": []
+      }
+     },
+     "certified_lower_bound": 0.06904,
+     "note": "MuJoCo hull distance >= hull_min (capped at the 0.080 m detection band)"
+    }
+   },
+   "all_ok": true,
+   "wall_s": 3.1,
+   "knots_on_check_grid": true,
+   "skew_window_exact": null
+  },
+  "checks": {
+   "arm_arm_spheres": true,
+   "arm_arm_umarell_spheres": true,
+   "arm_arm_hull": true,
+   "self_hull": true,
+   "floor_spheres": true,
+   "floor_hull": true,
+   "boxes": true,
+   "box_hull": true,
+   "joint_limits": true,
+   "rule_W": true,
+   "welds": true,
+   "straight_strokes": true,
+   "ends_at_home": true,
+   "continuous": true
+  },
+  "all_pass": true
+ },
+ "verdict": {
+  "arm_arm_spheres": true,
+  "arm_arm_umarell_spheres": true,
+  "arm_arm_hull": true,
+  "self_hull": true,
+  "floor_spheres": true,
+  "floor_hull": true,
+  "boxes": true,
+  "box_hull": true,
+  "joint_limits": true,
+  "rule_W": true,
+  "welds": true,
+  "straight_strokes": true,
+  "ends_at_home": true,
+  "arm_arm_hull_skew": true,
+  "continuous": true,
+  "phase_caps": true,
+  "plan_consistent": true,
+  "complete": true,
+  "lateness": true,
+  "all_pass": true
+ },
+ "lateness_check": {
+  "delta_s": 0.2,
+  "pass": true,
+  "patterns": {
+   "all": {
+    "pass": true,
+    "sphere_min_m": 0.3807,
+    "hull_min_m": 0.08,
+    "worst": {
+     "pair": "robot1|robot2",
+     "t_s": 22.69,
+     "kind": "spheres"
+    },
+    "violations": [],
+    "executor_end_s": 79.45,
+    "continuous": {
+     "pass": true,
+     "sphere_certified_ok": true,
+     "hull_certified_ok": true,
+     "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+    }
+   },
+   "only robot1": {
+    "pass": true,
+    "sphere_min_m": 0.3807,
+    "hull_min_m": 0.08,
+    "worst": {
+     "pair": "robot1|robot2",
+     "t_s": 18.81,
+     "kind": "spheres"
+    },
+    "violations": [],
+    "executor_end_s": 77.45,
+    "continuous": {
+     "pass": true,
+     "sphere_certified_ok": true,
+     "hull_certified_ok": true,
+     "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+    }
+   },
+   "only robot2": {
+    "pass": true,
+    "sphere_min_m": 0.3807,
+    "hull_min_m": 0.08,
+    "worst": {
+     "pair": "robot1|robot2",
+     "t_s": 18.81,
+     "kind": "spheres"
+    },
+    "violations": [],
+    "executor_end_s": 79.2,
+    "continuous": {
+     "pass": true,
+     "sphere_certified_ok": true,
+     "hull_certified_ok": true,
+     "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+    }
+   }
+  },
+  "continuous_recert": {
+   "pass": true,
+   "wall_s": 2.2,
+   "patterns": {
+    "all": {
+     "pass": true,
+     "sphere_min_m": 0.3807,
+     "continuous": {
+      "pass": true,
+      "sphere_certified_ok": true,
+      "hull_certified_ok": true,
+      "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+     }
+    },
+    "only robot1": {
+     "pass": true,
+     "sphere_min_m": 0.3807,
+     "continuous": {
+      "pass": true,
+      "sphere_certified_ok": true,
+      "hull_certified_ok": true,
+      "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+     }
+    },
+    "only robot2": {
+     "pass": true,
+     "sphere_min_m": 0.3807,
+     "continuous": {
+      "pass": true,
+      "sphere_certified_ok": true,
+      "hull_certified_ok": true,
+      "note": "certified > gate / >= hull_min between the samples (no minimisation)"
+     }
+    }
+   }
+  }
+ },
+ "lag_tolerance": {
+  "gate_m": 0.2,
+  "hull_min_distance_m": 0.03,
+  "hull_distance_cap_m": 0.08,
+  "per_leg_s": 0.05,
+  "one_robot_late": {
+   "robot1 +0.05 s/leg": {
+    "min_clearance_m": 0.3807,
+    "pair": "robot1|robot2",
+    "t_s": 22.19,
+    "hull_min_m": 0.08
+   },
+   "robot2 +0.05 s/leg": {
+    "min_clearance_m": 0.3807,
+    "pair": "robot1|robot2",
+    "t_s": 22.19,
+    "hull_min_m": 0.08
+   }
+  },
+  "one_robot_late_min_m": 0.3807,
+  "one_robot_late_above_gate": true,
+  "one_robot_late_hull_min_m": 0.08,
+  "one_robot_late_hull_ok": true,
+  "random_all_late_min_m": 0.3807,
+  "random_n": 10,
+  "random_all_late_above_gate": true,
+  "random_all_late_hull_min_m": 0.08,
+  "random_all_late_hull_ok": true,
+  "note": "informational; accumulated completion lateness (k x per_leg_s after a robot's k-th leg). The planner holds the gate and the hull buffer for a +-skew constant shift of any one robot (skew_tolerance.window, gated) and every leg start is held relative to the other robots' completed operations; the constant-lag tolerance per robot is skew_tolerance.per_robot"
+ },
+ "lateness_tolerance": {
+  "deltas_s": [
+   0.05,
+   0.1,
+   0.2,
+   0.3,
+   0.5,
+   1.0
+  ],
+  "per_pattern": {
+   "all_robots": {
+    "tolerated_s": ">= 1.0",
+    "first_fail": null
+   },
+   "only robot1": {
+    "tolerated_s": ">= 1.0",
+    "first_fail": null
+   },
+   "only robot2": {
+    "tolerated_s": ">= 1.0",
+    "first_fail": null
+   }
+  },
+  "min_tolerated_s": 1.0,
+  "note": "largest per-leg completion lateness (scanned values) keeping the sphere gate and the hull buffer on the replay; 'all_robots' also covers an executor completion margin that is larger than the planned one by that amount"
+ },
+ "outputs": {
+  "timeline": "/home/ubuntu/industrial/kuka_weld_rl/data/trajgen/p3_tgperf/final/welding_cell_2_small/timeline.npz",
+  "timeline_2robot": "/home/ubuntu/industrial/kuka_weld_rl/data/trajgen/p3_tgperf/final/welding_cell_2_small/timeline_2robot.npz",
+  "timeline_motion": "/home/ubuntu/industrial/kuka_weld_rl/data/trajgen/p3_tgperf/final/welding_cell_2_small/timeline_motion.npz",
+  "plan": "/home/ubuntu/industrial/kuka_weld_rl/data/trajgen/p3_tgperf/final/welding_cell_2_small/plan.json",
+  "report": "/home/ubuntu/industrial/kuka_weld_rl/data/trajgen/p3_tgperf/final/welding_cell_2_small/report.json"
+ },
+ "continuous_recertified": {
+  "script": "scripts/p3_tgcert_recertify.py",
+  "date": "2026-10-11",
+  "note": "verdict.continuous and verify_executor.continuous added by the phase-3 TGCERT re-certification of this expected plan (the plan and timeline are unchanged); the generator now computes both itself"
+ }
+}

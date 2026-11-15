@@ -1,0 +1,41 @@
+# Written by Factory OS (Control Code Export) for agentic_planner/plans/bt_1792076124_welding_cell_2_small.json: the cell's plan2cell/plan2cell.toml, the request's options on top.
+# Rebuild by hand: plan2cell build <plan> -c plan2cell.toml -o <dir> --plc-dialect codesys --robot-language krl --krl-e-axes-default none
+
+[build]
+krl = true
+plc = "codesys"
+profile = "sim"
+robot_sim = true
+st_check = true
+strict = false
+
+[[krl.robot]]
+e_axes = "none"
+model = "KR240R2900_ULTRA"
+ns = "robot1"
+
+[[krl.robot]]
+e_axes = "none"
+model = "KR240R2900_ULTRA"
+ns = "robot2"
+
+[plc.cell]
+job_number = "word_le"
+
+[plc.network]
+gateway = "192.168.100.1"
+
+[plc.opcua]
+symbols = false
+
+[[plc.robot]]
+external = true
+ns = "robot1"
+safety_bypass = true
+safety_module = false
+
+[[plc.robot]]
+external = true
+ns = "robot2"
+safety_bypass = true
+safety_module = false

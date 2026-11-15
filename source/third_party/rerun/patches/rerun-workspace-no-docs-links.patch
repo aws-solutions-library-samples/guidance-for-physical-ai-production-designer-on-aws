@@ -1,0 +1,11 @@
+--- a/crates/viewer_support/re_ui/src/help.rs
++++ b/crates/viewer_support/re_ui/src/help.rs
+@@ -135,6 +135,8 @@
+             horizontal_spacing,
+         } = self;
+ 
++        // Factory OS: no "Docs" links (they lead to rerun.io), the title only.
++        let docs_link: Option<String> = docs_link.filter(|_| false);
+         let show_heading = title.is_some() || docs_link.is_some();
+ 
+         if show_heading {

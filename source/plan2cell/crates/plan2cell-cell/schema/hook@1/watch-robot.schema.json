@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "factoryos/hook-watch@1 robot line (one per period on a long-lived watch; the final line is the factoryos/hook@1 envelope with lines and reason)",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "t_ms",
+    "component",
+    "state",
+    "io"
+  ],
+  "properties": {
+    "schema": {
+      "const": "factoryos/hook-watch@1"
+    },
+    "kind": {
+      "const": "robot"
+    },
+    "t_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "component": {
+      "type": "string"
+    },
+    "state": {
+      "type": "object",
+      "description": "vass-compatible robot state"
+    },
+    "io": {
+      "type": "object",
+      "required": [
+        "in",
+        "out"
+      ],
+      "properties": {
+        "in": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "out": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        }
+      }
+    },
+    "profinet": {
+      "type": "object",
+      "properties": {
+        "ar": {
+          "type": "string"
+        },
+        "cycle_ms": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

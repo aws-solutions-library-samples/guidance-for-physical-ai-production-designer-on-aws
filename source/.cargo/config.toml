@@ -1,0 +1,8 @@
+# Same wasm flags as ../rerun/.cargo/config.toml: the web viewer needs them (getrandom's JS backend,
+# web_sys's unstable WebGPU APIs, and the target features its JS loader checks for).
+[target.wasm32-unknown-unknown]
+rustflags = [
+  '--cfg=web_sys_unstable_apis',
+  '--cfg=getrandom_backend="wasm_js"',
+  '-Ctarget-feature=+simd128,+bulk-memory,+nontrapping-fptoint,+multivalue',
+]

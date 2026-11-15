@@ -1,0 +1,8 @@
+# The umarell of the public sample: its install clones this commit of sample-umarell from this URL, and applies the
+# cell planner's upstream fixes for it on top (cell-planner/docs/upstream/patches_<first 7 hex digits>/series.txt).
+# FactoryOS's internal servers don't read this file: they keep installing the same commit from their pinned archives
+# (deploy/umarell-base.txt, and deploy/umarell.txt with the fixes applied). Its first 7 hex digits must be
+# deploy/umarell-base.txt's commit; the export pipeline (ci/public-export/export.sh) refuses an export otherwise.
+#
+# <commit, 40 hex digits>  <git URL>
+08d5a390a498cef123cfe36becfc45ee61876cd9 https://github.com/aws-samples/sample-umarell.git

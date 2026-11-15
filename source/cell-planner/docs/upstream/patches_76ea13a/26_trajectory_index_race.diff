@@ -1,0 +1,125 @@
+diff --git a/agents/trajectory/tools/knowledge_base.py b/agents/trajectory/tools/knowledge_base.py
+index 3455645..4fd1e14 100644
+--- a/agents/trajectory/tools/knowledge_base.py
++++ b/agents/trajectory/tools/knowledge_base.py
+@@ -12,6 +12,9 @@ learned.
+ """
+ from __future__ import annotations
+ 
++import fcntl
++import threading
++from contextlib import contextmanager
+ from typing import Optional
+ 
+ from langchain_core.tools import tool
+@@ -19,6 +22,8 @@ from langchain_core.tools import tool
+ from utils import cell_store
+ 
+ _INDEX_NAME = "trajectory_index.json"
++_INDEX_LOCK_NAME = _INDEX_NAME + ".lock"
++_index_lock = threading.Lock()
+ 
+ 
+ def _load_index(cell_id: str) -> dict:
+@@ -31,6 +36,28 @@ def _save_index(cell_id: str, index: dict) -> None:
+                           index, indent=2)
+ 
+ 
++@contextmanager
++def _index_locked(cell_id: str):
++    """Hold the index for one read-modify-write.
++
++    The agent stores several robots' trajectories in parallel, and an unlocked
++    load+save loses all but one of them. Locally a flock on a sidecar file in
++    the recordings dir also covers other processes planning the same cell; in
++    orchestrator mode the recordings are the owner's (and the mount read-only),
++    so only this process's writers are serialised.
++    """
++    with _index_lock:
++        if cell_store.is_remote():
++            yield
++            return
++        path = cell_store.local_path(cell_id, cell_store.KIND_RECORDINGS,
++                                     _INDEX_LOCK_NAME, for_write=True)
++        path.parent.mkdir(parents=True, exist_ok=True)
++        with open(path, "a") as handle:
++            fcntl.flock(handle, fcntl.LOCK_EX)
++            yield
++
++
+ def _make_key(operation_type: str, robot_ns: str, target: list[float]) -> str:
+     tx, ty, tz = round(target[0], 2), round(target[1], 2), round(target[2], 2)
+     return f"{operation_type}|{robot_ns}|{tx}|{ty}|{tz}"
+@@ -63,14 +90,15 @@ def store_trajectory(
+     Returns:
+         {"stored": true, "key": str}
+     """
+-    index = _load_index(cell_id)
+     key   = _make_key(operation_type, robot_ns, target)
+-    index[key] = {
+-        "final_joints":     final_joints,
+-        "position_error_m": position_error_m,
+-        "recording_file":   recording_file,
+-    }
+-    _save_index(cell_id, index)
++    with _index_locked(cell_id):
++        index = _load_index(cell_id)
++        index[key] = {
++            "final_joints":     final_joints,
++            "position_error_m": position_error_m,
++            "recording_file":   recording_file,
++        }
++        _save_index(cell_id, index)
+     return {"stored": True, "key": key}
+ 
+ 
+diff --git a/utils/cell_store.py b/utils/cell_store.py
+index da4884e..13424c5 100644
+--- a/utils/cell_store.py
++++ b/utils/cell_store.py
+@@ -49,6 +49,7 @@ from __future__ import annotations
+ import json
+ import os
+ import re
++import tempfile
+ import threading
+ import time
+ import urllib.error
+@@ -94,6 +95,11 @@ _CACHED_KINDS = (KIND_CONFIG, KIND_MANIFEST)
+ _cache: dict[tuple, tuple[float, Optional[str]]] = {}
+ _cache_lock = threading.Lock()
+ 
++# The process umask, read once (reading it means setting it): mkstemp makes its
++# file 0600, and an artefact must keep the mode a plain open() would give it.
++_UMASK = os.umask(0o022)
++os.umask(_UMASK)
++
+ 
+ class CellStoreError(RuntimeError):
+     """A request this store refuses to make (bad kind, unsafe name)."""
+@@ -377,9 +383,22 @@ def write_text_local(cell_id: str, kind: str, name: str, text: str, *,
+     """The local writer, used directly by the orchestrator's MCP tool."""
+     path = local_path(cell_id, kind, name, for_write=True, cell_base=cell_base)
+     path.parent.mkdir(parents=True, exist_ok=True)
+-    tmp = path.with_name(path.name + ".tmp")
+-    tmp.write_text(text)
+-    tmp.replace(path)
++    # A temp name of its own per write, in the same directory (so the rename is
++    # atomic): writers of one artefact at the same time (the agent stores both
++    # robots' trajectories in parallel) must not rename each other's file away.
++    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".",
++                               suffix=".tmp")
++    try:
++        os.fchmod(fd, 0o666 & ~_UMASK)
++        with os.fdopen(fd, "w") as handle:
++            handle.write(text)
++        os.replace(tmp, path)
++    except BaseException:
++        try:
++            os.unlink(tmp)
++        except FileNotFoundError:
++            pass
++        raise
+     return True
+ 
+ 

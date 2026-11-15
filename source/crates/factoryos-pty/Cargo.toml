@@ -1,0 +1,17 @@
+[package]
+name = "factoryos-pty"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+# A shell in a PTY, for the backend's IDE terminals and factoryos-terminal-agent: its output and exit
+# through callbacks, its current folder (Linux /proc, macOS proc_pidinfo, else what the shell reports
+# with OSC 7, as the agent's PowerShell prompt does).
+
+[dependencies]
+anyhow = "1"
+portable-pty = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

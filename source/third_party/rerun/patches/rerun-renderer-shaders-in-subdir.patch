@@ -1,0 +1,23 @@
+diff --git a/crates/viewer_support/re_renderer/src/file_server.rs b/crates/viewer_support/re_renderer/src/file_server.rs
+index 59088c5..316cd4d 100644
+--- a/crates/viewer_support/re_renderer/src/file_server.rs
++++ b/crates/viewer_support/re_renderer/src/file_server.rs
+@@ -65,6 +65,18 @@ macro_rules! include_file {
+             .strip_prefix("crates/viewer_support/re_renderer")
+             .map_or_else(|_| path.clone(), ToOwned::to_owned);
+ 
++        // Factory OS: rerun is a path dependency inside another workspace there, so `file!()` is
++        // relative to *that* root (`third_party/rerun/src/crates/viewer_support/re_renderer/…`)
++        // and neither strip applies. Cut at the crate's own directory wherever it is.
++        let path = {
++            let unix = path.to_string_lossy().replace('\\', "/");
++            const CRATE_DIR: &str = "crates/viewer_support/re_renderer/";
++            match unix.rfind(CRATE_DIR) {
++                Some(at) if path.is_relative() => ::std::path::PathBuf::from(&unix[at + CRATE_DIR.len()..]),
++                _ => path,
++            }
++        };
++
+         // If we're building from outside the workspace, `file!()` will return an absolute path
+         // that might point to anywhere: it doesn't matter, just strip it down to a relative
+         // re_renderer path no matter what.

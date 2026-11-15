@@ -1,0 +1,34 @@
+[package]
+name = "factoryos-mcp"
+version = "0.1.26"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+description = "The Physical AI Production Designer workflow as a stdio MCP server for the workspace's kiro-cli: product, dresser, scene, plans, behaviour tree, 3D view, control code, virtual cell"
+
+# kiro-cli starts it (deploy/kiro/factoryos.json: `command`), so it lives as long as the chat session.
+# Every tool is a route of the workspace's factoryos-backend, called over loopback (a loopback caller
+# without the edge's headers is the workspace's own: authz.rs). The tools are curated in tools/*.yaml,
+# turned into an OpenAPI document and served by openapi-mcp.
+
+[[bin]]
+name = "factoryos-mcp"
+path = "src/main.rs"
+
+[dependencies]
+openapi-mcp = { path = "../openapi-mcp" }
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "time"] }
+tower = { version = "0.5.2", default-features = false, features = ["util"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+axum = "0.8"
+tokio = { version = "1.53", features = ["net", "rt"] }

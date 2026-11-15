@@ -1,0 +1,257 @@
+{
+  "schema": "bt2krl/manifest@1",
+  "generator": "bt2krl 0.1.0",
+  "tree_id": "bt_1790934549_welding_cell_2_small",
+  "cell_id": "welding_cell_2_small",
+  "plan_id": "16#F77E",
+  "profile": "vw-ks24",
+  "motion": "ptp",
+  "robot": {
+    "ns": "robot2",
+    "tag": "R2",
+    "controller": "000002R01",
+    "model": "KR210R2700_EXTRA",
+    "e_axes": "none",
+    "joint_mapping": "identity"
+  },
+  "folgen": [
+    11
+  ],
+  "files": [
+    {
+      "path": "INSTALL.md",
+      "fnv1a64": "29b07a1fe370846f"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.dat",
+      "fnv1a64": "35392a8bee1a6bf9"
+    },
+    {
+      "path": "KRC/R1/Folgen/folge11.src",
+      "fnv1a64": "024ada401f3e8629"
+    },
+    {
+      "path": "KRC/R1/System/bt_config.dat",
+      "fnv1a64": "5f61c04f745d2efd"
+    },
+    {
+      "path": "patches/KRC/R1/Folgen/cell.src",
+      "fnv1a64": "15451ee7266e79be"
+    },
+    {
+      "path": "patches/KRC/R1/System/$config.dat",
+      "fnv1a64": "ec54a8032c6b0e80"
+    }
+  ],
+  "ops": [
+    {
+      "index": 1,
+      "operation_id": "W13",
+      "zone_mask": "16#00000002",
+      "waypoints": 41,
+      "points": 13,
+      "est_s": 9.192,
+      "est_motion_s": 8.692,
+      "planned_motion_s": 9.186,
+      "expected_s": 9.686,
+      "limit_s": 19.529
+    },
+    {
+      "index": 2,
+      "operation_id": "W15",
+      "zone_mask": "16#00000001",
+      "waypoints": 36,
+      "points": 13,
+      "est_s": 8.176,
+      "est_motion_s": 7.676,
+      "planned_motion_s": 7.925,
+      "expected_s": 8.425,
+      "limit_s": 17.638
+    },
+    {
+      "index": 3,
+      "operation_id": "W14",
+      "zone_mask": "16#00000002",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.645,
+      "est_motion_s": 4.145,
+      "planned_motion_s": 4.224,
+      "expected_s": 4.724,
+      "limit_s": 12.086
+    },
+    {
+      "index": 4,
+      "operation_id": "W10",
+      "zone_mask": "16#00000001",
+      "waypoints": 24,
+      "points": 11,
+      "est_s": 4.86,
+      "est_motion_s": 4.36,
+      "planned_motion_s": 4.492,
+      "expected_s": 4.992,
+      "limit_s": 12.488
+    },
+    {
+      "index": 5,
+      "operation_id": "W11",
+      "zone_mask": "16#00000002",
+      "waypoints": 24,
+      "points": 11,
+      "est_s": 4.992,
+      "est_motion_s": 4.492,
+      "planned_motion_s": 4.536,
+      "expected_s": 5.036,
+      "limit_s": 12.554
+    },
+    {
+      "index": 6,
+      "operation_id": "W12",
+      "zone_mask": "16#00000001",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.654,
+      "est_motion_s": 4.154,
+      "planned_motion_s": 4.321,
+      "expected_s": 4.821,
+      "limit_s": 12.232
+    },
+    {
+      "index": 7,
+      "operation_id": "W09",
+      "zone_mask": "16#00000001",
+      "waypoints": 15,
+      "points": 5,
+      "est_s": 2.663,
+      "est_motion_s": 2.163,
+      "planned_motion_s": 2.199,
+      "expected_s": 2.699,
+      "limit_s": 9.048
+    },
+    {
+      "index": 8,
+      "operation_id": "W08",
+      "zone_mask": "16#00000000",
+      "waypoints": 22,
+      "points": 11,
+      "est_s": 4.328,
+      "est_motion_s": 3.828,
+      "planned_motion_s": 4.094,
+      "expected_s": 4.594,
+      "limit_s": 11.891
+    },
+    {
+      "index": 9,
+      "operation_id": "W07",
+      "zone_mask": "16#00000002",
+      "waypoints": 23,
+      "points": 11,
+      "est_s": 4.57,
+      "est_motion_s": 4.07,
+      "planned_motion_s": 4.269,
+      "expected_s": 4.769,
+      "limit_s": 12.154
+    },
+    {
+      "index": 10,
+      "operation_id": "HOME",
+      "zone_mask": "16#00000000",
+      "waypoints": 32,
+      "points": 11,
+      "est_s": 5.917,
+      "est_motion_s": 5.917,
+      "planned_motion_s": 6.229,
+      "expected_s": 6.229,
+      "limit_s": 14.344
+    }
+  ],
+  "warnings": [],
+  "check": {
+    "profile": "vw-ks24",
+    "line_ending": "crlf",
+    "in_range": [
+      1,
+      4096
+    ],
+    "out_range": [
+      1,
+      256
+    ],
+    "reserved_out": [
+      [
+        33,
+        40
+      ],
+      [
+        57,
+        80
+      ],
+      [
+        225,
+        240
+      ]
+    ],
+    "reserved_in": [
+      [
+        249,
+        250
+      ]
+    ],
+    "request_base": 81,
+    "grant_base": 81,
+    "production": "KRC/R1/Folgen/folge11",
+    "step_prefix": "BT_PKTNR=",
+    "ops": [
+      {
+        "index": 1,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 2,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 3,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 4,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 5,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 6,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 7,
+        "mask": 1,
+        "hold_ms": 500
+      },
+      {
+        "index": 8,
+        "mask": 0,
+        "hold_ms": 500
+      },
+      {
+        "index": 9,
+        "mask": 2,
+        "hold_ms": 500
+      },
+      {
+        "index": 10,
+        "mask": 0,
+        "hold_ms": 0
+      }
+    ]
+  }
+}

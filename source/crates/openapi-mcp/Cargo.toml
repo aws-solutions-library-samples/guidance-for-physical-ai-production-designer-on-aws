@@ -1,0 +1,31 @@
+[package]
+name = "openapi-mcp"
+version = "0.1.26"
+edition = "2021"
+license = "MIT-0"
+description = "Serve an OpenAPI-described tower service as a stdio MCP server: one tool per operation, dispatched in process"
+
+[dependencies]
+# MCP protocol (both the 2026-07-28 stateless revision and the legacy `initialize` handshake).
+# Only the server and stdio parts: no macros, no HTTP transport.
+rmcp = { version = "3.6", default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt", "sync"] }
+tower = { version = "0.5.2", default-features = false, features = ["util"] }
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+bytes = "1"
+serde_json = "1"
+percent-encoding = "2"
+form_urlencoded = "1"
+base64 = "0.22"
+# The artifact directory (0700) and its files (0600, never through an existing path).
+tempfile = "3.20"
+# file:// URIs of saved artifacts.
+url = "2"
+thiserror = "2"
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "io-util", "time", "rt-multi-thread"] }
+rmcp = { version = "3.6", default-features = false, features = ["client"] }

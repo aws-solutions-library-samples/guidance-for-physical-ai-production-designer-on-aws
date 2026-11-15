@@ -1,0 +1,83 @@
+{
+  "tree_id": "bt_1",
+  "cell_id": "c1",
+  "num_operations": 2,
+  "behaviour_tree": {
+    "BTCPP_format": "4",
+    "xml": "<?xml version=\"1.0\" ?>\n<root BTCPP_format=\"4\" main_tree_to_execute=\"MainTree\">\n  <BehaviorTree ID=\"MainTree\">\n    <Sequence>\n      <Parallel success_count=\"-1\" failure_count=\"1\">\n        <ExecuteTrajectory name=\"weld_r1_A\" robot_ns=\"r1\" operation_id=\"A\" operation_type=\"weld\" trajectory=\"{traj_A}\" hold_duration_s=\"0.5\" velocity_scale=\"1.0\" has_interlock=\"false\"/>\n        <ExecuteTrajectory name=\"move_r2_B\" robot_ns=\"r2\" operation_id=\"B\" operation_type=\"move\" trajectory=\"{traj_B}\" hold_duration_s=\"0.5\" velocity_scale=\"2.0\" has_interlock=\"false\"/>\n      </Parallel>\n      <Parallel success_count=\"-1\" failure_count=\"1\">\n        <MoveHome name=\"home_r1\" robot_ns=\"r1\" trajectory=\"{traj_H}\"/>\n        <MoveHome name=\"home_r2\" robot_ns=\"r2\"/>\n      </Parallel>\n    </Sequence>\n  </BehaviorTree>\n  <TreeNodesModel>\n    <Action ID=\"ExecuteTrajectory\">\n      <input_port name=\"robot_ns\"/>\n    </Action>\n  </TreeNodesModel>\n</root>",
+    "blackboard": {
+      "traj_A": [
+        {
+          "positions": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 0.0
+        },
+        {
+          "positions": [
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 2.0
+        }
+      ],
+      "traj_B": [
+        {
+          "positions": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 0.0
+        },
+        {
+          "positions": [
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 4.0
+        }
+      ],
+      "traj_H": [
+        {
+          "positions": [
+            0.5,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 0.0
+        },
+        {
+          "positions": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "time_s": 1.0
+        }
+      ]
+    }
+  }
+}

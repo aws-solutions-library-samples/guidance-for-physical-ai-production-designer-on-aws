@@ -1,0 +1,7 @@
+; bt2krl vw-ks24: merge into KRC/R1/System/$config.dat (fold USER GLOBALS), robot robot1 plan 16#A1BE
+; The VW KS24 standard already declares PRG_NR, PRG_NR_REFL, P_PktNr_SPS and the
+; interlock signals A41-56 / A81-96; only what bt2krl adds is listed here.
+;FOLD BT2KRL robot1 16#A1BE
+   ; op index: the VW global P_PktNr_SPS ($OUT[97..112]) is used as it is
+   ; no PLAN_ID check: the VW standard has no signal for it (see INSTALL.md)
+;ENDFOLD

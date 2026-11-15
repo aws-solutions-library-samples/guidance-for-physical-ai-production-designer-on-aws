@@ -1,0 +1,64 @@
+--- a/agents/trajectory/agent.py
++++ b/agents/trajectory/agent.py
+@@ -953,6 +953,20 @@
+     return full
+ 
+ 
++#: Extension hooks (umarell-fast U1). All default to "off", which is umarell's own
++#: behaviour; a driver may set them before ``plan()``:
++#:   ``tool_node(tools) -> ToolNode`` — executes a turn's tool calls (graph built with
++#:       ``version="v1"`` so ONE node sees all of a turn's calls and can order them);
++#:   ``model(llm, tools) -> llm | callable(state, runtime)`` — wrap / route the model;
++#:       it receives the UNBOUND model and binds the tools itself (with
++#:       ``bind_tools_for_agent`` to keep the rolling Bedrock cache point);
++#:   ``prompt_addendum`` — text appended to the (static, cacheable) system prompt;
++#:   ``stop_after(messages) -> bool`` — end the ReAct loop at a state boundary (e.g.
++#:       right after an accepted ``assemble_behaviour_tree``), the tree is then
++#:       harvested from the history exactly as after a normal end.
++UF_HOOKS: dict = {"tool_node": None, "model": None, "prompt_addendum": "", "stop_after": None}
++
++
+ def create_trajectory_agent(model: str | None = None, cell_id: str | None = None,
+                             mode: str = DEFAULT_PLANNING_MODE):
+     """Create the trajectory ReAct agent with all planning tools. ``cell_id``
+@@ -964,7 +978,16 @@
+     tools = [_agent_facing(t) for t in tools]
+     # Tools bound HERE, with a rolling prompt-cache point on Bedrock, so each turn
+     # reuses the previous turn's prefix; create_react_agent keeps this binding.
+-    llm = bind_tools_for_agent(llm, tools)
++    if UF_HOOKS.get("model") is not None:
++        llm = UF_HOOKS["model"](llm, tools)  # binds the tools itself (see UF_HOOKS)
++    else:
++        llm = bind_tools_for_agent(llm, tools)
++    prompt = system_prompt_for(cell_id, mode) + (UF_HOOKS.get("prompt_addendum") or "")
++    extra: dict = {}
++    tool_arg = tools
++    if UF_HOOKS.get("tool_node") is not None:
++        tool_arg = UF_HOOKS["tool_node"](tools)
++        extra["version"] = "v1"
+     # The model sees old turns as digests (context_compaction): the input used to
+     # grow ~5k tokens per turn to 400k+, and every turn re-read all of it. The
+     # agent's state keeps the full history (tree extraction, trace, live feed).
+@@ -974,8 +997,9 @@
+     from agents.trajectory.context_compaction import compacting_prompt
+     return create_react_agent(
+         model=llm,
+-        tools=tools,
+-        prompt=compacting_prompt(system_prompt_for(cell_id, mode)),
++        tools=tool_arg,
++        prompt=compacting_prompt(prompt),
++        **extra,
+     )
+ 
+ 
+@@ -1319,6 +1343,10 @@
+             if paused_reason:
+                 plan_checkpoint.take_pause(tree_id)
+                 break
++            _stop = UF_HOOKS.get("stop_after")
++            if _stop is not None and _stop(all_messages):
++                print("[plan] stop_after hook: ending the loop at this state boundary", flush=True)
++                break
+     except Exception as exc:
+         # An LLM/transport error (expired token, no connectivity, ...) is an
+         # INFRASTRUCTURE failure — report it as such so it is never confused with

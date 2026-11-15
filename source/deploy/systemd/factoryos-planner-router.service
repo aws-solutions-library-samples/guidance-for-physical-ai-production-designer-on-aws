@@ -1,0 +1,36 @@
+[Unit]
+Description=factoryos-planner-router (MCP on 127.0.0.1:8893: the chat agent's planner router, umarell or factoryos-cell-planner)
+After=network-online.target factoryos-backend.service
+Wants=network-online.target
+# Restarted (and stopped) with the backend: every deploy restarts the backend, so the router runs the
+# new release's server.py.
+PartOf=factoryos-backend.service
+ConditionPathExists=/opt/factoryos/current/deploy/planner-router/server.py
+
+[Service]
+User=factoryos
+WorkingDirectory=/var/lib/factoryos/cell-planner
+# Standard library only (-I: no user site, no cwd on sys.path); the planners run in their own venv
+# (--python), in parallel: FACTORYOS_PLANNER_WORKERS subprocess jobs at once (default max(2, CPUs)),
+# FACTORYOS_UMARELL_WORKERS umarell plans at once (default 2; they run in the umarell planner MCP, which
+# the backend starts). deploy/provision.sh installs the cell planner and this unit.
+ExecStart=/usr/bin/python3 -I /opt/factoryos/current/deploy/planner-router/server.py --bind 127.0.0.1:8893 --cell-planner /opt/factoryos-cell-planner/router/src --python /opt/factoryos-cell-planner/router/venv/bin/python --umarell /var/lib/factoryos/umarell --config /var/lib/factoryos/factoryos.config.json --work /var/lib/factoryos/cell-planner/work
+#Environment=FACTORYOS_PLANNER_WORKERS=2
+#Environment=FACTORYOS_UMARELL_WORKERS=2
+# umarell_u3 on a planner-burst instance (deploy/planner-router/burst.py): auto below FACTORYOS_BURST_MIN_CPUS (8)
+# CPUs or on request (options.remote), off (on request only), always; the config is the SSM parameter
+# /factoryos/planner-burst/config (infra/lib/planner-burst.ts), the rights the workspace role's.
+#Environment=FACTORYOS_BURST=auto
+#Environment=FACTORYOS_BURST_MIN_CPUS=8
+# Parallel jobs may use every CPU (one torch / OMP thread per policy job; U3 shares the CPUs among the
+# jobs running beside it): no CPUQuota. Nice=10 keeps the backend and the live cell's bridges
+# (fos-live-bridge, fos-live-scene) first. The host has no swap: the jobs together get 75% of the RAM, the
+# kernel's OOM killer then picks a job inside this unit, not the backend.
+MemoryMax=75%
+Nice=10
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

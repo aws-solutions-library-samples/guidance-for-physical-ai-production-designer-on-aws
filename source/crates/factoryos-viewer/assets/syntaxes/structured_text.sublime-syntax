@@ -1,0 +1,43 @@
+%YAML 1.2
+---
+# IEC 61131-3 Structured Text (CODESYS). Generated from the keyword lists in src/code_view.rs: keep them in step.
+name: Structured Text
+file_extensions: [st, exp, iecst, gvl, pou, iec]
+scope: source.st
+
+contexts:
+  main:
+    - match: '//.*$'
+      scope: comment.line.double-slash.st
+    - match: '\(\*'
+      push: block_comment
+    - match: '/\*'
+      push: c_comment
+    - match: "'"
+      push: single_string
+    - match: '"'
+      push: double_string
+    - match: '(?i)\b(?:END_FUNCTION_BLOCK|FUNCTION_BLOCK|END_INTERFACE|END_NAMESPACE|END_FUNCTION|END_PROPERTY|VAR_EXTERNAL|END_PROGRAM|END_ACTION|END_METHOD|END_REPEAT|END_STRUCT|IMPLEMENTS|PERSISTENT|VAR_CONFIG|VAR_GLOBAL|VAR_IN_OUT|VAR_OUTPUT|END_WHILE|INTERFACE|NAMESPACE|PROTECTED|REFERENCE|VAR_INPUT|ABSTRACT|AND_THEN|CONSTANT|CONTINUE|END_CASE|END_TYPE|FUNCTION|INTERNAL|PROPERTY|VAR_STAT|VAR_TEMP|END_FOR|END_VAR|EXTENDS|OR_ELSE|POINTER|PRIVATE|PROGRAM|ACTION|END_IF|METHOD|PUBLIC|REF_TO|REPEAT|RETAIN|RETURN|STRUCT|ARRAY|ELSIF|FALSE|FINAL|SUPER|UNTIL|USING|WHILE|CASE|ELSE|EXIT|THEN|THIS|TRUE|TYPE|AND|FOR|MOD|NOT|VAR|XOR|AT|BY|DO|IF|OF|OR|TO)\b'
+      scope: keyword.control.st
+    - match: '(?i)\b(?:DATE_AND_TIME|TIME_OF_DAY|WSTRING|F_TRIG|R_TRIG|STRING|DWORD|LREAL|LTIME|LWORD|UDINT|ULINT|USINT|WCHAR|BOOL|BYTE|CHAR|DATE|DINT|LINT|REAL|SINT|TIME|UINT|WORD|ANY|CTD|CTU|INT|TOD|TOF|TON|DT|RS|SR|TP)\b'
+      scope: storage.type.st
+    - match: '(?i)\b(?:(?:16#[0-9a-f_]+)|(?:8#[0-7_]+)|(?:2#[01_]+)|(?:\d[\d_]*(?:\.\d[\d_]*)?(?:e[+-]?\d+)?))\b'
+      scope: constant.numeric.st
+  block_comment:
+    - meta_scope: comment.block.st
+    - match: '\*\)'
+      pop: true
+  c_comment:
+    - meta_scope: comment.block.st
+    - match: '\*/'
+      pop: true
+  single_string:
+    - meta_scope: string.quoted.single.st
+    - match: "\\$'"
+    - match: "'"
+      pop: true
+  double_string:
+    - meta_scope: string.quoted.double.st
+    - match: '\$"'
+    - match: '"'
+      pop: true
