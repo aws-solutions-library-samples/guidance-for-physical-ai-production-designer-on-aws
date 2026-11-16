@@ -3,15 +3,10 @@
 ## Table of Contents
 
 1. [Overview](#overview)
-    - [Architecture](#architecture)
-    - [Architecture details](#architecture-details)
     - [What the installer deploys](#what-the-installer-deploys)
     - [Cost](#cost)
 2. [Prerequisites](#prerequisites)
-    - [Operating System](#operating-system)
 3. [Deployment Steps](#deployment-steps)
-    - [Option A: the CloudFormation installer](#option-a-the-cloudformation-installer)
-    - [Option B: install from a shell](#option-b-install-from-a-shell)
 4. [Deployment Validation](#deployment-validation)
 5. [Running the Guidance](#running-the-guidance)
 6. [Next Steps](#next-steps)
@@ -48,149 +43,27 @@ drive through MCP tools and whose output is deterministic, checked control code:
 The sample data is a reference welding cell, `welding_cell_2_small`: two KUKA KR 240 R2900 robots with stick welding
 tools and 15 spot welds.
 
-### Architecture
-
-The diagrams below are the Guidance's reference architecture: the overview, and four views that zoom into its parts.
-This Guidance's installer deploys a subset of it, on one instance; [What the installer
-deploys](#what-the-installer-deploys) lists which parts.
-
-![Reference architecture of the Guidance for Physical AI Production Designer on AWS: engineers, the viewer, the AWS Region with the user workspaces on Amazon EKS, the agents and planners, the virtual cells and the release gates, and the factory site](assets/images/architecture.png)
-
-1. Engineers state product intent, chat with AI agents, and review 3D cells in the Physical AI (PAI) Production
-   Designer viewer. Amazon CloudFront serves this WebAssembly app over HTTPS. Engineers sign in with single sign-on
-   (SSO): Amazon Cognito connects over TLS to your OpenID Connect (OIDC) identity provider, as a federated identity
-   provider; Lambda@Edge authorizes requests.
-2. An Elastic Load Balancing (ELB) Application Load Balancer inside your Amazon Virtual Private Cloud (Amazon VPC)
-   routes engineers to workspaces. On Amazon Elastic Kubernetes Service (Amazon EKS), Kiro agents drive Model Context
-   Protocol (MCP) tools. Amazon Bedrock AgentCore securely deploys and operates agents of any framework or model at
-   scale.
-3. Planners use fully managed Amazon Bedrock foundation models with security, privacy, and responsible AI. Agents test
-   generated programmable logic controller (PLC) and robot code in virtual cells. Amazon Elastic Compute Cloud (Amazon
-   EC2) runs Isaac Sim; Amazon DCV streams vendor tools. Amazon SageMaker AI builds and trains machine learning
-   policies.
-4. Import product lifecycle management (PLM) data into Amazon Simple Storage Service (Amazon S3) over TLS. It encrypts
-   data at rest and invokes AWS Lambda to log changes. Amazon Elastic Container Registry (Amazon ECR) stores container
-   images. Workloads get settings from AWS Systems Manager and scoped credentials from AWS Secrets Manager.
-5. AWS Step Functions gates the release: G0 virtual commissioning; engineers approve G1, safety engineers G2. AWS
-   Signer signs it; AWS IoT Greengrass deploys it. Perimeter network edge hosts authenticate, pull it outbound-only
-   over TLS, and check G3. Amazon EKS Anywhere runs cell controllers; operators confirm G4, and drift flows back.
-
-### Architecture details
-
-**Experience and orchestration:** how engineers sign in, work in the viewer, and drive agents and planners in their
-workspace, and how product data reaches AWS.
-
-![Experience and orchestration: the user's browser, CloudFront, Lambda@Edge and Amazon Cognito, the Application Load Balancer and a user workspace on Amazon EKS with the backend API, the Kiro agent, the planner router and the workflow modules, Amazon S3, AWS Lambda and Amazon Bedrock](assets/images/architecture-experience-and-orchestration.png)
-
-6. In the PAI Production Designer viewer, engineers review cells in 3D and use tool pages, terminals, agent chat, and
-   behaviour-tree timelines. Amazon CloudFront, a content delivery network (CDN), serves the WebAssembly (WASM) app.
-   Lambda@Edge authenticates single sign-on (SSO) requests; Amazon Cognito uses your OpenID Connect (OIDC) identity
-   provider as a federated identity provider.
-7. CloudFront carries three TLS streams: HTTPS, Zenoh, and Amazon DCV for human-machine interfaces (HMIs). An
-   Application Load Balancer from Elastic Load Balancing in your Amazon Virtual Private Cloud (Amazon VPC) routes them
-   to user workspaces. Each least-privilege Linux container on Amazon Elastic Kubernetes Service (Amazon EKS) hosts a
-   backend API.
-8. Engineers and the Kiro agent drive modules over Model Context Protocol (MCP), and plan2cell generates programmable
-   logic controller (PLC) and robot programs. The planner router calls the multi robot agentic solver, a large
-   language model (LLM) planner. Fully managed Amazon Bedrock provides foundation models with security, privacy, and
-   responsible AI.
-9. Zenoh, a low-latency peer-to-peer data plane, links the viewer, workspaces, virtual cells, and Isaac Sim with
-   publish/subscribe and queries. It carries scene deltas, joint states at controller rate, PLC signals, behaviour-tree
-   events, controller commands, and live controller data. Viewer, agents, and cells share one live state.
-10. Amazon Bedrock AgentCore keeps agent memory and securely deploys and operates agents of any framework or model at
-    scale. Amazon Simple Storage Service (Amazon S3) hosts viewer builds and stores product lifecycle management (PLM)
-    bills of materials (BOMs) and specs, encrypted at rest. AWS Lambda logs catalogue changes.
-
-**Virtual cells and simulation:** how virtual controllers on a fieldbus, vendor tools, and physics simulation run and
-debug your code, and how trained policies reach the cell.
-
-![Virtual cells and simulation: a virtual cell on Amazon EKS with the cell runtime, the virtual robot controllers and the virtual PLC, the Amazon EC2 Windows IDE host with Amazon DCV, the Amazon EC2 GPU host with NVIDIA Isaac Sim, and Amazon SageMaker AI, Amazon ECR, Amazon S3, AWS Systems Manager and AWS Secrets Manager](assets/images/architecture-virtual-cells.png)
-
-11. Every engineer and agent gets a disposable virtual cell from Git. A Zenoh mesh links it to your user workspace,
-    which deploys generated robot and programmable logic controller (PLC) code. Closed-loop tests inject faults.
-    Failures return to the agent; engineers get passing code as a pull request with test evidence.
-12. Cells run on Amazon Elastic Kubernetes Service (Amazon EKS) nodes. The cell runtime runs policy inference and
-    steers virtual robot controllers. PROFINET or another fieldbus carries cyclic I/O to sensors, the HMI, and an
-    International Electrotechnical Commission (IEC) 61131-3 virtual PLC. Generated code runs unchanged, as on the shop
-    floor.
-13. PLC and robot vendor integrated development environments (IDEs) run on a Windows Amazon Elastic Compute Cloud
-    (Amazon EC2) host. Amazon DCV streams them over TLS for online debugging in the viewer. NVIDIA Isaac Sim on a
-    graphics processing unit (GPU) host reruns the code; its physics can contradict the plan.
-14. Fully managed Amazon SageMaker AI builds, trains, and evaluates machine learning policies for the cell runtime.
-    Least-privilege containers pull images from Amazon Elastic Container Registry (Amazon ECR), settings from AWS
-    Systems Manager, and credentials from AWS Secrets Manager. Amazon Simple Storage Service (Amazon S3) encrypts
-    backups at rest.
-
-**On-premises deployment:** how approved cell releases move from AWS to your factory sites. Sites pull signed bundles
-through approval gates, deploy them to the cell, and report drift back.
-
-![On-premises deployment: the release pipeline in AWS Step Functions with AWS CodeBuild and the approval gates G0 to G2, AWS Signer, Amazon S3 Object Lock, AWS IoT Greengrass, AWS IoT Core and Amazon DynamoDB, and the factory site with the edge host, Amazon EKS Anywhere and the cell network](assets/images/architecture-on-premises-deployment.png)
-
-15. Engineers upload programmable logic controller (PLC) and robot projects to versioned Amazon Simple Storage Service
-    (Amazon S3) buckets. Uploads start releases in AWS Step Functions, the single gatekeeper. AWS CodeBuild builds
-    code, images, and software bills of materials. At G0, virtual controllers run unchanged code, checking cycle times
-    and collisions.
-16. Humans gate the boundary, not the sandbox. Controls or robot engineers approve G1; for safety changes, a safety
-    engineer and change board approve G2 through Step Functions task tokens. AWS Signer signs bundles with approval
-    attestations. Amazon S3 Object Lock and Amazon Elastic Container Registry (Amazon ECR) store them encrypted.
-17. AWS IoT Greengrass rolls releases out in waves. AWS IoT Core runs jobs; Amazon DynamoDB and Amazon S3 Object Lock
-    store approvals, simulation evidence, and device status. The edge host in the plant perimeter network, an
-    International Electrotechnical Commission (IEC) 62443 zone, pulls deployments over TLS; the cloud never pushes.
-18. The release agent verifies signatures and attestations and checks G3: a maintenance window, safe cell, backup, and
-    no active manufacturing execution system (MES) order. It deploys head PLC, cell controller, and HMI containers to
-    Amazon EKS Anywhere; the Windows edge host loads the safety PLC and robot controllers.
-19. In the cell network, a fieldbus links PLCs, robots, and the HMI. Only adapters cross one restricted conduit into
-    it. Each adapter backs up, checks drift, deploys, reads back, verifies, and reports; rollback restores its backup.
-20. At G4, the operator confirms a reduced-speed cycle on the teach pendant; motion never starts remotely. The Zenoh
-    bridge streams drift over TLS to the PAI Production Designer twin on Amazon Elastic Kubernetes Service (Amazon
-    EKS). Operational technology (OT) asset management keeps device versions.
-
-**User workspace:** one engineer's user workspace: the backend, the agent stack, and the cell bridges, and how they
-reach virtual cells, vendor tools, and AWS services.
-
-![User workspace: a Linux container on Amazon EKS with the backend API, the Zenoh router, the cell tools, the agent stack with the Kiro agent, the planner router, the agentic solver and the planner jobs, and the cell bridges to the virtual cell, the Windows IDE host and the GPU host, next to Amazon S3, the Kiro service, Amazon Bedrock, Amazon EC2, AWS Secrets Manager, AWS Systems Manager and AWS Lambda](assets/images/architecture-user-workspace.png)
-
-21. Engineers chat with the AI agent and approve cells in 3D in the Physical AI (PAI) Production Designer viewer.
-    Lambda@Edge on Amazon CloudFront checks the OpenID Connect (OIDC) login. An Application Load Balancer from Elastic
-    Load Balancing (ELB) terminates HTTPS for least-privilege containers on Amazon Elastic Kubernetes Service (Amazon
-    EKS).
-22. The backend, the only entry point, proxies Zenoh, desktop, WebRTC, and teach-pendant sessions. Cell tools deploy
-    programmable logic controller (PLC) and robot code and solve inverse kinematics (IK). The Kiro agent uses its Kiro
-    service chat model, speaks Agent Client Protocol (ACP), and drives modules through Model Context Protocol (MCP).
-23. The MCP planner router starts planner jobs that compare robot counts, placements, and task orders. Burst jobs add
-    Amazon Elastic Compute Cloud (Amazon EC2) instances. The multi robot agentic solver, a large language model (LLM)
-    planner, invokes foundation models on Amazon Bedrock, a fully managed service with security and privacy.
-24. The live bridge reads the head PLC over OPC UA and virtual robot controllers over Zenoh, read-only, and publishes
-    the live scene. A proxy relays Amazon DCV from the Windows integrated development environment (IDE) host. Cell
-    tools deploy through its PLC IDE MCP bridge with an AWS Secrets Manager token.
-25. The Isaac bridge links NVIDIA Isaac Sim on graphics processing unit (GPU) hosts to Zenoh, outbound over secure
-    WebSocket. Workspaces install the release named in Parameter Store in AWS Systems Manager. Amazon Simple Storage
-    Service (Amazon S3) holds releases, user data, and backups, encrypted at rest. AWS Lambda controls cells.
-
 ### What the installer deploys
 
-The installer (`deployment/install.sh`) deploys the user workspace of the reference architecture, shared by the
-deployment's users, on one Amazon EC2 instance, with the AWS CDK app in `deployment/`. It creates two AWS
+The CloudFormation installer (`deployment/pai-pd-installer.yaml`) deploys one shared workspace for the deployment's
+users on one Amazon EC2 instance. It runs the AWS CDK app in `deployment/` in AWS CodeBuild, which creates two AWS
 CloudFormation stacks: `factoryos` in the Region you choose, and `factoryos-edge` in US East (N. Virginia), where
-CloudFront's Lambda@Edge function lives. The virtual cells, the simulation hosts, the policy training and the
-on-premises release pipeline are not part of it.
+CloudFront's Lambda@Edge function lives.
 
-| In the reference architecture (steps) | In this Guidance's deployment |
+| Part | In this Guidance's deployment |
 | --- | --- |
-| Amazon CloudFront serves the viewer; Lambda@Edge authorizes every request (1, 6, 21) | The same. The Lambda@Edge function checks the Amazon Cognito tokens on every request, including WebSocket upgrades, before CloudFront forwards it. |
-| Amazon Cognito with your OIDC identity provider, federated (1, 6) | The `factoryos` stack's own Amazon Cognito user pool, in the Region of the deployment: managed login, multi-factor authentication required, users created by the deployer, no self sign-up and no federation. |
-| An Application Load Balancer in the VPC routes engineers to their user workspaces on Amazon EKS (2, 7, 21) | No load balancer and no Amazon EKS: CloudFront reaches one AWS Graviton Amazon EC2 instance (m7g.2xlarge, Ubuntu 24.04) in a private subnet of the stack's VPC through a VPC origin on port 80. The instance has no public IP address and reaches the internet only outbound, through a NAT gateway, for the build dependencies and the Kiro service. |
-| The user workspace: backend API, workflow modules, Kiro agent, planner router, agentic solver and planner jobs (8, 22, 23) | One workspace on the instance, shared by every user: the backend with the web viewer, the Robo Dresser, Robo Fitter and Product & Task, the cell runtime, the Kiro agent, the planner router and planners, and plan2cell. Its Amazon EBS volume holds the designs, cells and plans. The planners run on the instance; there are no burst jobs. |
-| Amazon Bedrock (3, 8, 23) | Optional: the agentic planner invokes Anthropic models on Amazon Bedrock when you install with `--bedrock` or `--bedrock-models`. |
-| Amazon S3 holds releases and data (4, 10, 25) | An Amazon S3 bucket holds the release sources the instance builds from, and a second one the access logs of that bucket and of CloudFront. |
-| AWS Systems Manager (4, 25) | The only administrative access (Session Manager, no SSH). Run Command starts release builds, and Parameter Store keeps the release state. |
-| AWS Secrets Manager (4, 14, 24) | Optional: the instance reads a Kiro API key from a secret you name (`--kiro-secret`). |
-| Virtual cells, the Windows IDE host with Amazon DCV, NVIDIA Isaac Sim, Amazon SageMaker AI, Amazon ECR, Amazon Bedrock AgentCore and the Lambda change log (3, 9 to 14, 24, 25) | Not deployed. Plans run on the simulated cell in the viewer (Pinocchio kinematics, Coal collision checks), and the learned policies' checkpoints are included. |
-| The release pipeline, the approval gates and the factory site (5, 15 to 20) | Not deployed. plan2cell's PLC and robot programs are downloaded from the viewer. |
+| Amazon CloudFront and Lambda@Edge | CloudFront serves the viewer. The Lambda@Edge function checks the Amazon Cognito tokens on every request, including WebSocket upgrades, before CloudFront forwards it. |
+| Amazon Cognito | The `factoryos` stack's own user pool, in the Region of the deployment: managed login, multi-factor authentication required, users created by the deployer, no self sign-up and no federation. |
+| Amazon EC2 | One AWS Graviton instance (m7g.2xlarge, Ubuntu 24.04) in a private subnet of the stack's VPC, which CloudFront reaches through a VPC origin on port 80. It has no public IP address and reaches the internet only outbound, through a NAT gateway, for the build dependencies and the Kiro service. |
+| The workspace | Shared by every user, on the instance: the backend with the web viewer, the Robo Dresser, Robo Fitter and Product & Task, the cell runtime, the Kiro agent, the planner router and planners, and plan2cell. Its Amazon EBS volume holds the designs, cells and plans. |
+| Amazon Bedrock | Optional: the agentic planner invokes Anthropic models on Amazon Bedrock when the installer's **Amazon Bedrock** parameter is `true`. |
+| Amazon S3 | One bucket holds the release sources the instance builds from, a second one the access logs of that bucket and of CloudFront. |
+| AWS Systems Manager | The only administrative access (Session Manager, no SSH). Run Command starts release builds, and Parameter Store keeps the release state. |
 
-Besides, Amazon CloudWatch collects the instance's bootstrap and release (build) logs, the VPC flow logs and the
-Lambda logs, and the deployer runs `deployment/install.sh` from AWS CloudShell or a workstation: it deploys the AWS
-CDK app, which creates the AWS CloudFormation stacks, and starts the release build on the instance.
+Amazon CloudWatch collects the instance's bootstrap and release (build) logs, the VPC flow logs and the Lambda logs.
+Virtual robot controllers and PLCs, GPU simulation hosts, policy training and an on-premises release pipeline are not
+part of this deployment: plans run on the simulated cell in the viewer, and the learned policies' checkpoints are
+included.
 
 ### Cost
 
@@ -205,7 +78,7 @@ are subject to change. For full details, refer to the pricing webpage for each A
 The Amazon EC2 instance is most of the cost, and it is billed for every hour it runs, whether or not anyone uses it.
 Stopping it outside working hours (for example, running it 200 hours a month) lowers its share from $238.27 to about
 $65.28; the EBS volume and the NAT gateway are billed while it is stopped. Do not stop it while a release builds
-(`./deployment/install.sh status` shows the release phase). `install.sh uninstall` removes every billed resource the
+(the installer stack's `BuildLogs` output shows the build). The installer's uninstall removes every billed resource the
 Guidance created ([Cleanup](#cleanup)); the AWS CDK bootstrap stacks (`CDKToolkit`, with an S3 staging bucket) that the
 installer creates where they are missing, in your Region and in us-east-1, stay and cost a few cents a month.
 
@@ -239,36 +112,25 @@ US East (N. Virginia) Region for one month. The prices are the public On-Demand 
 | AWS CloudFormation | the two stacks, which use AWS resource types only | $ 0.00 |
 | **Total** | | **$ 301.32** |
 | Amazon Bedrock (optional, not in the total) | Agentic planner: for example 20 planning sessions with 200,000 input and 20,000 output tokens each on Anthropic Claude Sonnet 5 at $2.20 and $11.00 per million tokens, the US geographic cross-Region inference price the deployment's `us.` inference profiles pay (on Claude Opus 5, at $5.50 and $27.50, the same sessions cost $33.00) | $ 13.20 |
-| AWS Secrets Manager (optional, not in the total) | 1 secret with a Kiro API key (`--kiro-secret`) | $ 0.40 |
 
 ## Prerequisites
 
 ### Operating System
 
-You run the installer, `deployment/install.sh`, from **AWS CloudShell** (recommended: it has every tool below and the
-credentials of your console session) or from a **Linux or macOS** workstation with a bash shell. On Windows, use
-AWS CloudShell or the Windows Subsystem for Linux.
-
-The installer creates the instance it builds and runs the Guidance on: Ubuntu 24.04 LTS (arm64) on an AWS Graviton
-m7g.2xlarge with a 200 GB gp3 volume. You do not launch or prepare a host yourself.
+You need only a web browser: you run the installer from **AWS CloudShell** (it has the AWS CLI, git and the
+credentials of your console session) or from the AWS CloudFormation console. The installer creates the instance it
+builds and runs the Guidance on: Ubuntu 24.04 LTS (arm64) on an AWS Graviton m7g.2xlarge with a 200 GB gp3 volume.
+You do not launch or prepare a host yourself.
 
 ### Third-party tools
-
-On the machine you install from (AWS CloudShell has all of them):
-
-- the [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), with credentials for
-  the account (see [AWS account requirements](#aws-account-requirements));
-- [Node.js](https://nodejs.org) 20 or newer, with npm. The installer runs the AWS CDK CLI version that
-  `deployment/package-lock.json` pins (`npm ci`, `npx cdk`), never a globally installed one;
-- git, python3, bash, tar, unzip and curl.
 
 On the instance, the release build fetches the Rust crates, npm packages, Python packages and Rerun 0.38.1 from
 crates.io, the npm registry, PyPI and GitHub, each at the version its lock file or pin names. Their licences are listed
 in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Two more come from their own publishers:
 
-- **umarell** (the U3 and agentic planners): fetched from GitHub at the commit pinned in `source/deploy/umarell.pin`.
-  That repository is not public yet; until it is, an installation needs `--umarell-tarball` ([Known
-  issues](#known-issues)).
+- **umarell** (the U3, umarell_jam and agentic planners): fetched from GitHub at the commits pinned in
+  `source/deploy/umarell.pin` and `source/deploy/umarell-jam.pin`. That repository is not public yet; until it is, an
+  installation needs the installer's **umarell archive** parameters ([Known issues](#known-issues)).
 - **Kiro CLI** 2.26.1 (the planning agent): installed on the instance and checked against its sha256. It needs a Kiro
   subscription and is subject to Kiro's terms ([kiro.dev](https://kiro.dev)). Review them before you sign the agent
   in. The viewer plans through this agent's chat for every planner, so planning in the viewer needs it signed in;
@@ -276,30 +138,19 @@ in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Two more come from their ow
 
 ### AWS account requirements
 
-- An AWS account, and credentials that may deploy AWS CDK apps and create IAM roles. An administrator role in the
-  account covers everything the installer does. For a narrower role, see the [permissions the installer
-  needs](docs/operations.md#permissions-the-installer-needs) in the operations guide.
+- An AWS account, and permission to create an AWS CloudFormation stack with IAM resources. The installer's AWS
+  CodeBuild project does the rest with its own role ([Deployment Steps](#deployment-steps)).
 - The m7g.2xlarge instance needs 8 vCPUs of the Amazon EC2 quota described in [Service limits](#service-limits).
 - Optional, for the agentic planner: access to Anthropic models on Amazon Bedrock in the Region of the deployment
   (first-time use of Anthropic models may require submitting use case details in the Amazon Bedrock console). The
-  instance may call Bedrock only when you install with `--bedrock` (the cross-Region inference profiles of the models
-  the agentic planner uses) or `--bedrock-models <id,...>` (the inference profile ids you name), and then only those
-  inference profiles and the models they route to.
-- Optional: a Kiro API key in an AWS Secrets Manager secret of the same Region (`--kiro-secret <secret name>`), if your
-  Kiro subscription uses one. Otherwise users sign the agent in from the viewer ([Deployment
-  Steps](#deployment-steps), step 6).
+  instance may call Bedrock only when the installer's **Amazon Bedrock** parameter is `true`, and then only the
+  cross-Region inference profiles of the models the agentic planner uses and the models they route to.
 
 ### aws cdk bootstrap
 
-The Guidance uses the AWS CDK. The AWS CDK has to be bootstrapped once per account in the Region of the deployment and
-in US East (N. Virginia) (`us-east-1`), where the stack of the Lambda@Edge function goes. `install.sh install` checks
-both and runs `cdk bootstrap` only where the bootstrap is missing, so you need not do it yourself. To bootstrap
-yourself, with the CDK CLI the Guidance pins, run this from the repository's root, and once more with your Region in
-place of `us-east-1` if you deploy to another Region ([details](docs/operations.md#bootstrap-the-aws-cdk-yourself)):
-
-```sh
-(cd deployment && npm ci) && deployment/node_modules/.bin/cdk bootstrap aws://<account-id>/us-east-1
-```
+The Guidance uses the AWS CDK, which has to be bootstrapped once per account in the Region of the deployment and in
+US East (N. Virginia) (`us-east-1`), where the stack of the Lambda@Edge function goes. The installer checks both and
+runs `cdk bootstrap` only where the bootstrap is missing, so you need not do it yourself.
 
 ### Service limits
 
@@ -316,26 +167,16 @@ user pool ([Manage users](docs/operations.md#manage-users)).
 The default and tested Region is US East (N. Virginia) (`us-east-1`). The Guidance works in any commercial Region that
 offers AWS Graviton m7g instances, CloudFront VPC origins and Cognito managed login; the edge stack is always in
 us-east-1. The agentic planner additionally needs Anthropic models on Amazon Bedrock in the Region of the deployment.
-One stack name serves one Region: to install a second deployment in another Region, give it another name
-(`--stack-name`).
+One stack name serves one Region: to install a second deployment in another Region, give it another name (the
+installer's **Application stack name** parameter).
 
 ## Deployment Steps
 
-There are two ways to install, and both run the same installer, `deployment/install.sh`:
-
-- **Option A** is one AWS CloudFormation stack. It needs no shell and no tools, and it waits for the installation
-  for you.
-- **Option B** runs the installer from AWS CloudShell or your workstation. It gives you every option of the
-  installer, such as several users or a custom Amazon Bedrock model list.
-
-### Option A: the CloudFormation installer
-
 The template `deployment/pai-pd-installer.yaml` creates an AWS CodeBuild project and starts it. The project gets
-this Guidance, runs `deployment/deploy.sh`, which runs `deployment/install.sh` without prompts, and reports the
-result to the stack. The stack completes once Physical AI Production Designer is ready, which takes about 2.5 to 3
-hours. The CodeBuild project's role has `AdministratorAccess`, because the installer bootstraps the AWS CDK and
-creates IAM roles, Amazon CloudFront and Lambda@Edge. Only CodeBuild can assume the role, and only for this
-stack's project.
+this Guidance, runs its installer without prompts, and reports the result to the stack. The stack completes once
+Physical AI Production Designer is ready, which takes about 2.5 to 3 hours. The CodeBuild project's role has
+`AdministratorAccess`, because the installer bootstraps the AWS CDK and creates IAM roles, Amazon CloudFront and
+Lambda@Edge. Only CodeBuild can assume the role, and only for this stack's project.
 
 1. Open AWS CloudShell in the Region of the deployment, and clone the repository:
    ```sh
@@ -350,92 +191,54 @@ stack's project.
      --capabilities CAPABILITY_IAM --on-failure DO_NOTHING \
      --parameters ParameterKey=AdminEmail,ParameterValue=you@example.com
    ```
-   To install a specific release instead of the latest one, add `ParameterKey=Release,ParameterValue=<tag>`.
+   To install a specific release instead of the latest one, add `ParameterKey=Release,ParameterValue=<tag>`. Until
+   the umarell repository is public, also add `ParameterKey=UmarellTarballUri,ParameterValue=<s3:// or https://>`
+   and, for the umarell_jam planner, `ParameterKey=UmarellJamTarballUri,ParameterValue=<s3:// or https://>`
+   ([Known issues](#known-issues)).
 
    **In the console instead:**
    1. Download `deployment/pai-pd-installer.yaml`.
    2. In the [AWS CloudFormation console](https://console.aws.amazon.com/cloudformation/home), choose
       **Create stack**, then **With new resources (standard)**, then **Upload a template file**.
-   3. Enter **Administrator e-mail**.
+   3. Enter **Administrator e-mail** (and the umarell archives, if you need them).
    4. Under **Stack failure options**, choose **Preserve successfully provisioned resources**.
    5. Acknowledge that the stack creates IAM resources, then choose **Submit**.
 3. Follow the installation. The stack's `BuildLogs` output links to the build:
    ```sh
    aws cloudformation describe-stacks --stack-name pai-pd-installer --query 'Stacks[0].[StackStatus,Outputs]'
    ```
+   The invitation e-mail arrives once the infrastructure is deployed, after about 40 minutes. Until the release build
+   on the instance is finished, the URL signs you in and then shows an error page. When the stack is
+   `CREATE_COMPLETE`, its `Url` output is the application.
+4. Sign in. The e-mail from Cognito has the URL, your user name and a temporary password (valid for 7 days).
+   1. Open the URL, sign in with the e-mail address and the temporary password, and choose a new password.
+   2. Enrol multi-factor authentication: scan the QR code with an authenticator app (TOTP) and enter its code. Every
+      later sign-in asks for a code.
+   3. Sign the Kiro agent in (the viewer plans through its chat, for every planner): in the viewer's settings, choose
+      how (a personal AWS Builder ID, or your organisation's IAM Identity Center start URL and Region), choose **Sign
+      in to the agent**, and approve the request on the page that opens. The agent's sign-in is shared by every user
+      of the deployment.
 
-The invitation e-mail arrives once the infrastructure is deployed, after about 40 minutes. Until the release build
-on the instance is finished, the URL signs you in and then shows an error page. Watch the build with the stack's
-`BuildLogs` output. When the stack is `CREATE_COMPLETE`, its `Url` output is the application.
-
-To install another release later, update the stack with a new **Release**. The update starts a new build, which
-updates the installation in place. The stack update completes at once; follow the build in `BuildLogs`.
+To install another release later, update the installer stack with a new **Release**. The update starts a new build,
+which updates the installation in place; follow it in `BuildLogs`.
 
 **Installing from your own files.** The template can also install from files you provide instead of GitHub:
 
 - **Source `upload`**: the stack creates a private bucket and completes in about a minute. Upload the files to it
   (the `UploadTo` output), then start the installation (the `StartInstall` output).
 - **Source `s3`**: set **Artifact set** to an `s3://bucket/prefix/` that holds the files.
-- **Any source**: set **Export archive** or **umarell archive** to an `s3://` or `https://` URI, for example a
-  presigned URL. Presigned URLs only need to be valid when the build starts, which downloads them first. A presigned
-  URL in a parameter can be read by anyone allowed to describe the stack until it expires, so keep its expiry short.
+- **Any source**: set **Export archive** or the **umarell archive** parameters to an `s3://` or `https://` URI, for
+  example a presigned URL. Presigned URLs only need to be valid when the build starts, which downloads them first. A
+  presigned URL in a parameter can be read by anyone allowed to describe the stack until it expires, so keep its
+  expiry short.
 
 `deployment/make-artifacts.sh <export.zip> --umarell <umarell.tar.gz> --out <dir or s3://...>` writes such a set:
 the export, the umarell archive, a `.sha256` file for each, and an `artifacts.json` that names them. The build
 checks every `.sha256` file before it installs anything.
 
-### Option B: install from a shell
-
-Run these steps in AWS CloudShell, or in a shell on your workstation with credentials for the account. A first
-installation deploys the infrastructure in about 15 to 25 minutes; the instance then builds the release from source,
-which takes a few hours ([Known issues](#known-issues)).
-
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/aws-solutions-library-samples/guidance-for-physical-ai-production-designer-on-aws
-   ```
-2. Change to the repository's root:
-   ```sh
-   cd guidance-for-physical-ai-production-designer-on-aws
-   ```
-3. Choose the Region of the deployment:
-   ```sh
-   export AWS_REGION=us-east-1
-   ```
-4. Install. Replace `you@example.com` with the e-mail address of the first user (a comma-separated list for several).
-   The installer prints the account, the Region and the stack name and asks before it goes on; it bootstraps the AWS
-   CDK where needed, deploys both stacks, checks that the sign-in denies anonymous requests (the `GateVerified`
-   output), uploads the checkout to the stack's source bucket, starts the release build on the instance, and invites
-   the users:
-   ```sh
-   ./deployment/install.sh install --from-checkout --region us-east-1 --users you@example.com
-   ```
-   Until the umarell repository is public, add `--umarell-tarball s3://<bucket>/umarell.tar.gz` ([Known
-   issues](#known-issues); how to make the tarball: [Provide umarell as a
-   tarball](docs/operations.md#provide-umarell-as-a-tarball)). Without it, the release build fails when it installs
-   the planners.
-5. Follow the release build until it is `ready`. The command polls every minute and prints only changes; if your
-   CloudShell session ends, run it again, the build goes on without it:
-   ```sh
-   ./deployment/install.sh status --wait
-   ```
-6. Sign in. Each user gets an e-mail from Cognito with the URL, their user name and a temporary password (valid for
-   7 days).
-   1. Open the URL, sign in with the e-mail address and the temporary password, and choose a new password.
-   2. Enrol multi-factor authentication: scan the QR code with an authenticator app (TOTP) and enter its code. Every
-      later sign-in asks for a code.
-   3. Unless you installed with `--kiro-secret`, sign the Kiro agent in (the viewer plans through its chat, for every
-      planner): in the viewer's settings, choose
-      how (a personal AWS Builder ID, or your organisation's IAM Identity Center start URL and Region), choose **Sign
-      in to the agent**, and approve the request on the page that opens. The agent's sign-in is shared by every user
-      of the deployment.
-
-The [operations guide](docs/operations.md) has the installer's other tasks: [adding and removing
-users](docs/operations.md#manage-users) (`add-user`, `remove-user`), [installing from a release
-zip](docs/operations.md#install-from-a-release-zip), [updating an installation](docs/operations.md#update-an-installation)
-in place, [every option](docs/operations.md#installer-commands-and-options) (such as `--stack-name`,
-`--instance-type`, `--bedrock` and `--kiro-secret`), and the [installation without
-input](docs/operations.md#install-without-input) (`deployment/deploy.sh`) for automated validation.
+The [operations guide](docs/operations.md) covers running the deployment: [adding and removing
+users](docs/operations.md#manage-users), [updating an installation](docs/operations.md#update-an-installation), and
+[troubleshooting](docs/operations.md#troubleshooting).
 
 ## Deployment Validation
 
@@ -446,9 +249,10 @@ input](docs/operations.md#install-without-input) (`deployment/deploy.sh`) for au
    ```
    The outputs also name the instance (`InstanceId`), the user pool (`UserPoolId`), the source bucket (`SourceBucket`)
    and the log group (`LogGroup`).
-2. Check the release: `Release` shows `ready` and the version, and `Users` lists the invited users:
+2. Check the installer stack: it is `CREATE_COMPLETE` (or `UPDATE_COMPLETE` after a new **Release**), and its build
+   log (`BuildLogs`) ends with the release `ready` and its version:
    ```sh
-   ./deployment/install.sh status
+   aws cloudformation describe-stacks --stack-name pai-pd-installer --query 'Stacks[0].StackStatus'
    ```
 3. Check that an anonymous request is denied. With the `Url` output in `URL`, the first command prints `401` and the
    second `302` (a redirect to the Cognito sign-in):
@@ -458,11 +262,12 @@ input](docs/operations.md#install-without-input) (`deployment/deploy.sh`) for au
    curl -sS -o /dev/null -w '%{http_code}\n' "${URL%/}/api/v1/health"
    curl -sS -o /dev/null -w '%{http_code}\n' -H 'Accept: text/html' "${URL%/}/"
    ```
-4. Open the URL in your browser and sign in ([Deployment Steps](#deployment-steps), step 6): the Physical AI Production
+4. Open the URL in your browser and sign in ([Deployment Steps](#deployment-steps), step 4): the Physical AI Production
    Designer viewer loads.
 
-If the release ends `failed`, `status` shows the error and the last lines of the build log; the previous release (if
-any) keeps serving. Fix the cause and run step 4 of the Deployment Steps again (with `--force` for the same version).
+If the release ends `failed`, the build log (`BuildLogs`) shows the error and the last lines of the release build; the
+previous release (if any) keeps serving. Fix the cause, then start the installer's build again: open the CodeBuild
+project from the `BuildLogs` output and choose **Start build**.
 Where the full log is, and other problems: [Troubleshooting](docs/operations.md#troubleshooting).
 
 ## Running the Guidance
@@ -474,7 +279,7 @@ built from (the robot `kr240r2900`, the tool `sticktool`, the dressed robot `kr2
 planners' checkpoints for that cell.
 
 **Before you start.** Sign in at the stack's URL. Planning runs through the planner agent's chat, so the Kiro agent
-must be signed in first ([Deployment Steps](#deployment-steps), step 6; not needed with `--kiro-secret`); the learned
+must be signed in first ([Deployment Steps](#deployment-steps), step 4); the learned
 policies and U3 do not call Amazon Bedrock. The viewer shows the workflow as cards on the left, top to bottom, the 3D
 view in the centre, and the open tool's panels on the right. The top bar's **Simple | Advanced** switch shows more settings in Advanced; Simple uses their defaults.
 If a step fails, see [Troubleshooting](docs/operations.md#troubleshooting) in the operations guide.
@@ -585,52 +390,32 @@ the PLC. They are for the simulated reference cell ([Additional considerations](
 - Plan your own cells with U3 or the agentic planner, and run the plans in the Behaviour Tree Executor.
 - Explore the code generator's options (`plan2cell options`), and co-simulate a build's PLC program with the robots
   (`plan2cell simulate`, see `source/plan2cell/README.md`).
-- Turn on the agentic planner's Amazon Bedrock access (`--bedrock` or `--bedrock-models <id,...>` on the next install
-  command), and sign the agent in.
-- Change the code in `source/`, commit it, and deploy it with the same install command ([Update an
-  installation](docs/operations.md#update-an-installation)).
+- Turn on the agentic planner's Amazon Bedrock access (update the installer stack with **Amazon Bedrock** `true`),
+  and sign the agent in.
+- Change the code in `source/`, and deploy your own version through the installer's **Source** parameter
+  ([Deployment Steps](#deployment-steps), Installing from your own files).
 - Operate the deployment: users, updates, options, permissions and troubleshooting are in the [operations
   guide](docs/operations.md).
 - Develop and test the deployment itself: [deployment/README.md](deployment/README.md).
 
 ## Cleanup
 
-**If you installed with the CloudFormation installer (Option A):**
-
 1. Run the installer stack's `Uninstall` command in AWS CloudShell. Alternatively, open the CodeBuild project from
    the `BuildLogs` output, choose **Start build with overrides**, and set the environment variable `ACTION` to
-   `uninstall`. The build removes everything step 1 below lists. It also retries the edge stack for up to 2 hours
-   while CloudFront removes the Lambda@Edge replicas.
+   `uninstall`. The build empties the stack's versioned source bucket, then deletes both stacks with everything in
+   them, among them the instance and its volume (every design, cell and plan on it), the user pool and its users, and
+   the CloudFront distribution, and the log groups Lambda created outside the stacks ([the full
+   list](docs/operations.md#what-uninstall-deletes)). It also retries the edge stack for up to 2 hours while
+   CloudFront removes the Lambda@Edge replicas.
 2. When the build has succeeded, delete the installer stack. That removes the CodeBuild project, its role and log
    group, the helper function, and the inputs bucket with everything in it. Deleting the installer stack alone does
    **not** remove the application.
-
-**If you installed from a shell (Option B):**
-
-1. Uninstall. The installer lists what it deletes and asks you to type the stack name. It empties the stack's
-   versioned source bucket, then deletes both stacks with everything in them, among them the instance and its volume
-   (every design, cell and plan on it), the user pool and its users, and the CloudFront distribution, and the log
-   groups Lambda created outside the stacks ([the full list](docs/operations.md#what-uninstall-deletes)). Add
-   `--snapshot` to keep an EBS snapshot of the volume first.
    ```sh
-   ./deployment/install.sh uninstall
+   aws cloudformation delete-stack --stack-name pai-pd-installer
+   aws cloudformation wait stack-delete-complete --stack-name pai-pd-installer
    ```
-2. If the edge stack (`factoryos-edge` in us-east-1) does not delete yet: CloudFront removes the Lambda@Edge
-   function's replicas only some time after the distribution is gone. The installer says so; run this again after
-   about 1 hour (it then also deletes the replicas' log groups):
-   ```sh
-   ./deployment/install.sh uninstall --edge-only
-   ```
-3. Delete what is not part of the stacks, if it applies: the EBS snapshot of `--snapshot`
-   (`aws ec2 delete-snapshot --snapshot-id <snapshot id>`, the installer printed the id), log groups the uninstall
-   warned it could not delete, and the release zip and the umarell tarball you uploaded to your own bucket
-   ([what stays](docs/operations.md#what-stays)). The AWS CDK bootstrap stacks (`CDKToolkit`) stay: they belong to
-   the account and are shared by every AWS CDK app in it.
-
-**Without the installer.** The installation's stacks are an AWS CDK app, so the equivalent is `npx cdk destroy --all`
-from `deployment/`, after the versioned source bucket is emptied. The app needs its context to synthesize, and the
-installer's parameters are left to delete: [Without the installer](docs/operations.md#without-the-installer) has the
-commands.
+3. The AWS CDK bootstrap stacks (`CDKToolkit`) stay: they belong to the account and are shared by every AWS CDK app
+   in it.
 
 ## FAQ, known issues, additional considerations, and limitations
 
@@ -640,9 +425,12 @@ For problems with the installation, the release build, users or the cleanup, see
 ### Known issues
 
 - **umarell is not public yet.** The U3 and agentic planners need umarell at the commit pinned in
-  `source/deploy/umarell.pin` (`08d5a39`), which the release build fetches from GitHub. Until that repository is
-  public, the fetch fails and so does the release: install with `--umarell-tarball s3://<bucket>/umarell.tar.gz`
-  ([Deployment Steps](#deployment-steps)).
+  `source/deploy/umarell.pin` (`08d5a39`), and umarell_jam needs it at `source/deploy/umarell-jam.pin` (`76ea13a`);
+  the release build fetches both from GitHub. Until that repository is public, the fetch fails and so does the
+  release: give the installer the **umarell archive** (`UmarellTarballUri`) and, for umarell_jam, the **umarell_jam
+  archive** (`UmarellJamTarballUri`) ([Deployment Steps](#deployment-steps); how to make them: [Provide umarell as a
+  tarball](docs/operations.md#provide-umarell-as-a-tarball)). Without the umarell_jam archive the release still
+  installs; umarell_jam is then marked incomplete and its jobs fall back to U3.
 - **The first release takes hours.** The instance builds everything from source: the Rust workspaces with link-time
   optimisation, Coal and Pinocchio, the web viewer and the planners' Python environment. Until the first release is
   `ready`, the URL signs you in and shows an error page. An update builds next to the running release, which keeps
@@ -674,10 +462,8 @@ For problems with the installation, the release build, users or the cleanup, see
   terminal in the viewer is a shell on the instance as the service user `factoryos`, the user the backend runs as,
   with the permissions of the instance's IAM role through the instance metadata service: its own source bucket, its
   release parameters (including writing the release state that `status` shows), its log group, the Amazon Bedrock
-  models you allowed and, with `--kiro-secret`, **reading the Kiro API key secret**. The terminals do not put the key
-  in a shell's environment, but any user can read it with `aws secretsmanager get-secret-value`. Users also share the
-  Kiro session and the Bedrock usage, which your account pays for. Invite only people you would give that access to,
-  and the Kiro API key.
+  models you allowed. Users also share the Kiro session and the Bedrock usage, which your account pays for. Invite only
+  people you would give that access to.
 - **Administrators** reach the instance only through AWS Systems Manager Session Manager (no SSH, no public IP
   address), with IAM permissions for it in the account.
 - The instance's security group accepts traffic only from CloudFront's VPC origins, on port 80, and only after the
@@ -686,8 +472,7 @@ For problems with the installation, the release build, users or the cleanup, see
   refuses (`403`) any request from the network without it: a distribution without this deployment's edge function
   reaches nothing. The backend has no other authentication of its own: never open the instance to other traffic.
   The origin secret is not a boundary against the deployment's own users, whose terminals can read it;
-  `install.sh install --rotate-origin-secret` replaces it ([Rotate the origin
-  secret](docs/operations.md#rotate-the-origin-secret)).
+  [Rotate the origin secret](docs/operations.md#rotate-the-origin-secret) replaces it.
 - **The terminal also has the Systems Manager and CloudWatch agents' permissions, and they reach past this
   deployment.** The instance role carries what the two agents on the instance need, written out like the
   [`AmazonSSMManagedInstanceCore`](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonSSMManagedInstanceCore.html)

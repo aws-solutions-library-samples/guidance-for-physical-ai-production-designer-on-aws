@@ -1,6 +1,6 @@
 [package]
 name = "openapi-mcp"
-version = "0.1.26"
+version = "0.1.27"
 edition = "2021"
 license = "MIT-0"
 description = "Serve an OpenAPI-described tower service as a stdio MCP server: one tool per operation, dispatched in process"

@@ -172,6 +172,8 @@ handle() {
     "cognito-idp admin-create-user") echo FORCE_CHANGE_PASSWORD ;;
     "s3api list-object-versions") echo '{}' ;;
     "s3api delete-objects"|"cloudformation delete-stack"|"cloudformation wait"|"ssm delete-parameter") ;;
+    # The stack's parameters that exist: $FAKE/params-left (one name a line), none without it.
+    "ssm get-parameters") [ ! -f "$FAKE/params-left" ] || tr '\n' '\t' < "$FAKE/params-left" ;;
     "cloudformation list-stack-resources")
       local name="" query=""
       while [ $# -gt 0 ]; do case "$1" in --stack-name) name="$2"; shift ;; --query) query="$2"; shift ;; esac; shift; done
@@ -612,6 +614,19 @@ out=$(run uninstall --region $reg --confirm-stack factoryos --edge-only); rc=$?
 check "uninstall --edge-only: only the edge stack and its log groups" \
   $([ $rc = 0 ] && ! grep -q "$reg cloudformation delete-stack --stack-name factoryos\$" "$T/calls" && ! grep -q CustomS3AutoDelete "$T/calls" \
      && grep -q "logs delete-log-group --log-group-name /aws/lambda/us-east-1.factoryos-edge-EdgeAuth" "$T/calls"; echo $?) "$out"$'\n'"$(cat "$T/calls")"
+# An uninstall cut short after the main stack was deleted (a closed CloudShell, a reboot) leaves the stack's
+# parameters; running it again removes them (test install fxt-jam, 2026-11-16).
+reset; printf '%s\n' /factoryos/factoryos/release/wanted /factoryos/factoryos/install-options > "$T/params-left"
+out=$(run uninstall --region $reg --confirm-stack factoryos); rc=$?
+check "uninstall with both stacks gone but parameters left: lists and deletes them" \
+  $([ $rc = 0 ] && grep -q 'parameters an earlier uninstall left: /factoryos/factoryos/release/wanted /factoryos/factoryos/install-options' <<<"$out" \
+     && grep -q -- "--region $reg ssm delete-parameter --name /factoryos/factoryos/release/wanted" "$T/calls" \
+     && grep -q -- "--region $reg ssm delete-parameter --name /factoryos/factoryos/install-options" "$T/calls" \
+     && ! grep -q 'Not installed' <<<"$out" && ! grep -q 'delete-stack' "$T/calls"; echo $?) "$out"$'\n'"$(cat "$T/calls")"
+rm -f "$T/params-left"; reset
+out=$(run uninstall --region $reg --confirm-stack factoryos); rc=$?
+check "uninstall with nothing left: 'Not installed', nothing deleted" \
+  $([ $rc = 0 ] && grep -q 'Not installed' <<<"$out" && ! grep -q 'delete-parameter' "$T/calls"; echo $?) "$out"
 reset; override "$up"
 out=$(run uninstall --region $reg --confirm-stack factoryos-other); rc=$?
 check "uninstall --confirm-stack <another name>: refused before any AWS call" $([ $rc != 0 ] && grep -q 'is not the stack name' <<<"$out" && [ ! -s "$T/calls" ]; echo $?) "$out"

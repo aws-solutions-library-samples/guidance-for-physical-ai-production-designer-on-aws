@@ -6,7 +6,10 @@
 
 cmd_uninstall() {
   local main edge; main=$(stack_status "$STACK" "$REGION"); edge=$(stack_status "$STACK-edge" "$EDGE_REGION")
-  if [ "$main" = NONE ] && [ "$edge" = NONE ]; then say "Not installed ($STACK in $REGION)."; return 0; fi
+  # The stack's parameters outside it: an uninstall cut short after the stack was deleted (a closed CloudShell, a
+  # reboot) leaves them, and a second run must still remove them (test install fxt-jam, 2026-11-16).
+  local left=""; [ "$main" != NONE ] || [ "$EDGE_ONLY" = 1 ] || left=$(stack_params_left)
+  if [ "$main" = NONE ] && [ "$edge" = NONE ] && [ -z "$left" ]; then say "Not installed ($STACK in $REGION)."; return 0; fi
   local iid bucket pool url
   if [ "$main" != NONE ]; then
     iid=$(stack_output InstanceId); bucket=$(stack_output SourceBucket); pool=$(stack_output UserPoolId); url=$(stack_output Url)
@@ -23,6 +26,7 @@ cmd_uninstall() {
     say "    /factoryos/$STACK/install-options and /factoryos/$STACK/origin-secret (and in $EDGE_REGION"
     say "    /factoryos/$STACK/edge-origin-secret)"
   fi
+  [ -z "$left" ] || say "Deletes, in $REGION: the parameters an earlier uninstall left: $(echo $left)"
   [ "$edge" = NONE ] || say "Deletes, in $EDGE_REGION: the stack $STACK-edge ($edge, the sign-in function), and in every"
   [ "$edge" = NONE ] || say "  Region: the log groups of the sign-in function's Lambda@Edge replicas"
   [ "$SNAPSHOT" = 0 ] || say "Keeps: an EBS snapshot of the instance's volume (it costs storage until you delete it)"
@@ -50,11 +54,7 @@ cmd_uninstall() {
     step "Deleting $STACK"
     delete_main_stack || die "$STACK did not delete; see its events in the CloudFormation console"
     ok "$STACK deleted"
-    local p err
-    for p in "$(param_wanted)" "$(param_state)" "$(param_options)" "$(param_origin)"; do
-      err=$(awsr ssm delete-parameter --name "$p" 2>&1 >/dev/null) || [[ "$err" == *ParameterNotFound* ]] \
-        || warn "could not delete the parameter $p: $err"
-    done
+    delete_stack_params
     # The distribution is gone with the stack: nothing sends the edge's copy any more.
     delete_edge_origin_secret
     # The CDK's custom resource providers log to /aws/lambda/<function>, a group Lambda creates outside the stack.
@@ -67,6 +67,7 @@ cmd_uninstall() {
       delete_log_groups "$REGION" $lgs
     fi
   fi
+  if [ -n "$left" ]; then step "Deleting the parameters of $STACK"; delete_stack_params; fi
   if [ "$edge" != NONE ]; then
     local efns elogs
     efns=$(stack_functions "$EDGE_REGION" "$STACK-edge"); elogs=$(stack_log_groups "$EDGE_REGION" "$STACK-edge")
@@ -94,6 +95,21 @@ cmd_uninstall() {
     fi
   fi
   ok "uninstalled"
+}
+
+# stack_params_left: those of the stack's parameters in $REGION that exist (names only, nothing decrypted).
+stack_params_left() {
+  awsr ssm get-parameters --names "$(param_wanted)" "$(param_state)" "$(param_options)" "$(param_origin)" \
+    --query 'Parameters[].Name' --output text 2>/dev/null | tr '\t' '\n' | grep -E '^/factoryos/' || true
+}
+
+# delete_stack_params: the stack's parameters in $REGION (gone is fine).
+delete_stack_params() {
+  local p err
+  for p in "$(param_wanted)" "$(param_state)" "$(param_options)" "$(param_origin)"; do
+    err=$(awsr ssm delete-parameter --name "$p" 2>&1 >/dev/null) || [[ "$err" == *ParameterNotFound* ]] \
+      || warn "could not delete the parameter $p: $err"
+  done
 }
 
 # delete_edge_origin_secret: the edge's SecureString in us-east-1 (also on an --edge-only retry; gone is fine).
