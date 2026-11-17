@@ -15,8 +15,12 @@
 #   4. downloads the optional umarell tarball to /opt/factoryos/src/<version>.umarell.tar.gz (sha256 checked), and the
 #      optional umarell_jam tarball to <version>.umarell-jam.tar.gz (one that cannot be downloaded or whose sha256
 #      differs is left out with a WARNING: umarell_jam is optional, the release goes on and marks it incomplete);
+#   4c. downloads the optional bundle (`bundle`: the release build in AWS CodeBuild made it of this export) to
+#      /opt/factoryos/bundles/factoryos-viewer-linux-arm64-<version>.tar.gz (sha256 checked; its .sha256 next to it):
+#      factoryos-release deploys it instead of building;
 #   5. installs that export's factoryos-release.sh as /usr/local/sbin/factoryos-release and its unit, and starts the
-#      unit with --no-block. The unit does the rest (deps, build, package, deploy, check) and writes the state.
+#      unit with --no-block. The unit does the rest (deps, build, package, deploy, check; with a bundle deploy and check)
+#      and writes the state.
 # The same version as the one running is "already installed" (state `ready`) unless the request says `force`.
 # A failure here writes the state `failed` with a one-line error.
 #
@@ -175,11 +179,21 @@ if j is not None:
         sys.exit("wanted.umarellJam.key is not vendor/<name>.tar.gz")
     if not isinstance(jsha, str) or not re.fullmatch(r"[0-9a-f]{64}", jsha):
         sys.exit("wanted.umarellJam.sha256 is not 64 lower-case hex digits")
-print(version, key, sha, ukey or "-", usha or "-", jkey or "-", jsha or "-", "1" if w.get("force") is True else "0")
+b = w.get("bundle")
+bkey = bsha = ""
+if b is not None:
+    bkey, bsha = (b.get("key"), b.get("sha256")) if isinstance(b, dict) else (None, None)
+    if bkey != "releases/factoryos-viewer-linux-arm64-%s.tar.gz" % version:
+        sys.exit("wanted.bundle.key is not releases/factoryos-viewer-linux-arm64-<version>.tar.gz")
+    if not isinstance(bsha, str) or not re.fullmatch(r"[0-9a-f]{64}", bsha):
+        sys.exit("wanted.bundle.sha256 is not 64 lower-case hex digits")
+print(version, key, sha, ukey or "-", usha or "-", jkey or "-", jsha or "-", bkey or "-", bsha or "-",
+      "1" if w.get("force") is True else "0")
 ' "$wanted" 2>&1) || die "$param/wanted: $fields"
-read -r version key sha ukey usha jkey jsha force <<<"$fields"
+read -r version key sha ukey usha jkey jsha bkey bsha force <<<"$fields"
 [ "$ukey" = - ] && ukey="" && usha=""
 [ "$jkey" = - ] && jkey="" && jsha=""
+[ "$bkey" = - ] && bkey="" && bsha=""
 
 previous=""
 if [ -L "$opt/current" ]; then
@@ -302,12 +316,31 @@ if [ -n "$jkey" ]; then
 else
   rm -f "$jtar"
 fi
+# --- 4c. the optional bundle the release build in AWS CodeBuild made of this export (deployment/CONTRACT.md "Release
+# build in AWS CodeBuild"): to /opt/factoryos/bundles/<prefix><version>.tar.gz with its .sha256, where
+# factoryos-release deploys it from instead of building
+btar="$opt/bundles/$prefix$version.tar.gz"
+if [ -n "$bkey" ]; then
+  mkdir -p "$opt/bundles"
+  if [ "$(cat "$btar.sha256" 2>/dev/null)" != "$bsha" ] || [ "$(sha256 "$btar" 2>/dev/null || true)" != "$bsha" ]; then
+    rm -f "$btar" "$btar.sha256"
+    aws s3 cp "s3://$FACTORYOS_SOURCE_BUCKET/$bkey" "$btar.part" --region "$AWS_REGION" --only-show-errors \
+      || failed "cannot download s3://$FACTORYOS_SOURCE_BUCKET/$bkey"
+    got=$(sha256 "$btar.part")
+    [ "$got" = "$bsha" ] || { rm -f "$btar.part"; failed "$bkey: sha256 $got, wanted $bsha"; }
+    mv -f "$btar.part" "$btar"
+    echo "$bsha" > "$btar.sha256"
+  fi
+  say "bundle $(basename "$bkey") (built in AWS CodeBuild)"
+fi
 # What the unit releases (its resume after a reboot needs nothing from SSM).
 python3 -I -c 'import json, sys
-version, sha, utar, usha, jtar, jsha, force = sys.argv[1:]
+version, sha, utar, usha, jtar, jsha, btar, bsha, force = sys.argv[1:]
 print(json.dumps({"version": version, "sha256": sha, "umarell": {"path": utar, "sha256": usha} if usha else None,
                   "umarellJam": {"path": jtar, "sha256": jsha} if jsha else None,
-                  "force": force == "1"}))' "$version" "$sha" "$utar" "$usha" "$jtar" "$jsha" "$force" > "$lib/request.json"
+                  "bundle": {"path": btar, "sha256": bsha} if bsha else None,
+                  "force": force == "1"}))' "$version" "$sha" "$utar" "$usha" "$jtar" "$jsha" "$btar" "$bsha" "$force" \
+  > "$lib/request.json"
 
 # --- 5. the export's release unit, started without waiting
 bootstrap="$dest/deployment/bootstrap"

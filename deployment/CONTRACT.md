@@ -82,6 +82,8 @@ install.sh uninstall [--snapshot] [--edge-only] [--confirm-stack <stack>] [--yes
   `vendor/umarell-jam-<sha12>.tar.gz`. Its key and sha256 are the options' `umarellJam`: an update without the option
   sends the recorded one while `s3api head-object` finds it in the source bucket (else it warns and drops it);
   `--umarell-jam-tarball ''` drops it. With the version installed already (no `--force`) it is not used (a warning).
+- `--build-project <name> --build-bucket <bucket>` (install only, together): the release is built in that AWS CodeBuild
+  project instead of on the instance (Release build in AWS CodeBuild, below).
 - `--rotate-origin-secret` (install only; with the version installed already too): a new origin secret; the backend
   restarts twice on the way (Origin secret, below). Without it an update keeps the installed one.
 - **Region refusal.** Before any command, the installer reads `/factoryos/<stack>/edge-config` in us-east-1 (read only).
@@ -147,13 +149,16 @@ install.sh uninstall [--snapshot] [--edge-only] [--confirm-stack <stack>] [--yes
 - `releases/<version>.zip` or `releases/<version>.tar.gz` (`--from-checkout`, and `.tar.gz` exports): the exports.
   `vendor/umarell-<sha12>.tar.gz`: an optional umarell tarball (while sample-umarell is not public);
   `vendor/umarell-jam-<sha12>.tar.gz`: an optional umarell_jam tarball (the same).
+  `releases/factoryos-viewer-linux-arm64-<version>.tar.gz`: the bundle of a release built in AWS CodeBuild (below).
 - Instance role: `s3:GetObject` on `releases/*` and `vendor/*`, `s3:ListBucket` on the bucket (prefix-limited).
 
 ## SSM parameters (in `<region>`, not created by the stack)
 - `/factoryos/<stack>/release/wanted` (String, JSON), written by the installer:
   `{"version":"…","key":"releases/….zip","sha256":"…","umarell":{"key":"vendor/….tar.gz","sha256":"…"}|null,
     "umarellJam":{"key":"vendor/….tar.gz","sha256":"…"}|null,"requestedAt":"<ISO 8601>","force":false}`
-  (`umarellJam` absent is null: a handoff of this version reads an older installer's `wanted`.)
+  (`umarellJam` absent is null: a handoff of this version reads an older installer's `wanted`.) A release built in
+  AWS CodeBuild adds `"bundle":{"key":"releases/factoryos-viewer-linux-arm64-<version>.tar.gz","sha256":"…"}` (absent:
+  the instance builds; the key must name `wanted.version`).
 - `/factoryos/<stack>/release/state` (String, JSON), written by the instance:
   `{"phase":"…","version":"…","previous":"…|null","startedAt":"…","updatedAt":"…","finishedAt":"…|null",
     "error":"…|null","logStream":"…"}`, and on `ready` only, when there is any, `"incomplete":["umarell_jam",…]`: the
@@ -225,6 +230,11 @@ The unit does the rest and writes `state`. Refuses (exit 1, message) while a rel
   `{"path","sha256"}|null`), and `deploying` hands them to `factoryos-deploy.sh` as `FACTORYOS_UMARELL_TARBALL` /
   `_SHA256` and `FACTORYOS_UMARELL_JAM_TARBALL` / `_SHA256` (a missing umarell_jam file only warns). Both are pruned
   with their export.
+- The handoff downloads `wanted.bundle`, when there is one, to
+  `/opt/factoryos/bundles/factoryos-viewer-linux-arm64-<version>.tar.gz` with its `.sha256` (a download or sha256
+  failure fails the release); `request.json` carries it (`bundle`: `{"path","sha256"}|null`), and `factoryos-release`
+  goes from `downloading` straight to `deploying` (no `deps`, `building` or `packaging`), refusing a bundle whose
+  sha256 is no longer the request's.
 - Paths: exports `/opt/factoryos/src/<version>/`, bundles `/opt/factoryos/bundles/`, releases
   `/opt/factoryos/releases/factoryos-viewer-linux-arm64-<version>/`, `/opt/factoryos/current` →
   the running one. `/var/lib/factoryos/` (cells, catalogue, products, plans, umarell) is never deleted by a release.
@@ -356,6 +366,25 @@ invitation message with the URL.
   Optional: a failure, a private repository among them, marks umarell_jam incomplete (`provision-incomplete`) and
   provisioning goes on.
 
+## Release build in AWS CodeBuild
+`install.sh install --build-project <project> --build-bucket <bucket>` (the CloudFormation installer passes its
+`<installer stack>-build` project and its inputs bucket, with `ReleaseBuild` `codebuild`, the default):
+- After the confirmation and before the stacks, the export (the very archive the instance gets) is wrapped in a zip
+  as its only entry, `export.zip` or `export.tar.gz` (a CodeBuild S3 source is a zip it unpacks), uploaded to
+  `s3://<bucket>/builds/<version>-<sha12>/source.zip`, and the build is started with that source, the artifacts'
+  path `builds/<version>-<sha12>` (name `out`, no packaging) and `RELEASE_VERSION`, `EXPORT_SHA256`.
+- The project (Arm, `BUILD_GENERAL1_XLARGE`, `public.ecr.aws/ubuntu/ubuntu:24.04`: the instance's OS and
+  architecture) checks the archive's sha256, unpacks it and runs its `deployment/bootstrap/build-bundle.sh <export
+  dir> <version> <sha256> out`: `install-build-deps.sh`, `scripts/build-release.sh`, `scripts/package-bundle.sh
+  out/bundle.tar.gz`, and `out/bundle.json` = `{"version","exportSha256","sha256","arch":"linux-arm64","builtBy"}`.
+  An export without `build-bundle.sh` fails the build (set `ReleaseBuild` to `instance`).
+- The release step waits for it (`FACTORYOS_BUILD_TIMEOUT_SECONDS`, default 5 h), refuses a `bundle.json` of another
+  version, export or architecture, copies the bundle server side to `releases/factoryos-viewer-linux-arm64-<version>.tar.gz`
+  of the source bucket and names it in `wanted.bundle`. A failed build fails the install (with its log link) before
+  anything is sent to the instance; a build still running when `install.sh` stops is stopped (the EXIT trap).
+- The instance role needs nothing new (`releases/*`). The project's role reads and writes `builds/*` of the inputs
+  bucket only; a lifecycle rule expires `builds/` after 7 days.
+
 ## The one-click scripts
 `deployment/deploy.sh` and `deployment/cleanup.sh` take no input: `AWS_REGION=us-east-1` and static parameters at
 their top. They call only `deployment/install.sh` of the tree they are `deployment/*.sh` of (a clone, a CodeBuild
@@ -387,11 +416,15 @@ behave exactly as above.
   starts no build by itself.
 - `AppStackName` (the `install.sh --stack-name`, default `pai-pd`)
 - `InstanceType`, `VolumeGb`, `Bedrock`
+- `ReleaseBuild` (`codebuild`, the default: the release-build project compiles the release; `instance`: the
+  instance does). Part of `StartBuild`'s `Config` only when `instance` (`|build=instance`).
 
 **The project's environment:**
 - `ACTION` (`install`, the default; or `uninstall`), set per build by an override.
 - `SOURCE_MODE`, `RELEASE`, `REPO_URL`, `ARTIFACTS_URI`, `SOURCE_ARCHIVE_URI`, `UMARELL_TARBALL_URI`, `UMARELL_JAM_TARBALL_URI`,
-  `APP_STACK_NAME`, `ADMIN_EMAIL`, `INSTANCE_TYPE`, `VOLUME_GB`, `BEDROCK`, `INPUTS_BUCKET`.
+  `APP_STACK_NAME`, `ADMIN_EMAIL`, `INSTANCE_TYPE`, `VOLUME_GB`, `BEDROCK`, `INPUTS_BUCKET`, `RELEASE_BUILD`,
+  `RELEASE_BUILD_PROJECT` (with `codebuild` the build script exports `ONECLICK_BUILD_PROJECT` and
+  `ONECLICK_BUILD_BUCKET`, which `deploy.sh` passes as `--build-project` and `--build-bucket`).
 - `WAIT_HANDLE_URL`, which only the create's build gets (an override from `StartBuild`).
 
 **The artifact set:** files directly under one prefix.
@@ -412,7 +445,7 @@ Url output>}` to `WAIT_HANDLE_URL`, with an empty `Content-Type`.
 
 **Outputs:**
 - `Url` and `GateVerified`, except with `upload`.
-- `AppStack`, `BuildLogs`, `Uninstall` (the `start-build` command with `ACTION=uninstall`).
+- `AppStack`, `BuildLogs`, `ReleaseBuildLogs`, `Uninstall` (the `start-build` command with `ACTION=uninstall`).
 - `UploadTo` and `StartInstall`, only with `upload`.
 
-Deleting the installer stack stops its running builds. It never touches `<AppStackName>` or `<AppStackName>-edge`.
+Deleting the installer stack stops its running builds, the release build's too (`StopReleaseBuilds`). It never touches `<AppStackName>` or `<AppStackName>-edge`.

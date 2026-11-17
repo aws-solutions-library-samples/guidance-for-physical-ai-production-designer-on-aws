@@ -26,8 +26,10 @@ Two AWS CloudFormation stacks ([the README's architecture](../README.md#overview
 - `<stack>-edge` in us-east-1: the Lambda@Edge viewer-request function that checks the Cognito session on every
   request. It reads its configuration from the SSM parameter `/factoryos/<stack>/edge-config` in us-east-1.
 
-The instance builds the release itself from `source/` (no prebuilt binaries are published) and installs it with the
-host setup of `source/deploy/`.
+The release is compiled from `source/` (no prebuilt binaries are published): by the CloudFormation installer's
+release-build CodeBuild project (Arm, Ubuntu 24.04, `bootstrap/build-bundle.sh`), or, without one (`install.sh`
+alone, or `ReleaseBuild` `instance`), by the instance itself. The instance installs it with the host setup of
+`source/deploy/`.
 
 ## Layout
 
@@ -41,7 +43,7 @@ host setup of `source/deploy/`.
 | `bin/app.ts`, `lib/` | the CDK app: `app.ts` (both stacks, cdk-nag), `config.ts` (the context, validated), `factoryos-stack.ts`, `edge.ts`, `nag.ts` (the accepted cdk-nag findings, each with its reason) |
 | `lambda/edge-auth/` | the Lambda@Edge gate (Cognito session cookies, PKCE sign-in, refresh, logout, header hygiene); its configuration is loaded at INIT, never on a request (a viewer request has 5 s) |
 | `lambda/verify-denial/` | the `VerifyAnonymousDenial` custom resource |
-| `bootstrap/` | the instance side: `user-data.sh` (first boot), `install-build-deps.sh` (the build dependencies), `release-handoff.sh` (run by the `<stack>-Release` document), `factoryos-release.sh` and `factoryos-release.service` (the release build, deploy, health check and rollback) |
+| `bootstrap/` | the instance side: `user-data.sh` (first boot), `install-build-deps.sh` (the build dependencies), `build-bundle.sh` (the release build in the installer's CodeBuild project, on its Ubuntu 24.04 arm64), `release-handoff.sh` (run by the `<stack>-Release` document), `factoryos-release.sh` and `factoryos-release.service` (the release build, deploy, health check and rollback) |
 | `test/` | the CDK app's tests (vitest): the stacks, the edge gate's denial matrix, the custom resource; and `smoke.py`, the post-install smoke test |
 | `tests/` | the one-click scripts' tests (`test-oneclick.sh`); the CloudFormation installer's build script, function and `make-artifacts.sh` (`test-installer-template.sh`) |
 | `installer/tests/`, `bootstrap/tests/` | the installer's and the release's shell tests |
@@ -181,6 +183,7 @@ CodeBuild sets `AWS_REGION` itself, and that must not move an ASCV run out of us
 | `ONECLICK_STATE_FILE` | `STATE_FILE` | both |
 | `ONECLICK_ADMIN_EMAIL`, `ONECLICK_UMARELL_TARBALL`, `ONECLICK_UMARELL_JAM_TARBALL`, `ONECLICK_WAIT_FOR_RELEASE`, `ONECLICK_RELEASE_TIMEOUT_SECONDS` | the static values of the same name | `deploy.sh` |
 | `ONECLICK_INSTANCE_TYPE`, `ONECLICK_VOLUME_GB`, `ONECLICK_BEDROCK` (`true`/`false`) | `--instance-type`, `--volume-gb`, `--bedrock`/`--no-bedrock` (empty: the installer's defaults) | `deploy.sh` |
+| `ONECLICK_BUILD_PROJECT`, `ONECLICK_BUILD_BUCKET` | `--build-project`, `--build-bucket`: the release built in that CodeBuild project (empty: on the instance) | `deploy.sh` |
 
 ## The CloudFormation installer
 
@@ -191,6 +194,10 @@ needed.
 - `InstallerProject`: a CodeBuild project (Amazon Linux 2023 `standard:5.0`, Node.js 20, 8 h, one build at a time).
   Its inline buildspec writes and runs `/tmp/pai-pd-build.sh`.
 - `InstallerRole`: the project's role. It has `AdministratorAccess` and trusts only CodeBuild, for this project.
+- `ReleaseBuildProject` (`<stack>-build`): the release build (Arm `BUILD_GENERAL1_XLARGE`, 32 vCPUs and 64 GiB,
+  `public.ecr.aws/ubuntu/ubuntu:24.04`, 4 h, one build at a time). `install.sh` starts it with the export staged under
+  `builds/` of the inputs bucket; its artifacts go back there (deployment/CONTRACT.md "Release build in AWS
+  CodeBuild"). `ReleaseBuildRole` reads and writes `builds/*` of the inputs bucket and its log stream only.
 - `InputsBucket`: a private bucket. It is the upload target, HTTPS downloads are staged in it for `install.sh`, and
   after a successful install it keeps that export as `installed/<AppStackName>.<ext>`. An uninstall uses that copy, so
   it works after a presigned URL expired or `latest` moved on. The bucket is emptied and deleted with the stack.
@@ -198,6 +205,7 @@ needed.
   - `StartBuild` starts the create's build with `WAIT_HANDLE_URL`, starts a new build on an update that changes a
     parameter, and stops running builds on delete.
   - `ReadOutputs` copies `Url` and `GateVerified` from the application stack.
+  - `StopReleaseBuilds` stops a running release build on delete.
   - `EmptyInputsBucket` empties the bucket on delete.
 - The `InstallDone` wait condition, which waits up to 8 h 10 min.
 - Log groups for the build (`/pai-pd/installer/<stack>`) and the function, so that nothing is left behind.

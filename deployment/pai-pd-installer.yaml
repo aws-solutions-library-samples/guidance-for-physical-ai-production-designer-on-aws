@@ -2,7 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >-
   Physical AI Production Designer installer (Guidance for Physical AI Production Designer on AWS). Creates an AWS
   CodeBuild project that runs the guidance's deployment/install.sh in this account and Region, from the latest GitHub
-  release, a pinned tag, or files you provide (S3, HTTPS, or an upload bucket this stack creates). The build role
+  release, a pinned tag, or files you provide (S3, HTTPS, or an upload bucket this stack creates), and a second one
+  that compiles the release for the instance. The build role
   has AdministratorAccess: the installer bootstraps the AWS CDK and creates IAM roles, Amazon CloudFront and
   Lambda@Edge. Deleting this stack keeps the installed application; remove that first with the Uninstall output.
   Tested Region: us-east-1 (the Region needs Graviton m7g instances and CloudFront VPC origins).
@@ -15,7 +16,7 @@ Metadata:
       - Label: {default: What to install}
         Parameters: [SourceMode, Release, RepoUrl, ArtifactsUri, SourceArchiveUri, UmarellTarballUri, UmarellJamTarballUri]
       - Label: {default: The installation}
-        Parameters: [AppStackName, InstanceType, VolumeGb, Bedrock]
+        Parameters: [AppStackName, InstanceType, VolumeGb, Bedrock, ReleaseBuild]
     ParameterLabels:
       AdminEmail: {default: Administrator e-mail}
       SourceMode: {default: Source}
@@ -29,6 +30,7 @@ Metadata:
       InstanceType: {default: Instance type}
       VolumeGb: {default: Volume size (GB)}
       Bedrock: {default: Amazon Bedrock}
+      ReleaseBuild: {default: Release build}
 
 Parameters:
   AdminEmail:
@@ -97,11 +99,19 @@ Parameters:
     Description: Allow the instance to call Amazon Bedrock (the optional agentic planner).
     AllowedValues: ['false', 'true']
     Default: 'false'
+  ReleaseBuild:
+    Type: String
+    Description: >-
+      codebuild - the release is compiled in this stack's release-build CodeBuild project (Arm, 32 vCPUs, about 20
+      minutes), and the instance only deploys it. instance - the instance compiles it (about 2.5 hours, no extra cost).
+    AllowedValues: [codebuild, instance]
+    Default: codebuild
 
 Conditions:
   IsUpload: !Equals [!Ref SourceMode, upload]
   NotUpload: !Not [!Condition IsUpload]
   HasJamTarball: !Not [!Equals [!Ref UmarellJamTarballUri, '']]
+  BuildOnInstance: !Equals [!Ref ReleaseBuild, instance]
 
 Resources:
   # ---- The inputs bucket: the upload target (SourceMode upload) and where HTTPS downloads are staged for install.sh
@@ -133,6 +143,11 @@ Resources:
           - Id: abort-incomplete-uploads
             Status: Enabled
             AbortIncompleteMultipartUpload: {DaysAfterInitiation: 1}
+          # The release builds' sources and bundles (install.sh copies the bundle into the application's bucket).
+          - Id: expire-release-builds
+            Status: Enabled
+            Prefix: builds/
+            ExpirationInDays: 7
 
   InputsBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -222,6 +237,8 @@ Resources:
           - {Name: VOLUME_GB, Value: !Ref VolumeGb}
           - {Name: BEDROCK, Value: !Ref Bedrock}
           - {Name: INPUTS_BUCKET, Value: !Ref InputsBucket}
+          - {Name: RELEASE_BUILD, Value: !Ref ReleaseBuild}
+          - {Name: RELEASE_BUILD_PROJECT, Value: !Ref ReleaseBuildProject}
       Source:
         Type: NO_SOURCE
         BuildSpec: |
@@ -419,6 +436,13 @@ Resources:
                   export ONECLICK_ADMIN_EMAIL="$ADMIN_EMAIL" ONECLICK_UMARELL_TARBALL="$umarell_s3" ONECLICK_UMARELL_JAM_TARBALL="$jam_s3" \
                     ONECLICK_INSTANCE_TYPE="$INSTANCE_TYPE" ONECLICK_VOLUME_GB="$VOLUME_GB" ONECLICK_BEDROCK="$BEDROCK" \
                     ONECLICK_WAIT_FOR_RELEASE=1 ONECLICK_RELEASE_TIMEOUT_SECONDS=18000
+                  # ReleaseBuild codebuild: install.sh builds the release in the release-build project (its source staged
+                  # under builds/ of the inputs bucket) while the stacks deploy; the instance only deploys the bundle.
+                  if [ "${RELEASE_BUILD:-}" = codebuild ]; then
+                    [ -n "${RELEASE_BUILD_PROJECT:-}" ] || fail "ReleaseBuild codebuild needs RELEASE_BUILD_PROJECT"
+                    export ONECLICK_BUILD_PROJECT="$RELEASE_BUILD_PROJECT" ONECLICK_BUILD_BUCKET="$INPUTS_BUCKET"
+                    say "the release is built in the CodeBuild project $RELEASE_BUILD_PROJECT"
+                  fi
                   bash "$tree/deployment/deploy.sh" </dev/null 2>&1 | tee -a "$LOG"
                   APP_URL=$(aws cloudformation describe-stacks --stack-name "$APP_STACK_NAME" \
                     --query "Stacks[0].Outputs[?OutputKey=='Url'].OutputValue | [0]" --output text)
@@ -430,6 +454,101 @@ Resources:
                   say "installed: $APP_URL (sign in as $ADMIN_EMAIL with the password from the invitation e-mail)"
                   PAIPD_BUILD_EOF
                   bash /tmp/pai-pd-build.sh
+
+  # ---- The release build: compiles the release off the instance (ReleaseBuild codebuild; deployment/CONTRACT.md
+  # "Release build in AWS CodeBuild"). install.sh stages the export under builds/ of the inputs bucket and starts it;
+  # the export's deployment/bootstrap/build-bundle.sh builds and packages it on the instance's OS and architecture
+  # (Ubuntu 24.04, arm64), and the bundle goes back to builds/. The role reads and writes builds/ only.
+  ReleaseBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub 'Physical AI Production Designer installer (${AWS::StackName}): the release build in CodeBuild'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: codebuild.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {aws:SourceAccount: !Ref AWS::AccountId}
+              ArnLike: {aws:SourceArn: !Sub 'arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/${AWS::StackName}-build'}
+      Policies:
+        - PolicyName: release-build
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${BuildLogGroup.Arn}'
+              - Effect: Allow
+                Action: [s3:GetObject, s3:GetObjectVersion, s3:PutObject]
+                Resource: !Sub '${InputsBucket.Arn}/builds/*'
+              - Effect: Allow
+                Action: [s3:GetBucketAcl, s3:GetBucketLocation]
+                Resource: !GetAtt InputsBucket.Arn
+
+  ReleaseBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub '${AWS::StackName}-build'
+      Description: !Sub 'The release build of ${AWS::StackName}: compiles and packages the release for the instance (install.sh starts it)'
+      ServiceRole: !GetAtt ReleaseBuildRole.Arn
+      TimeoutInMinutes: 240
+      QueuedTimeoutInMinutes: 60
+      ConcurrentBuildLimit: 1
+      EncryptionKey: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3'
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref BuildLogGroup
+          StreamName: release-build
+      Environment:
+        # The instance's OS and architecture: the bundle's binaries link against Ubuntu 24.04's glibc (2.39).
+        # 32 vCPUs, 64 GiB, 256 GB of disk. ECR Public, not Docker Hub (its anonymous pull limit).
+        Type: ARM_CONTAINER
+        ComputeType: BUILD_GENERAL1_XLARGE
+        Image: public.ecr.aws/ubuntu/ubuntu:24.04
+        ImagePullCredentialsType: CODEBUILD
+      # install.sh overrides the location (builds/<version>-<sha12>/source.zip) and the artifacts' path.
+      Source:
+        Type: S3
+        Location: !Sub '${InputsBucket}/builds/source.zip'
+        BuildSpec: |
+          version: 0.2
+          env:
+            shell: bash
+          phases:
+            install:
+              commands:
+                - apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ca-certificates unzip >/dev/null
+            build:
+              commands:
+                - |
+                  set -euo pipefail
+                  # The source: export.zip or export.tar.gz, the very archive install.sh hands to the instance.
+                  [[ "${RELEASE_VERSION:-}" =~ ^[A-Za-z0-9._+-]{1,64}$ ]] || { echo "ERROR: RELEASE_VERSION is not set" >&2; exit 1; }
+                  [[ "${EXPORT_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || { echo "ERROR: EXPORT_SHA256 is not set" >&2; exit 1; }
+                  f=""; for c in export.zip export.tar.gz; do [ ! -f "$c" ] || f="$c"; done
+                  [ -n "$f" ] || { echo "ERROR: the source holds no export.zip or export.tar.gz" >&2; exit 1; }
+                  [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$EXPORT_SHA256" ] || { echo "ERROR: $f is not sha256 $EXPORT_SHA256" >&2; exit 1; }
+                  rm -rf work out && mkdir -p work
+                  case "$f" in *.zip) unzip -q "$f" -d work ;; *) tar -xzf "$f" -C work ;; esac
+                  rm -f "$f"
+                  top=$(ls -A work)
+                  [ "$(printf '%s\n' "$top" | grep -c .)" = 1 ] && [ -d "work/$top" ] || { echo "ERROR: the export must hold one top directory" >&2; exit 1; }
+                  [ -f "work/$top/deployment/bootstrap/build-bundle.sh" ] \
+                    || { echo "ERROR: this export has no deployment/bootstrap/build-bundle.sh: set ReleaseBuild to instance" >&2; exit 1; }
+                  bash "work/$top/deployment/bootstrap/build-bundle.sh" "$PWD/work/$top" "$RELEASE_VERSION" "$EXPORT_SHA256" "$PWD/out"
+          artifacts:
+            base-directory: out
+            files: [bundle.tar.gz, bundle.json]
+      Artifacts:
+        Type: S3
+        Location: !Ref InputsBucket
+        Path: builds
+        Name: out
+        NamespaceType: NONE
+        Packaging: NONE
 
   # ---- The custom resources: start the create's build (and stop builds on delete), read the outputs, empty the bucket
   HelperLogGroup:
@@ -465,6 +584,9 @@ Resources:
               - Effect: Allow
                 Action: [codebuild:StartBuild, codebuild:StopBuild, codebuild:BatchGetBuilds, codebuild:ListBuildsForProject]
                 Resource: !GetAtt InstallerProject.Arn
+              - Effect: Allow
+                Action: [codebuild:StopBuild, codebuild:BatchGetBuilds, codebuild:ListBuildsForProject]
+                Resource: !GetAtt ReleaseBuildProject.Arn
               - Effect: Allow
                 Action: cloudformation:DescribeStacks
                 Resource: !Sub 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AppStackName}/*'
@@ -532,6 +654,11 @@ Resources:
                           b = cb.start_build(projectName=p["ProjectName"], environmentVariablesOverride=env)["build"]
                           data = {"BuildId": b["id"]}
                           print("started", b["id"])
+                  elif mode == "stop-builds" and kind == "Delete":
+                      cb = boto3.client("codebuild")
+                      for b in builds(cb, p["ProjectName"]):
+                          cb.stop_build(id=b["id"])
+                          print("stopped", b["id"])
                   elif mode == "read-outputs" and kind != "Delete":
                       s = boto3.client("cloudformation").describe_stacks(StackName=p["AppStackName"])["Stacks"][0]
                       data = {o["OutputKey"]: o["OutputValue"] for o in s.get("Outputs", []) if o["OutputKey"] in ("Url", "GateVerified")}
@@ -562,6 +689,8 @@ Resources:
             - [!Ref SourceMode, !Ref Release, !Ref RepoUrl, !Ref ArtifactsUri, !Ref SourceArchiveUri, !Ref UmarellTarballUri,
                !Ref AppStackName, !Ref AdminEmail, !Ref InstanceType, !Ref VolumeGb, !Ref Bedrock]
           - !If [HasJamTarball, !Sub '|jam=${UmarellJamTarballUri}', '']
+          # ReleaseBuild only when not the default: a stack updated to this template keeps its Config (no build).
+          - !If [BuildOnInstance, '|build=instance', '']
 
   InstallDoneHandle:
     Type: AWS::CloudFormation::WaitConditionHandle
@@ -586,6 +715,14 @@ Resources:
       AppStackName: !Ref AppStackName
       Config: !GetAtt StartBuild.BuildId
 
+  # On delete: a release build still running is stopped (the installer build's own stop leaves it running).
+  StopReleaseBuilds:
+    Type: Custom::PaiPdStopBuilds
+    Properties:
+      ServiceToken: !GetAtt HelperFunction.Arn
+      Mode: stop-builds
+      ProjectName: !Ref ReleaseBuildProject
+
   EmptyInputsBucket:
     Type: Custom::PaiPdEmptyBucket
     DependsOn: InputsBucketPolicy
@@ -609,6 +746,9 @@ Outputs:
   BuildLogs:
     Description: The installer's builds and their logs.
     Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${InstallerProject}/history?region=${AWS::Region}'
+  ReleaseBuildLogs:
+    Description: The release builds (ReleaseBuild codebuild) and their logs.
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${ReleaseBuildProject}/history?region=${AWS::Region}'
   UploadTo:
     Condition: IsUpload
     Description: 'Upload the export (pai-pd.zip) and umarell.tar.gz here (optionally umarell-jam.tar.gz, their .sha256 files and an artifacts.json), then start the install.'

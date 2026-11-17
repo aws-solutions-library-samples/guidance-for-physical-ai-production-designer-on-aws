@@ -51,7 +51,7 @@ The options of `install`:
 - `--bedrock-models <id,...>`: the Amazon Bedrock inference profile ids the instance may invoke instead, at most 20,
   no ARNs or wildcards; implies `--bedrock`.
 - `--kiro-secret <secret name>`: an AWS Secrets Manager secret in the same Region with a Kiro API key for the
-  planning agent (`''` for none). Read the [Security](../README.md#security-who-can-reach-what) section first:
+  planning agent (`''` for none). Read the [Security](../README.md#security) section first:
   every user can read that secret.
 - `--umarell-tarball <s3 uri>`: umarell from a tarball instead of GitHub ([Provide umarell as a
   tarball](#provide-umarell-as-a-tarball)).
@@ -59,6 +59,9 @@ The options of `install`:
   instead of GitHub (optional; [Provide umarell as a tarball](#provide-umarell-as-a-tarball)). An update keeps the
   installed one; `''` drops it.
 - `--force`: rebuild the installed version.
+- `--build-project <name> --build-bucket <bucket>`: compile the release in that AWS CodeBuild project, with the
+  export staged in that bucket, instead of on the instance. The installer stack passes its own (`<installer
+  stack>-build` and its inputs bucket); without them the instance compiles the release, which takes a few hours.
 - `--rotate-origin-secret`: replace the origin secret; the backend restarts twice on the way, so run it when
   nobody is working ([Rotate the origin secret](#rotate-the-origin-secret)). Without it, an update keeps the
   installed one.
@@ -80,7 +83,7 @@ Invite another user, or delete one. Neither redeploys anything:
 
 Each invited user gets an e-mail from Amazon Cognito with the URL, their user name and a temporary password, valid
 for 7 days, and enrols multi-factor authentication at the first sign-in ([Deployment
-Steps](../README.md#deployment-steps), step 6). `add-user` leaves an existing user alone and sends no new e-mail: if a
+Steps](../README.md#deployment-steps), step 4). `add-user` leaves an existing user alone and sends no new e-mail: if a
 temporary password expired before its first use, run `remove-user` and then `add-user` for that address. The designs,
 cells and plans belong to the deployment, not to a user, so deleting a user deletes none of them.
 
@@ -128,7 +131,7 @@ checkout (`git archive` of `HEAD`). A checkout with uncommitted changes is packa
 
 The edge function adds a secret header to every request it lets through, and the backend refuses a request from
 the network without it, so that only this deployment's CloudFront distribution reaches the instance (the README's
-[Security](../README.md#security-who-can-reach-what) section). The installer makes the secret when it installs
+[Security](../README.md#security) section). The installer makes the secret when it installs
 (48 random bytes) and keeps it in two encrypted AWS Systems Manager parameters: `/factoryos/<stack>/edge-origin-secret`
 in US East (N. Virginia), which the edge function reads, and `/factoryos/<stack>/origin-secret` in the Region of the
 deployment, which the instance reads. It never appears in a template, in the user data or in a log. An update keeps
@@ -155,7 +158,7 @@ version warns. If you run it with your own role, it also needs `ssm:GetParameter
 ## Provide umarell as a tarball
 
 The release build fetches umarell (the U3 and agentic planners) from GitHub at the commit in
-`source/deploy/umarell.pin`. While that repository is not public ([Known issues](../README.md#known-issues)), pass an
+`source/deploy/umarell.pin`. While that repository is not public, pass an
 archive of that commit instead. Make it with `git archive --prefix=umarell/` in a clone that has the commit, and
 upload it to S3 in your account:
 
@@ -246,6 +249,10 @@ needs:
   log. The full log is in the log group of the stack's `LogGroup` output, stream `<instance id>/release.log`. The
   previous release, if any, keeps serving. Fix the cause and run the install command again, with `--force` for the
   same version.
+- **The installer stack fails in its release build.** With **Release build** `codebuild` the release is compiled in
+  the installer's `<installer stack>-build` project; its `ReleaseBuildLogs` output links to the builds and their logs.
+  Nothing was sent to the instance. Fix the cause and update the installer stack again, or set **Release build** to
+  `instance` to compile on the instance.
 - **The release build fails when it installs the planners.** umarell could not be fetched: install with
   `--umarell-tarball` ([Provide umarell as a tarball](#provide-umarell-as-a-tarball)).
 - **`status` shows `incomplete: umarell_jam`.** The release serves, but the umarell_jam planner is not set up, and its
@@ -254,9 +261,8 @@ needs:
   tarball](#provide-umarell-as-a-tarball)), with `--force` for the same version.
 - **`status` shows `rolled-back`.** The new release failed its health check after the switch, and the previous
   release serves again. `status` and the build log show why.
-- **The URL signs you in and then shows an error page.** The first release is not `ready` yet; it builds from
-  source and takes a few hours ([Known issues](../README.md#known-issues)). Follow it with
-  `./deployment/install.sh status --wait`.
+- **The URL signs you in and then shows an error page.** The first release is not `ready` yet: the installer stack
+  completes when it is. Follow it with `./deployment/install.sh status --wait`.
 - **The CloudShell session ended during the build.** The build goes on without it. Run `status --wait` again.
 - **The installer asks to confirm the Region, or refuses the stack name.** Give the Region with `--region`. A stack
   name installed in another Region is refused: install the second deployment with another `--stack-name`.

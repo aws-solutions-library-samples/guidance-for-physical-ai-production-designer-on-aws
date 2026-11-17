@@ -926,6 +926,59 @@ contains "says it is off" "umarell_jam is off on this host" "$(log_since "$off")
 rm -f "$R/etc/factoryos/workspace.env" "$F/venv-fail" "$F/ship-jam"
 reset_calls
 
+# with_bundle <version> [bad]: the wanted release of `publish` names a bundle the CodeBuild release build made (in the
+# source bucket under releases/); `bad`: wanted's sha256 is not the object's.
+with_bundle() {
+  local v=$1 b="$F/s3/bucket/releases/factoryos-viewer-linux-arm64-$1.tar.gz" sum
+  echo "bundle $v built in codebuild" > "$b"
+  sum=$(sha256sum "$b" | cut -d' ' -f1); [ "${2:-}" != bad ] || sum=$(printf 'e%.0s' $(seq 1 64))
+  python3 -c 'import json, sys
+w = json.load(open(sys.argv[1])); w["bundle"] = {"key": sys.argv[2], "sha256": sys.argv[3]}
+json.dump(w, open(sys.argv[1], "w"))' "$F/ssm/_factoryos_t_release_wanted" "releases/factoryos-viewer-linux-arm64-$v.tar.gz" "$sum"
+}
+echo "== a bundle built in AWS CodeBuild: downloaded by the handoff, deployed without deps, build or packaging"
+publish v13g; with_bundle v13g
+check "handoff exit 0" 0 "$(handoff)"
+bg="$R/opt/factoryos/bundles/factoryos-viewer-linux-arm64-v13g.tar.gz"
+check "the bundle and its .sha256 in bundles/" "bundle v13g built in codebuild $(sha256sum "$bg" | cut -d' ' -f1)" "$(cat "$bg") $(cat "$bg.sha256")"
+check "request.json: the bundle's path and sha256" "$bg $(sha256sum "$bg" | cut -d' ' -f1)" \
+  "$(python3 -c 'import json, sys; j = json.load(open(sys.argv[1]))["bundle"]; print(j["path"], j["sha256"])' "$R/var/lib/factoryos-release/request.json")"
+check "release exit 0" 0 "$(release)"
+check "phases: no deps, building or packaging" "downloading deploying checking ready" "$(phases)"
+check "ready v13g" "ready v13g" "$(state phase) $(state version)"
+check "nothing built or packaged, deps not run" "" "$(calls | grep -E '^(ran build-release|ran package-bundle|deps$)' || true)"
+contains "deploy: that bundle and its sha256" "deploy $bg $(cat "$bg.sha256") public=1" "$(calls)"
+check "current -> v13g" factoryos-viewer-linux-arm64-v13g "$(current)"
+reset_calls
+
+echo "== a bundle whose sha256 is not wanted's: the handoff fails, nothing started"
+publish v13h; with_bundle v13h bad
+check "handoff exit 1" 1 "$(handoff)"
+contains "says why" "releases/factoryos-viewer-linux-arm64-v13h.tar.gz: sha256" "$(cat "$work/out")"
+check "state failed" failed "$(state phase)"
+check "no bundle (and no .part) kept" "no no" \
+  "$([ -e "$R/opt/factoryos/bundles/factoryos-viewer-linux-arm64-v13h.tar.gz" ] && echo yes || echo no) $([ -e "$R/opt/factoryos/bundles/factoryos-viewer-linux-arm64-v13h.tar.gz.part" ] && echo yes || echo no)"
+check "current still v13g" factoryos-viewer-linux-arm64-v13g "$(current)"
+reset_calls
+
+echo "== wanted.bundle for another version: refused"
+publish v13i; with_bundle v13i
+python3 -c 'import json, sys
+w = json.load(open(sys.argv[1])); w["bundle"]["key"] = "releases/factoryos-viewer-linux-arm64-v1.tar.gz"
+json.dump(w, open(sys.argv[1], "w"))' "$F/ssm/_factoryos_t_release_wanted"
+check "handoff exit 1" 1 "$(handoff)"
+contains "says why" "wanted.bundle.key is not releases/factoryos-viewer-linux-arm64-<version>.tar.gz" "$(cat "$work/out")"
+reset_calls
+
+echo "== a bundle changed on disk after the handoff: the deploy refuses it"
+publish v13j; with_bundle v13j
+check "handoff exit 0" 0 "$(handoff)"
+echo tampered > "$R/opt/factoryos/bundles/factoryos-viewer-linux-arm64-v13j.tar.gz"
+check "release exit 1" 1 "$(release)"
+contains "says why" "is not the bundle the release build made" "$(state error)"
+check "current still v13g" factoryos-viewer-linux-arm64-v13g "$(current)"
+reset_calls
+
 echo "== a first install whose planner venv does not import: failed (nothing to roll back to)"
 rm -f "$R/opt/factoryos/current"
 echo planner > "$F/venv-fail"

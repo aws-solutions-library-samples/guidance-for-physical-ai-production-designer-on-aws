@@ -86,6 +86,7 @@ changeset_edge='{"Status":"FAILED","StatusReason":"No updates are to be performe
 instance_offline=""       # 1: SSM does not see the instance (wait_instance_ready runs into its deadline)
 send_command_fail=""      # 1: ssm send-command fails
 edge_put_fail=""          # 1: writing the origin secret in us-east-1 fails (a rotation stopped in step 2)
+build_status="SUCCEEDED"  # the release build's buildStatus (--build-project); $FAKE/bundle.json is its bundle.json
 [ -f "$FAKE/overrides.sh" ] && . "$FAKE/overrides.sh"
 handle() {
   case "$1 $2" in
@@ -159,9 +160,15 @@ handle() {
       echo cmd-123 ;;
     "ssm get-command-invocation")
       case "$*" in *Status*) echo Success ;; *StandardOutput*) echo "release started" ;; *) echo "" ;; esac ;;
+    "codebuild start-build") echo "pai-pd-installer-build:0f1e2d3c" ;;
+    "codebuild batch-get-builds") printf '%s\tBUILD\thttps://console.example/build-log\n' "$build_status" ;;
+    "codebuild stop-build") ;;
     "ec2 describe-instances") echo ami-0123456789abcdef0 ;;
     "ec2 get-console-output") [ -f "$FAKE/console" ] && cat "$FAKE/console" ;;
     "s3 cp")
+      # The release build: its staged source kept for the test; its bundle.json from $FAKE/bundle.json.
+      if [[ "${4:-}" == s3://*/builds/*/source.zip ]]; then cp "$3" "$FAKE/staged-source.zip"; exit 0; fi
+      if [[ "$3" == s3://*/builds/*/out/bundle.json ]]; then [ -f "$FAKE/bundle.json" ] || exit 1; cat "$FAKE/bundle.json"; exit 0; fi
       if [[ "$3" == s3://*umarell-jam* ]]; then cp "$FAKE/umarell-jam.tar.gz" "$4"; exit 0; fi
       if [[ "$3" == *umarell* ]]; then cp "$FAKE/umarell.tar.gz" "$4"; exit 0; fi
       if [[ "$*" == *.sha256* ]]; then [ -n "$sha256_answer" ] || exit 1; echo "$sha256_answer  export.zip"; exit 0; fi
@@ -200,7 +207,7 @@ handle() {
 EOF
 }
 reset() { rm -f "$T/calls" "$T/wanted" "$T/overrides.sh" "$T/options" "$T/state" "$T/console" "$T/git-calls" "$T/unzip-calls" "$T/npx-calls" "$T/npm-calls" \
-  "$T/secure-files" "$T/secure-history" "$T/secure-error" "$T/vendor-gone"; rm -rf "$T/work" "$T/secure"; base_handler > "$T/handler.sh"; }
+  "$T/secure-files" "$T/secure-history" "$T/secure-error" "$T/vendor-gone" "$T/bundle.json" "$T/staged-source.zip"; rm -rf "$T/work" "$T/secure"; base_handler > "$T/handler.sh"; }
 override() { printf '%s\n' "$@" >> "$T/overrides.sh"; base_handler > "$T/handler.sh"; }
 
 # mkzip <dir> <zip> <entry>...: the entries of <dir> into <zip> (replaced), with python3's zipfile and not zip(1),
@@ -252,6 +259,48 @@ check "the export is copied into the source bucket" $(grep -q 's3 cp s3://export
 check "the release document is sent to the instance" $(grep -q 'ssm send-command --document-name factoryos-Release --document-version $LATEST --instance-ids i-0123456789abcdef0' "$T/calls"; echo $?)
 check "a fresh install records its options" $(python3 -c 'import json;j=json.load(open("'"$T"'/options"));assert j=={"instanceType":"m7g.2xlarge","volumeGb":"200","bedrock":False,"kiroSecretName":"","bedrockModelIds":"","umarellJam":None}' 2>/dev/null; echo $?) "$(cat "$T/options" 2>/dev/null)"
 check "the user is invited" $(grep -q 'cognito-idp admin-create-user --user-pool-id eu-central-1_EXAMPLE --username a@example.com' "$T/calls"; echo $?)
+check "without --build-project: no release build, no bundle in wanted" \
+  $(! grep -q '^codebuild ' "$T/calls" && python3 -c 'import json,sys;assert "bundle" not in json.loads(sys.argv[1])' "$w" 2>/dev/null; echo $?) "$w"
+
+# --- the release build in AWS CodeBuild (--build-project, --build-bucket) -----------------------------------------
+reset
+out=$(run s3://exports-bkt/factoryos-v0.2.0.zip --yes --build-project pai-pd-installer-build); check "--build-project without --build-bucket is refused" $([ $? != 0 ] && grep -q 'go together' <<<"$out"; echo $?) "$out"
+out=$(run status --build-project p --build-bucket b); check "--build-project is an option of install" $([ $? != 0 ] && grep -q 'options of install' <<<"$out"; echo $?) "$out"
+esha=$(sha256sum "$T/export.zip" 2>/dev/null | cut -d' ' -f1 || shasum -a 256 "$T/export.zip" | cut -d' ' -f1)
+bsha=$(printf 'bundle' | (sha256sum 2>/dev/null || shasum -a 256) | cut -d' ' -f1)
+bundle_json() { printf '{"version":"%s","exportSha256":"%s","sha256":"%s","arch":"linux-arm64","builtBy":"arn:aws:codebuild:x"}\n' "$1" "$2" "$bsha" > "$T/bundle.json"; }
+reset; bundle_json v0.2.0 "$esha"
+out=$(run s3://exports-bkt/factoryos-v0.2.0.zip --yes --build-project pai-pd-installer-build --build-bucket inputs-bkt); rc=$?
+check "release build: install runs to the end" "$rc" "$out"
+check "release build: the export is staged as builds/<version>-<sha12>/source.zip, the archive itself inside" \
+  $(grep -qF "s3://inputs-bkt/builds/v0.2.0-${esha:0:12}/source.zip" "$T/calls" \
+     && [ "$(python3 -I -c 'import hashlib,sys,zipfile;z=zipfile.ZipFile(sys.argv[1]);assert z.namelist()==["export.zip"];print(hashlib.sha256(z.read("export.zip")).hexdigest())' "$T/staged-source.zip" 2>/dev/null)" = "$esha" ]; echo $?) "$(cat "$T/calls")"
+check "release build: started with the staged source, the artifacts' path, the version and the export's sha256" \
+  $(grep -F 'codebuild start-build --project-name pai-pd-installer-build --source-type-override S3' "$T/calls" \
+     | grep -F "inputs-bkt/builds/v0.2.0-${esha:0:12}/source.zip" | grep -F "path=builds/v0.2.0-${esha:0:12},name=out" \
+     | grep -F 'name=RELEASE_VERSION,value=v0.2.0,type=PLAINTEXT' | grep -qF "name=EXPORT_SHA256,value=$esha,type=PLAINTEXT"; echo $?) "$(grep codebuild "$T/calls")"
+check "release build: started before the stacks deploy, awaited before the release is sent" \
+  $(in_order 'codebuild start-build' 'ssm get-parameter --name /cdk-bootstrap' 'codebuild batch-get-builds' 'ssm send-command' 2>/dev/null \
+     || in_order 'codebuild start-build' 'codebuild batch-get-builds' 'ssm send-command'; echo $?) "$(cat "$T/calls")"
+check "release build: its bundle is copied next to the export, under releases/" \
+  $(grep -qF "s3 cp s3://inputs-bkt/builds/v0.2.0-${esha:0:12}/out/bundle.tar.gz s3://src-bucket/releases/factoryos-viewer-linux-arm64-v0.2.0.tar.gz" "$T/calls"; echo $?) "$(cat "$T/calls")"
+w=$(cat "$T/wanted" 2>/dev/null)
+check "release build: wanted names the bundle and its sha256" \
+  $(python3 -c 'import json,sys;j=json.loads(sys.argv[1]);assert j["bundle"]=={"key":"releases/factoryos-viewer-linux-arm64-v0.2.0.tar.gz","sha256":sys.argv[2]} and j["key"]=="releases/v0.2.0.zip"' "$w" "$bsha" 2>/dev/null; echo $?) "$w"
+check "release build: a finished build is not stopped" $(! grep -q 'codebuild stop-build' "$T/calls"; echo $?)
+reset; bundle_json v0.2.0 "$(printf 'other' | (sha256sum 2>/dev/null || shasum -a 256) | cut -d' ' -f1)"
+out=$(run s3://exports-bkt/factoryos-v0.2.0.zip --yes --build-project pai-pd-installer-build --build-bucket inputs-bkt); rc=$?
+check "release build: a bundle of another export is refused, nothing sent to the instance" \
+  $([ "$rc" != 0 ] && grep -q 'another export' <<<"$out" && ! grep -q 'ssm send-command' "$T/calls" && [ ! -f "$T/wanted" ]; echo $?) "$out"
+reset; bundle_json v0.2.0 "$esha"; override 'build_status=FAILED'
+out=$(run s3://exports-bkt/factoryos-v0.2.0.zip --yes --build-project pai-pd-installer-build --build-bucket inputs-bkt); rc=$?
+check "release build: a failed build fails the install with its log link, nothing sent, not stopped" \
+  $([ "$rc" != 0 ] && grep -q 'ended FAILED' <<<"$out" && grep -q 'https://console.example/build-log' <<<"$out" \
+     && ! grep -q 'ssm send-command' "$T/calls" && ! grep -q 'codebuild stop-build' "$T/calls"; echo $?) "$out"
+reset; bundle_json v0.2.0 "$esha"; override 'build_status=IN_PROGRESS'
+out=$(FACTORYOS_BUILD_TIMEOUT_SECONDS=0 run s3://exports-bkt/factoryos-v0.2.0.zip --yes --build-project pai-pd-installer-build --build-bucket inputs-bkt); rc=$?
+check "release build: one still running when install.sh stops is stopped" \
+  $([ "$rc" != 0 ] && grep -q 'codebuild stop-build --ids pai-pd-installer-build:0f1e2d3c' "$T/calls" && grep -q 'stopped the release build' <<<"$out"; echo $?) "$out"
 check "nothing secret-looking in any argv" $(! grep -qiE 'password|secret-string|KIRO_API_KEY' "$T/calls"; echo $?)
 
 # --- the instance's first boot (2026-11-14: its user data failed, the installer said "running" for an hour) --------

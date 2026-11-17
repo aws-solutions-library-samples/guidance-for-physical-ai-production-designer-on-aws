@@ -53,6 +53,12 @@
 #                            GitHub. Optional: without it (or when it is wrong) the release still installs, umarell_jam
 #                            is marked incomplete and its jobs fall back to umarell_u3. An update keeps the installed
 #                            one unless given again ('' drops it)
+#   --build-project <name> --build-bucket <bucket>
+#                            build the release in that AWS CodeBuild project (the CloudFormation installer's
+#                            <installer stack>-build: Arm, Ubuntu 24.04), with its source staged under builds/ in that
+#                            bucket, instead of on the instance; it starts before the stacks are deployed, and the
+#                            instance then only deploys the bundle it built (deployment/CONTRACT.md "Release build in
+#                            AWS CodeBuild"). Without them the instance builds the release itself
 #   --force                  rebuild even if this version is installed already
 #   --rotate-origin-secret   replace the origin secret (the x-origin-verify value the CloudFront gate sends and the
 #                            instance requires) in both places, without a request refused for a wrong origin secret

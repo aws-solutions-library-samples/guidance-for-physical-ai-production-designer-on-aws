@@ -19,7 +19,7 @@ STACK_NAME="${ONECLICK_STACK_NAME:-factoryos-$(date -u +%Y%m%d%H%M)-$(od -An -N2
 # The first user (an invitation with a temporary password goes to this address; MFA is enrolled at first sign-in).
 ADMIN_EMAIL="${ONECLICK_ADMIN_EMAIL:-admin@example.com}"
 REPO_URL="https://github.com/aws-solutions-library-samples/guidance-for-physical-ai-production-designer-on-aws.git"
-# 1: wait for the first release build on the instance to finish (ready), and fail if it fails or rolls back.
+# 1: wait for the first release on the instance to finish (ready), and fail if it fails or rolls back.
 WAIT_FOR_RELEASE="${ONECLICK_WAIT_FOR_RELEASE:-1}"
 # How long to wait for that build, in seconds (6 h).
 RELEASE_TIMEOUT_SECONDS="${ONECLICK_RELEASE_TIMEOUT_SECONDS:-21600}"
@@ -35,6 +35,11 @@ UMARELL_JAM_TARBALL="${ONECLICK_UMARELL_JAM_TARBALL:-}"
 INSTANCE_TYPE="${ONECLICK_INSTANCE_TYPE:-}"
 VOLUME_GB="${ONECLICK_VOLUME_GB:-}"
 BEDROCK="${ONECLICK_BEDROCK:-}"
+# Optional: build the release in an AWS CodeBuild project (the CloudFormation installer's release-build project) with
+# its source staged in a bucket, instead of on the instance (install.sh --build-project, --build-bucket; '' for the
+# instance).
+BUILD_PROJECT="${ONECLICK_BUILD_PROJECT:-}"
+BUILD_BUCKET="${ONECLICK_BUILD_BUCKET:-}"
 # The edge stack (the sign-in function) is always in the CloudFront Region (Lambda@Edge).
 EDGE_REGION="us-east-1"
 # Where cleanup.sh finds the stack name (the directory this script is run from).
@@ -129,6 +134,7 @@ install_args=(install --from-checkout --yes --region "$AWS_REGION" --stack-name 
 [ -z "$UMARELL_JAM_TARBALL" ] || install_args+=(--umarell-jam-tarball "$UMARELL_JAM_TARBALL")
 [ -z "$INSTANCE_TYPE" ] || install_args+=(--instance-type "$INSTANCE_TYPE")
 [ -z "$VOLUME_GB" ] || install_args+=(--volume-gb "$VOLUME_GB")
+[ -z "$BUILD_PROJECT" ] || install_args+=(--build-project "$BUILD_PROJECT" --build-bucket "$BUILD_BUCKET")
 case "$BEDROCK" in
   true) install_args+=(--bedrock) ;; false) install_args+=(--no-bedrock) ;; '') ;;
   *) fail "ONECLICK_BEDROCK must be true, false or empty (is '$BEDROCK')" ;;
@@ -151,7 +157,7 @@ grep -qE '^HTTP/[0-9.]+ 302' <<<"$page" && grep -qi '^location: https://[^/]*/oa
   || fail "an anonymous GET of $url/ was not sent to the sign-in: $(head -1 <<<"$page")"
 echo "GateVerified=true; anonymous: /api/v1/health 401, / 302 to the sign-in"
 
-step 7 "Waiting for the release build on the instance (install.sh status --wait, at most $((RELEASE_TIMEOUT_SECONDS / 3600)) h)"
+step 7 "Waiting for the release on the instance (install.sh status --wait, at most $((RELEASE_TIMEOUT_SECONDS / 3600)) h)"
 if [ "$WAIT_FOR_RELEASE" = 1 ]; then
   # A deadline in bash (macOS has no timeout(1)): status --wait in the background, stopped at the deadline.
   ./deployment/install.sh status --wait --yes --region "$AWS_REGION" --stack-name "$STACK_NAME" </dev/null &

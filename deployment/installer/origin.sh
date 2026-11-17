@@ -36,9 +36,10 @@ nobody is working."
 ORIGIN_ROTATION_RERUN="the old origin secret is still accepted; run install.sh install --rotate-origin-secret again"
 ORIGIN_ROTATION_RERUN+=" (with the same source and options)"
 
-# The state of the one EXIT trap the functions below share (bash keeps one per signal; nothing else in the installer
-# sets one): a request directory to delete, a wanted release to put back over a secretsOnly request, and whether a
-# rotation has passed step 1 without finishing step 3.
+# The state of the one EXIT trap the functions below share (bash keeps one per signal; the release build's
+# start_release_build sets the same one, and origin_on_exit ends with its part, release_build_on_exit): a request
+# directory to delete, a wanted release to put back over a secretsOnly request, and whether a rotation has passed
+# step 1 without finishing step 3.
 ORIGIN_TMP="" ORIGIN_WANTED_RESTORE="" ORIGIN_ROTATION_OPEN=0
 origin_on_exit() {
   [ -z "$ORIGIN_TMP" ] || rm -rf "$ORIGIN_TMP"
@@ -55,6 +56,7 @@ origin_on_exit() {
   if [ "$ORIGIN_ROTATION_OPEN" = 1 ]; then
     ORIGIN_ROTATION_OPEN=0; warn "the rotation did not finish: $ORIGIN_ROTATION_RERUN"
   fi
+  release_build_on_exit
 }
 origin_trap() { trap origin_on_exit EXIT; }
 

@@ -1,6 +1,6 @@
 [package]
 name = "robo-fitting-room"
-version = "0.1.27"
+version = "0.1.28"
 edition = "2021"
 license = "MIT-0"
 description = "Programmatic scene composition and validation engine: assemble, validate, and drive simulation scenes from URDF inputs"

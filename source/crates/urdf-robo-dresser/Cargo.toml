@@ -1,6 +1,6 @@
 [package]
 name = "urdf-robo-dresser"
-version = "0.1.27"
+version = "0.1.28"
 edition = "2021"
 license = "MIT-0"
 description = "Programmatic URDF robot-tool merging: dress industrial robots with end-effectors from a catalogue"

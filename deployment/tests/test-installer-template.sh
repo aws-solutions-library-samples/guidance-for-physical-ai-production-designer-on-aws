@@ -44,6 +44,22 @@ check "the build role is assumable by CodeBuild only, for this project" \
 check "UmarellJamTarballUri: a parameter, passed to the build, in the build's Config only when set" \
   $(grep -q '^  UmarellJamTarballUri:$' "$tpl" && grep -qF -- '- {Name: UMARELL_JAM_TARBALL_URI, Value: !Ref UmarellJamTarballUri}' "$tpl" \
      && grep -qF "!If [HasJamTarball, !Sub '|jam=\${UmarellJamTarballUri}', '']" "$tpl"; echo $?)
+check "ReleaseBuild: a parameter (default codebuild), passed to the build, in the build's Config only when instance" \
+  $(grep -q '^  ReleaseBuild:$' "$tpl" && grep -qF -- '- {Name: RELEASE_BUILD, Value: !Ref ReleaseBuild}' "$tpl" \
+     && grep -qF -- '- {Name: RELEASE_BUILD_PROJECT, Value: !Ref ReleaseBuildProject}' "$tpl" \
+     && grep -qF "!If [BuildOnInstance, '|build=instance', '']" "$tpl" \
+     && sed -n '/^  ReleaseBuild:$/,/^  [A-Za-z]*:$/p' "$tpl" | grep -q 'Default: codebuild'; echo $?)
+# The release-build project: the block from its key to the next resource.
+rb=$(sed -n '/^  ReleaseBuildProject:$/,/^  [A-Za-z]*:$/p' "$tpl")
+check "the release build runs on the instance's OS and architecture (Arm, Ubuntu 24.04 from ECR Public), unprivileged" \
+  $(grep -q 'Type: ARM_CONTAINER' <<<"$rb" && grep -q 'Image: public.ecr.aws/ubuntu/ubuntu:24.04' <<<"$rb" \
+     && ! grep -q 'PrivilegedMode: true' <<<"$rb" && grep -q 'build-bundle.sh' <<<"$rb"; echo $?)
+rr=$(sed -n '/^  ReleaseBuildRole:$/,/^  ReleaseBuildProject:$/p' "$tpl")
+check "the release build's role: its own project only, S3 objects under builds/ only, no managed policy" \
+  $(grep -qF "project/\${AWS::StackName}-build'" <<<"$rr" && grep -qF "Resource: !Sub '\${InputsBucket.Arn}/builds/*'" <<<"$rr" \
+     && ! grep -q 'ManagedPolicyArns' <<<"$rr" && [ "$(grep -c "InputsBucket.Arn}/" <<<"$rr")" = 1 ]; echo $?) "$rr"
+check "a release build still running is stopped when the stack is deleted (helper mode stop-builds)" \
+  $(grep -q 'Mode: stop-builds' "$tpl" && grep -q 'mode == "stop-builds" and kind == "Delete"' "$tpl"; echo $?)
 check "the inputs bucket blocks public access and denies plain HTTP" \
   $(for k in BlockPublicAcls BlockPublicPolicy IgnorePublicAcls RestrictPublicBuckets; do grep -q "$k: true" "$tpl" || exit 1; done
     grep -q "aws:SecureTransport: 'false'" "$tpl"; echo $?)
@@ -169,6 +185,20 @@ check "upload: the installed export is kept for the uninstall (installed/<stack>
   $([ "$(sha "$T/export.zip")" = "$(sha "$T/s3/inputs-bkt/installed/pai-pd.zip" 2>/dev/null)" ]; echo $?) "$(ls -R "$T/s3")"
 
 check "upload: no umarell_jam archive uploaded: deploy.sh gets none" $(env_has ONECLICK_UMARELL_JAM_TARBALL=; echo $?) "$(cat "$T/calls")"
+check "ReleaseBuild unset: deploy.sh gets no release-build project (the instance builds)" \
+  $(! grep -q '^  ONECLICK_BUILD_' "$T/calls"; echo $?) "$(cat "$T/calls")"
+reset; put "$T/export.zip" inputs-bkt/pai-pd.zip; put "$T/umarell.tar.gz" inputs-bkt/umarell.tar.gz
+out=$(RELEASE_BUILD=codebuild RELEASE_BUILD_PROJECT=pai-pd-installer-build build); rc=$?
+check "ReleaseBuild codebuild: deploy.sh gets the release-build project and the inputs bucket" \
+  $([ "$rc" = 0 ] && env_has ONECLICK_BUILD_PROJECT=pai-pd-installer-build && env_has ONECLICK_BUILD_BUCKET=inputs-bkt; echo $?) "$out"$'\n'"$(cat "$T/calls")"
+reset; put "$T/export.zip" inputs-bkt/pai-pd.zip; put "$T/umarell.tar.gz" inputs-bkt/umarell.tar.gz
+out=$(RELEASE_BUILD=instance RELEASE_BUILD_PROJECT=pai-pd-installer-build build); rc=$?
+check "ReleaseBuild instance: deploy.sh gets no release-build project" \
+  $([ "$rc" = 0 ] && ! grep -q '^  ONECLICK_BUILD_' "$T/calls"; echo $?) "$out"$'\n'"$(cat "$T/calls")"
+reset; put "$T/export.zip" inputs-bkt/pai-pd.zip; put "$T/umarell.tar.gz" inputs-bkt/umarell.tar.gz
+out=$(RELEASE_BUILD=codebuild build); rc=$?
+check "ReleaseBuild codebuild without RELEASE_BUILD_PROJECT fails before deploy.sh" \
+  $([ "$rc" != 0 ] && ! grep -q '^deploy.sh in ' "$T/calls"; echo $?) "$out"
 reset; put "$T/export.zip" inputs-bkt/pai-pd.zip; put "$T/umarell.tar.gz" inputs-bkt/umarell.tar.gz; put "$T/umarell-jam.tar.gz" inputs-bkt/umarell-jam.tar.gz
 out=$(build); rc=$?
 check "upload: umarell-jam.tar.gz is umarell_jam's archive, not a second umarell one" \

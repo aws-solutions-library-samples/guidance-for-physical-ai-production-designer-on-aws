@@ -23,6 +23,10 @@ UMARELL_JAM_TARBALL=""
 UMARELL_JAM_FILE=""
 UMARELL_JAM_SHA=""
 UMARELL_JAM_KEY=""
+# --build-project/--build-bucket: the release is built in that AWS CodeBuild project (the CloudFormation installer's
+# release-build project), its source staged in that bucket; '' builds it on the instance.
+BUILD_PROJECT=""
+BUILD_BUCKET=""
 FORCE=0
 ROTATE_ORIGIN=0
 ALLOW_DOWNGRADE=0
@@ -111,6 +115,8 @@ parse_args() {
       --kiro-secret) KIRO_SECRET="${2?}"; SET_OPTS+=" kiroSecretName"; shift 2 ;;
       --umarell-tarball) UMARELL_TARBALL="${2:?}"; shift 2 ;;
       --umarell-jam-tarball) UMARELL_JAM_TARBALL="${2?--umarell-jam-tarball needs a value}"; SET_OPTS+=" umarellJam"; shift 2 ;;
+      --build-project) BUILD_PROJECT="${2:?--build-project needs a value}"; shift 2 ;;
+      --build-bucket) BUILD_BUCKET="${2:?--build-bucket needs a value}"; shift 2 ;;
       --force) FORCE=1; shift ;;
       --rotate-origin-secret) ROTATE_ORIGIN=1; shift ;;
       --allow-downgrade) ALLOW_DOWNGRADE=1; shift ;;
@@ -162,6 +168,12 @@ parse_args() {
       || die "--umarell-jam-tarball must be an s3://bucket/key.tar.gz or a local .tar.gz file ('' drops the installed one)"
   fi
   [[ " $SET_OPTS " != *" umarellJam "* ]] || [ "$COMMAND" = install ] || die "--umarell-jam-tarball is an option of install"
+  if [ -n "$BUILD_PROJECT$BUILD_BUCKET" ]; then
+    [ "$COMMAND" = install ] || die "--build-project and --build-bucket are options of install"
+    [ -n "$BUILD_PROJECT" ] && [ -n "$BUILD_BUCKET" ] || die "--build-project and --build-bucket go together"
+    [[ "$BUILD_PROJECT" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{1,254}$ ]] || die "--build-project must be a CodeBuild project name"
+    [[ "$BUILD_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || die "--build-bucket must be an S3 bucket name"
+  fi
   return 0
 }
 

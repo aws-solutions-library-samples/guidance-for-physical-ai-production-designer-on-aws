@@ -13,6 +13,8 @@
 #   checking    GET http://127.0.0.1/api/v1/health and factoryos-planner-router active, for ~3 min; then the planners'
 #               venvs (provision.sh's) import their runtime, as the factoryos user; umarell_jam's setup is checked
 #               too, but only reported: one that is not set up is marked incomplete, never a rollback
+# A request with a `bundle` (the release build in AWS CodeBuild made it of this export; the handoff downloaded it to
+# the packaging phase's path) goes from `downloading` straight to `deploying`: no deps, build or packaging here.
 # The build root <tree>: the export's source/ in the Guidance layout (deployment/ at the export's root, everything else
 # under source/: source/scripts/build-release.sh exists), else the export's root (the flat layout of the internal
 # repo). deployment/bootstrap/ is at the export's root in both.
@@ -203,7 +205,13 @@ case "$phase" in
     if [ -n "$version" ] && [ -f "$lib/request.json" ] \
        && [ "$(cat "$srcs/$version/.factoryos-export" 2>/dev/null)" = "$(python3 -I -c 'import json, sys
 print(json.load(open(sys.argv[1])).get("sha256") or "-")' "$lib/request.json")" ]; then
-      phase=deps
+      # A bundle the release build in AWS CodeBuild made (the request's `bundle`): no deps, build or packaging here.
+      if [ -n "$(python3 -I -c 'import json, sys
+print((json.load(open(sys.argv[1])).get("bundle") or {}).get("sha256") or "")' "$lib/request.json")" ]; then
+        phase=deploying
+      else
+        phase=deps
+      fi
     else
       fail "downloading: interrupted before the export was unpacked; run the release step again"
     fi ;;
@@ -212,13 +220,14 @@ print(json.load(open(sys.argv[1])).get("sha256") or "-")' "$lib/request.json")" 
 esac
 
 # The request (the handoff's request.json): the umarell and umarell_jam tarballs, if any.
-{ read -r req_version; read -r utar; read -r usha; read -r jtar; read -r jsha; } < <(python3 -I -c '
+{ read -r req_version; read -r utar; read -r usha; read -r jtar; read -r jsha; read -r bsha; } < <(python3 -I -c '
 import json, sys
 r = json.load(open(sys.argv[1]))
 u = r.get("umarell") or {}
 j = r.get("umarellJam") or {}
+b = r.get("bundle") or {}
 print(r.get("version") or ""); print(u.get("path") or ""); print(u.get("sha256") or "")
-print(j.get("path") or ""); print(j.get("sha256") or "")' "$lib/request.json")
+print(j.get("path") or ""); print(j.get("sha256") or ""); print(b.get("sha256") or "")' "$lib/request.json")
 src="$srcs/$version"
 bundle="$bundles/$prefix$version.tar.gz"
 new_dir="$releases/$prefix$version"
@@ -514,6 +523,11 @@ for p in $order; do
       ;;
     deploying)
       [ -f "$bundle" ] && [ -f "$bundle.sha256" ] || fail "deploying: $bundle is missing"
+      # The CodeBuild release build's bundle: the one the request names, byte for byte.
+      if [ -n "$bsha" ] && [ "$(sha256 "$bundle")" != "$bsha" ]; then
+        fail "deploying: $bundle is not the bundle the release build made (sha256 $bsha)"
+      fi
+      [ -z "$bsha" ] || [ "$built" = yes ] || say "deploying: the bundle the release build in AWS CodeBuild made"
       set_state deploying
       # The same version again (force): its running build is kept for a rollback (factoryos-deploy replaces it).
       if [ "$previous" = "$version" ] && [ ! -d "$keep_dir" ] && [ -d "$new_dir" ]; then

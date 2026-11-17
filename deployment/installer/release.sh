@@ -62,6 +62,8 @@ cmd_install() {
   [ "$ROTATE_ORIGIN" = 0 ] || [ "$MODE" = update ] || say "(--rotate-origin-secret: a new installation gets a new origin secret anyway.)"
   confirm "Go on?"
 
+  # In parallel with the stacks: the release build in CodeBuild (--build-project), awaited by release_step.
+  start_release_build
   [ "$MODE" = update ] && load_options
   prepare_app
   choose_ami
@@ -109,6 +111,18 @@ release_step() {
   fi
   ok "s3://$bucket/$key"
 
+  # The bundle the CodeBuild release build made of this export (--build-project): next to it under releases/ (the
+  # instance role reads releases/*), and in wanted: the instance deploys it instead of building.
+  local bundle_json="null"
+  if [ -n "$BUILD_ID" ]; then
+    wait_release_build
+    local bkey="releases/factoryos-viewer-linux-arm64-$VERSION.tar.gz"
+    awsr s3 cp "s3://$BUILD_BUCKET/$BUILD_PREFIX/out/bundle.tar.gz" "s3://$bucket/$bkey" --only-show-errors \
+      || die "could not copy the bundle into s3://$bucket/$bkey"
+    bundle_json="{\"key\":\"$bkey\",\"sha256\":\"$BUNDLE_SHA\"}"
+    ok "s3://$bucket/$bkey (sha256 $BUNDLE_SHA)"
+  fi
+
   local umarell_json="null"
   if [ -n "$UMARELL_TARBALL" ]; then
     local u="$WORK/umarell.tar.gz" usha
@@ -141,15 +155,96 @@ release_step() {
 
   local wanted
   wanted=$(python3 -I -c 'import json,sys
-v,k,s,u,j,t,f=sys.argv[1:]
-print(json.dumps({"version":v,"key":k,"sha256":s,"umarell":json.loads(u),"umarellJam":json.loads(j),"requestedAt":t,"force":f=="1"},separators=(",",":")))' \
-    "$VERSION" "$key" "$SOURCE_SHA" "$umarell_json" "$jam_json" "$(now_iso)" "$FORCE")
+v,k,s,u,j,b,t,f=sys.argv[1:]
+w={"version":v,"key":k,"sha256":s,"umarell":json.loads(u),"umarellJam":json.loads(j),"requestedAt":t,"force":f=="1"}
+if b!="null": w["bundle"]=json.loads(b)
+print(json.dumps(w,separators=(",",":")))' \
+    "$VERSION" "$key" "$SOURCE_SHA" "$umarell_json" "$jam_json" "$bundle_json" "$(now_iso)" "$FORCE")
   awsr ssm put-parameter --name "$(param_wanted)" --type String --overwrite --value "$wanted" >/dev/null
   ok "$(param_wanted)"
 
   wait_instance_ready "$iid"
   run_release_command "$iid" "$doc" "factoryos release $VERSION" || die "the instance did not start the release ($RELEASE_COMMAND_STATUS)"
-  ok "the instance builds $VERSION now (install.sh status --wait follows it)"
+  if [ -n "$BUILD_ID" ]; then
+    ok "the instance deploys $VERSION now (install.sh status --wait follows it)"
+  else
+    ok "the instance builds $VERSION now (install.sh status --wait follows it)"
+  fi
+}
+
+# --- The release build in AWS CodeBuild (--build-project, --build-bucket; deployment/CONTRACT.md "Release build in
+# AWS CodeBuild"). start_release_build stages the export (the very archive the instance gets, wrapped in a zip: a
+# CodeBuild S3 source is a zip it unpacks) under builds/<version>-<sha12>/ of the build bucket and starts the build;
+# its artifacts (deployment/bootstrap/build-bundle.sh's bundle.tar.gz and bundle.json) go to .../out/.
+# wait_release_build waits for it and checks bundle.json (this version, this export). A build still running when
+# install.sh stops is stopped (the EXIT trap, release_build_on_exit).
+BUILD_ID="" BUILD_PREFIX="" BUNDLE_SHA="" RELEASE_BUILD_OPEN=0
+start_release_build() {
+  [ -n "$BUILD_PROJECT" ] || return 0
+  step "Release build of $VERSION in AWS CodeBuild ($BUILD_PROJECT)"
+  [ -f "$SOURCE_FILE" ] || die "the export $SOURCE_FILE is gone"
+  [ "$(sha256_file "$SOURCE_FILE")" = "$SOURCE_SHA" ] || die "$SOURCE_FILE changed since it was checked"
+  BUILD_PREFIX="builds/$VERSION-${SOURCE_SHA:0:12}"
+  local wrap="$WORK/release-build-source.zip"
+  rm -f "$wrap"
+  python3 -I -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+    z.write(sys.argv[2], sys.argv[3])' "$wrap" "$SOURCE_FILE" "export.$SOURCE_EXT" || die "could not wrap the export for CodeBuild"
+  awsr s3 cp "$wrap" "s3://$BUILD_BUCKET/$BUILD_PREFIX/source.zip" --only-show-errors \
+    || die "could not stage the export in s3://$BUILD_BUCKET/$BUILD_PREFIX/source.zip"
+  rm -f "$wrap"
+  BUILD_ID=$(awsr codebuild start-build --project-name "$BUILD_PROJECT" \
+      --source-type-override S3 --source-location-override "$BUILD_BUCKET/$BUILD_PREFIX/source.zip" \
+      --artifacts-override "type=S3,location=$BUILD_BUCKET,path=$BUILD_PREFIX,name=out,packaging=NONE,namespaceType=NONE" \
+      --environment-variables-override "name=RELEASE_VERSION,value=$VERSION,type=PLAINTEXT" \
+        "name=EXPORT_SHA256,value=$SOURCE_SHA,type=PLAINTEXT" \
+      --query build.id --output text) && [ -n "$BUILD_ID" ] && [ "$BUILD_ID" != None ] \
+    || die "could not start the release build in $BUILD_PROJECT"
+  RELEASE_BUILD_OPEN=1; origin_trap
+  ok "started $BUILD_ID (about 20 minutes; the stacks deploy meanwhile)"
+}
+
+# release_build_on_exit: the EXIT trap's part (origin_on_exit calls it): a release build still running is stopped.
+release_build_on_exit() {
+  [ "$RELEASE_BUILD_OPEN" = 1 ] || return 0
+  RELEASE_BUILD_OPEN=0
+  if awsr codebuild stop-build --ids "$BUILD_ID" >/dev/null 2>&1; then
+    warn "stopped the release build $BUILD_ID (install.sh did not finish)"
+  else
+    warn "could not stop the release build $BUILD_ID"
+  fi
+}
+
+wait_release_build() {
+  step "Waiting for the release build $BUILD_ID"
+  local t0 status phase link last=-1 m deadline
+  t0=$(date +%s); deadline=$(( t0 + ${FACTORYOS_BUILD_TIMEOUT_SECONDS:-18000} ))
+  while :; do
+    read -r status phase link < <(awsr codebuild batch-get-builds --ids "$BUILD_ID" \
+        --query 'builds[0].[buildStatus,currentPhase,logs.deepLink]' --output text 2>/dev/null || echo "? ? -")
+    case "$status" in
+      SUCCEEDED) break ;;
+      FAILED|FAULT|STOPPED|TIMED_OUT)
+        RELEASE_BUILD_OPEN=0
+        die "the release build $BUILD_ID ended $status (phase $phase); its log: ${link:-see the build history of $BUILD_PROJECT}" ;;
+    esac
+    m=$(( ($(date +%s) - t0) / 60 ))
+    if [ $(( m / 10 )) != "$last" ]; then say "  release build: $status, $phase ($m min)"; last=$(( m / 10 )); fi
+    [ "$(date +%s)" -lt "$deadline" ] || die "the release build $BUILD_ID did not finish in $(( (deadline - t0) / 60 )) min"
+    sleep "$POLL_SECONDS"
+  done
+  RELEASE_BUILD_OPEN=0
+  local info
+  info=$(awsr s3 cp "s3://$BUILD_BUCKET/$BUILD_PREFIX/out/bundle.json" - 2>/dev/null) \
+    || die "the release build $BUILD_ID left no s3://$BUILD_BUCKET/$BUILD_PREFIX/out/bundle.json"
+  BUNDLE_SHA=$(python3 -I -c 'import json, re, sys
+b = json.loads(sys.argv[1])
+if b.get("version") != sys.argv[2]: sys.exit("bundle.json is for %r, not %s" % (b.get("version"), sys.argv[2]))
+if b.get("exportSha256") != sys.argv[3]: sys.exit("bundle.json is of another export (%s)" % b.get("exportSha256"))
+if b.get("arch") != "linux-arm64": sys.exit("bundle.json is for %r, not linux-arm64" % b.get("arch"))
+if not re.fullmatch(r"[0-9a-f]{64}", str(b.get("sha256"))): sys.exit("bundle.json has no sha256")
+print(b["sha256"])' "$info" "$VERSION" "$SOURCE_SHA" 2>&1) || die "the release build $BUILD_ID: $BUNDLE_SHA"
+  ok "built in $(( ($(date +%s) - t0) / 60 )) more min: bundle sha256 $BUNDLE_SHA"
 }
 
 # check_umarell_archive <file> <what>: a gzip tar whose first entry is under umarell/ (git archive --prefix=umarell/).
