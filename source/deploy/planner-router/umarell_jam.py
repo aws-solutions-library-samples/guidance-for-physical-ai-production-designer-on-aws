@@ -10,8 +10,9 @@ cache, btexport checks the plan; on a miss it can fall back to umarell_u3.
         -- <btexport command line with {jam_plan}>
 
 umarell_jam (factoryos-cell-planner umarell_jam/, `python -m umarell_jam`) is a cache-based umarell weld planner:
-umarell 76ea13a with the cell planner's fix set v8 (docs/upstream/patches_76ea13a), U3's hook patches and its own
-integration patch. It reuses certified weld primitives, transfers and phase schedules keyed by content hashes of the
+a plain umarell commit patched by umarell_jam itself (umarell_jam/native_copy.py): the public 8a02db9 with its own
+series (umarell_jam/patches_8a02db9: the upstream fix set rebased, U3's OMPL-seed hook) or 76ea13a with the cell
+planner's fix set v8 (docs/upstream/patches_76ea13a) and U3's hook patches, then its own integration patch. It reuses certified weld primitives, transfers and phase schedules keyed by content hashes of the
 cell geometry: ~0.5 s from a warm component cache, ~60 s cold (its patched umarell copy), against ~25 min for U3 on
 a large cell. Its cache is built offline (`python -m umarell_jam --root R --workspace W prepare --cells ...`,
 minutes per robot / weld pair); a plan-cell run repairs misses within --repair-budget (and prepares within
@@ -38,9 +39,12 @@ the cell's cache is saved back when the router has FACTORY_OS_CATALOGUE_CACHE_PU
 admin's workspace only; `bundle`, a test import, `aws s3 cp`: catalogue_cache.push); publish_cache.py saves one by
 hand. A failed save never fails the job.
 
-The plain umarell commit (--umarell of umarell_jam): FACTORY_OS_JAM_UMARELL, else <umarell>-76ea13a, else
-<umarell>-base or the checkout itself when that is 76ea13a (umarell_u3.base_of); none: umarell_jam is called without
---umarell (its own default under R, else its exit 4).
+The plain umarell commit (--umarell of umarell_jam; JAM_BASES, in this order): FACTORY_OS_JAM_UMARELL, else
+<umarell>-8a02db9 (a public install: deploy/umarell-jam.pin, fetch-umarell.sh --jam), else <umarell>-76ea13a (the
+internal servers: deploy/umarell-jam-base.txt), else <umarell>-base or the checkout itself when that is one of them
+(umarell_u3.base_of); none: umarell_jam is called without --umarell (its own default, else its exit 4). Its component
+cache is per base (the planner revision is in every key), and so is the catalogue prefix it pulls from and saves to
+(catalogue_cache.jam_prefix: 76ea13a the flat catalogue/umarell-jam-cache/, 8a02db9 catalogue/umarell-jam-cache/8a02db9/).
 
 A hang (neither R/runs/<job>/progress.json nor the output changed for --progress-timeout s, default 300) or a run
 past --timeout + 120 s is killed: no complete plan (3). With --fallback-u3, a run without a plan (3, 4, a crash, a
@@ -80,9 +84,13 @@ if str(HERE) not in sys.path:   # -I: the script's folder is not on sys.path
 import catalogue_cache as CC  # noqa: E402
 import umarell_u3 as U  # noqa: E402
 
-JAM_BASE = "76ea13a"                                  # the umarell commit umarell_jam is built on (fix set v8)
+# The plain umarell commits umarell_jam builds on (the cell planner's umarell_jam/native_copy.py BASES), preferred in
+# this order when several are installed: the public 8a02db9 (deploy/umarell-jam.pin), 76ea13a (the internal servers'
+# deploy/umarell-jam-base.txt archive, fix set v8).
+JAM_BASES = ("8a02db9", "76ea13a")
+JAM_BASE = JAM_BASES[0]                               # the default base (no plain umarell found, no patched copy yet)
 COMPONENTS = "components"                             # the component cache in --root
-CACHE_PREFIX = CC.JAM_PREFIX                          # catalogue/umarell-jam-cache/ in the workspaces' data bucket
+CACHE_PREFIX = CC.JAM_PREFIX                          # catalogue/umarell-jam-cache/ (76ea13a's; per base: CC.jam_prefix)
 MANIFEST_KIND = "umarell-jam-components"              # umarell_jam bundle's MANIFEST.json kind
 PROGRESS_TIMEOUT_S = 300.0                            # umarell_jam updates progress.json at least every 60 s
 KILL_GRACE_S = 120.0                                  # past --timeout: umarell_jam did not stop by itself
@@ -96,14 +104,32 @@ def log(msg: str) -> None:
 
 # ---------------------------------------------------------------- the plain umarell commit and the root
 def jam_source(umarell: Path) -> Path | None:
-    """The plain umarell 76ea13a umarell_jam patches (its --umarell), or None."""
+    """The plain umarell (one of JAM_BASES) umarell_jam patches (its --umarell), or None."""
     over = os.environ.get("FACTORY_OS_JAM_UMARELL", "").strip()
     if over:
         return Path(over).resolve() if (Path(over) / "agents").is_dir() else None
-    for cand in (umarell.with_name(f"{umarell.name}-{JAM_BASE}"), U.u3_source(umarell)):
-        if (cand / "agents").is_dir() and U.base_of(cand) == JAM_BASE:
+    for cand in [umarell.with_name(f"{umarell.name}-{b}") for b in JAM_BASES] + [U.u3_source(umarell)]:
+        if (cand / "agents").is_dir() and U.base_of(cand) in JAM_BASES:
             return cand.resolve()
     return None
+
+
+def copy_base(root: Path) -> str | None:
+    """The base of the patched copy umarell_jam built in ``root`` (R/umarell/UF_APPLIED.json), or None."""
+    try:
+        base = json.loads((Path(root) / "umarell" / "UF_APPLIED.json").read_text()).get("base")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return base if base in JAM_BASES else None
+
+
+def jam_base(source: Path | None, root: Path | None = None) -> str:
+    """The base a job plans on: its plain umarell's (``source``), else the patched copy's in ``root``, else JAM_BASE."""
+    if source is not None:
+        base = U.base_of(Path(source))
+        if base in JAM_BASES:
+            return base
+    return (copy_base(root) if root is not None else None) or JAM_BASE
 
 
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -207,22 +233,27 @@ class JamCli:
                               capture_output=True, text=True, timeout=timeout_s, stdin=subprocess.DEVNULL)
 
 
-def cache_uri(env_file: Path | None = None) -> str | None:
-    """s3://<data bucket>/catalogue/umarell-jam-cache/ of a workspace on S3 storage; FACTORY_OS_JAM_CACHE_S3 (an
-    s3:// prefix, used as is; 0 = off)."""
-    return CC.catalogue_uri(CACHE_PREFIX, "FACTORY_OS_JAM_CACHE_S3", env_file)
+def cache_uri(env_file: Path | None = None, base: str | None = None) -> str | None:
+    """s3://<data bucket>/<catalogue_cache.jam_prefix(base)> of a workspace on S3 storage (76ea13a or None: the flat
+    catalogue/umarell-jam-cache/; 8a02db9: catalogue/umarell-jam-cache/8a02db9/); FACTORY_OS_JAM_CACHE_S3 (an s3://
+    prefix, used as is for every base; 0 = off)."""
+    return CC.catalogue_uri(CC.jam_prefix(base), "FACTORY_OS_JAM_CACHE_S3", env_file)
 
 
 def pull_shared_cache(cli: JamCli, uri: str | None = None, aws: str | None = None, region: str | None = None,
-                      timeout_s: float = 90.0) -> str:
-    """The catalogue's umarell_jam bundles into this host's cache before planning (catalogue_cache.pull: new or
-    changed bundles only). No router lock: `umarell_jam import` verifies a bundle before writing and writes each
-    entry atomically under the Store's per-key lock, so plan-cell runs may read the cache meanwhile. Never raises."""
-    uri = uri or cache_uri()
+                      timeout_s: float = 90.0, base: str | None = None) -> str:
+    """The catalogue's umarell_jam bundles of ``base`` (default: the patched copy's in the root, else JAM_BASE) into
+    this host's cache before planning (catalogue_cache.pull: new or changed bundles only, the prefix's own *.tgz, not
+    another base's folder below it). No router lock: `umarell_jam import` verifies a bundle before writing and writes
+    each entry atomically under the Store's per-key lock, so plan-cell runs may read the cache meanwhile. Never
+    raises."""
+    base = base or jam_base(None, cli.root)
+    uri = uri or cache_uri(base=base)
     if not uri:
         return "no shared cache location (not a workspace on S3 storage, or FACTORY_OS_JAM_CACHE_S3=0)"
-    return CC.pull(uri, cli.root / "catalogue-pull", lambda b: cli.cmd("import", str(b), workspace=False),
-                   env=cli.env, cwd=cli.src, region=region, timeout_s=timeout_s, aws=aws)
+    mirror = cli.root / ("catalogue-pull" if CC.jam_prefix(base) == CC.JAM_PREFIX else f"catalogue-pull-{base}")
+    return CC.pull(uri, mirror, lambda b: cli.cmd("import", str(b), workspace=False),
+                   env=cli.env, cwd=cli.src, region=region, timeout_s=timeout_s, aws=aws, top_level_only=True)
 
 
 def _manifest(bundle: Path) -> dict:
@@ -264,21 +295,23 @@ def cache_bundle(cli: JamCli, cell: str, out_dir: Path) -> tuple[Path, str]:
     return bundle, name
 
 
-def publish_cache(cli: JamCli, cell: str, dry_run: bool = False) -> dict:
-    """Save this host's umarell_jam cache of ``cell`` to catalogue/umarell-jam-cache/ (catalogue_cache.push: the gate
-    first, a test import into an empty root, ``aws s3 cp``)."""
+def publish_cache(cli: JamCli, cell: str, dry_run: bool = False, base: str | None = None) -> dict:
+    """Save this host's umarell_jam cache of ``cell`` to its base's catalogue prefix (catalogue_cache.jam_prefix;
+    ``base`` default: the patched copy's in the root, the base the cache was built on, else JAM_BASE;
+    catalogue_cache.push: the gate first, a test import into an empty root, ``aws s3 cp``)."""
     CC.push_gate()
+    prefix = CC.jam_prefix(base or jam_base(None, cli.root))
     with tempfile.TemporaryDirectory(prefix="jam-cache-bundle-") as tmp:
         bundle, name = cache_bundle(cli, cell, Path(tmp))
-        return CC.push(bundle, CACHE_PREFIX, name, lambda t: cli.cmd("import", str(bundle), workspace=False, root=t),
+        return CC.push(bundle, prefix, name, lambda t: cli.cmd("import", str(bundle), workspace=False, root=t),
                        env=cli.env, cwd=cli.src, dry_run=dry_run)
 
 
-def auto_push(cli: JamCli, cell: str) -> str:
+def auto_push(cli: JamCli, cell: str, base: str | None = None) -> str:
     """The router's opt-in save after a job that filled cache misses (FACTORY_OS_CATALOGUE_CACHE_PUSH=1): never
     raises, never fails the job; returns what happened (logged in full)."""
     try:
-        r = publish_cache(cli, cell)
+        r = publish_cache(cli, cell, base=base)
         note = f"saved {r['uri']} ({r['bytes']} bytes, sha256 {r['sha256'][:12]})"
     except CC.PushRefused as exc:
         note = f"not saved: {exc}"
@@ -539,21 +572,23 @@ def main(argv=None) -> int:
         return no_plan(EXIT_SETUP, "setup_failed", f"{src} has no umarell_jam (cell planner too old)")
     umarell = Path(a.umarell).resolve()
     source = jam_source(umarell)
+    base = jam_base(source, root)
     info["umarell"] = str(source) if source else None
+    info["umarell_base"] = base
     if source is None:
-        log(f"warning: no plain umarell {JAM_BASE} (FACTORY_OS_JAM_UMARELL, {umarell}-{JAM_BASE}, {umarell}-base): "
-            "umarell_jam runs without --umarell")
+        log(f"warning: no plain umarell {' / '.join(JAM_BASES)} (FACTORY_OS_JAM_UMARELL, "
+            + ", ".join(f"{umarell}-{b}" for b in JAM_BASES) + f", {umarell}-base): umarell_jam runs without --umarell")
     root.mkdir(parents=True, exist_ok=True)
     tag = job.name
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "USER")}
     env.update(PYTHONUNBUFFERED="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1",
-               UMARELL_BASE=JAM_BASE, UMARELL_JAM_JOB=tag)
+               UMARELL_BASE=base, UMARELL_JAM_JOB=tag)
     env.update({k: v for k, v in os.environ.items() if k.startswith(("UF_", "JAM_", "UMARELL_JAM_"))})
     cli = JamCli(a.python, src, root, Path(a.workspace), env)
     t0 = time.time()
     if os.environ.get("FACTORY_OS_JAM_CACHE_PULL", "1") != "0":
         try:
-            note = pull_shared_cache(cli)
+            note = pull_shared_cache(cli, base=base)
         except Exception as exc:  # noqa: BLE001 -- the shared cache never fails a plan
             note = f"failed ({exc!r})"
         log(f"shared cache from the catalogue: {note} ({time.time() - t0:.1f} s)")
@@ -603,7 +638,7 @@ def main(argv=None) -> int:
     code, report_path, info["export_s"] = U.export_and_check(plan, export_cmd, "{jam_plan}")
     if code == 0 and cache.get("misses") and CC.auto_push_enabled():
         # the misses it filled are new components: saved to the catalogue (opt-in; never fails the job)
-        info["catalogue_push"] = auto_push(cli, a.cell_id)
+        info["catalogue_push"] = auto_push(cli, a.cell_id, base)
     finish(code, status or "ok")
     U.merge_report(report_path, "jam", info)
     return code

@@ -1,6 +1,6 @@
 """``plan-cell``: one FactoryOS planning job (the planner router's umarell_jam planner).
 
-    python -m umarell_jam --root R --workspace W [--umarell <plain umarell 76ea13a checkout>] plan-cell \
+    python -m umarell_jam --root R --workspace W [--umarell <plain umarell 8a02db9 / 76ea13a checkout>] plan-cell \
         --cell-id ID [--task-file F.json] [--welds W01 …] [--robots robot1 …] [--speed max|normal] \
         [--timeout S] [--repair-budget S] [--prepare-budget S] [--job JOB] --out PLAN.json
 

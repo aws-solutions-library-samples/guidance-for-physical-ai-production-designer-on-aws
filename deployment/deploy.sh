@@ -23,11 +23,11 @@ REPO_URL="https://github.com/aws-solutions-library-samples/guidance-for-physical
 WAIT_FOR_RELEASE="${ONECLICK_WAIT_FOR_RELEASE:-1}"
 # How long to wait for that build, in seconds (6 h).
 RELEASE_TIMEOUT_SECONDS="${ONECLICK_RELEASE_TIMEOUT_SECONDS:-21600}"
-# Optional: umarell from an s3:// tarball instead of GitHub ('' for GitHub: then the pinned GitHub repository must
-# be public, which step 3 checks; until it is, set an archive of the pinned commit here, see the README).
+# Optional: umarell from an s3:// tarball instead of GitHub ('' for GitHub, the default: step 3 checks that the pinned
+# public repository answers; an archive of the pinned commit is for an account without a route to GitHub).
 UMARELL_TARBALL="${ONECLICK_UMARELL_TARBALL:-}"
 # Optional: the plain umarell commit of the umarell_jam planner (deploy/umarell-jam.pin) from an s3:// tarball instead
-# of GitHub ('' for GitHub). Without one while that repository is not public the install goes on: umarell_jam is
+# of GitHub ('' for GitHub, the default). When GitHub cannot be reached the install goes on: umarell_jam is
 # marked incomplete on the instance and its jobs fall back to umarell_u3 (step 3 warns).
 UMARELL_JAM_TARBALL="${ONECLICK_UMARELL_JAM_TARBALL:-}"
 # Optional: the instance (--instance-type, a Graviton type), its volume (--volume-gb) and Amazon Bedrock (true/false;
@@ -88,7 +88,7 @@ if [ -z "$UMARELL_TARBALL" ]; then
   umarell_url="$(awk '!/^[[:space:]]*#/ && NF {print $2; exit}' "$pin")"
   [ -n "$umarell_commit" ] && [ -n "$umarell_url" ] || fail "$pin has no '<commit> <url>' line"
   GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote "$umarell_url" >/dev/null 2>&1 \
-    || fail "umarell is not public yet ($umarell_url): set UMARELL_TARBALL to an s3:// archive of $umarell_commit"
+    || fail "umarell's repository does not answer ($umarell_url): check the network, or set UMARELL_TARBALL to an s3:// archive of $umarell_commit"
   echo "umarell $umarell_commit from $umarell_url (public)"
 fi
 jam_pin=source/deploy/umarell-jam.pin; [ -f "$jam_pin" ] || jam_pin=deploy/umarell-jam.pin
@@ -101,7 +101,7 @@ if [ -z "$UMARELL_JAM_TARBALL" ] && [ -f "$jam_pin" ]; then
   elif [ -n "$jam_url" ] && GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote "$jam_url" >/dev/null 2>&1; then
     echo "umarell_jam's umarell $jam_commit from $jam_url (public)"
   else
-    echo "WARNING: umarell_jam's umarell (${jam_url:-no URL in $jam_pin}) is not public yet: the release installs without umarell_jam (marked incomplete, its jobs fall back to umarell_u3) unless UMARELL_JAM_TARBALL is an s3:// archive of ${jam_commit:-its commit}" >&2
+    echo "WARNING: umarell_jam's umarell (${jam_url:-no URL in $jam_pin}) does not answer: the release installs without umarell_jam (marked incomplete, its jobs fall back to umarell_u3) unless UMARELL_JAM_TARBALL is an s3:// archive of ${jam_commit:-its commit}" >&2
   fi
 fi
 

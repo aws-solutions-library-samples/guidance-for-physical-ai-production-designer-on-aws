@@ -4,8 +4,9 @@
 
 ``--root`` (default data/umarell_jam) holds the components, the patched Umarell copy, plans, runs and logs
 (umarell_jam/layout.py). ``--workspace`` is a FactoryOS data root (cells/, catalogue/, products/; default R/workspace
-when staged, else /var/lib/factoryos). ``--umarell``: a plain Umarell 76ea13a checkout that R/umarell is built from
-(default the repository's third_party/sample-umarell-76ea13a), or an already patched copy used as it is.
+when staged, else /var/lib/factoryos). ``--umarell``: a plain Umarell checkout that R/umarell is built from
+(the public 8a02db9 or 76ea13a, :mod:`.native_copy`; default the repository's third_party/sample-umarell-8a02db9,
+else third_party/sample-umarell-76ea13a), or an already patched copy used as it is.
 ``--cache`` / ``--output`` override R/components and R/plans/bundles.
 
 Commands: setup, install, stage, inspect, inventory, build, prepare, manifest (alias export), plan, plan-cell, serve,
@@ -41,12 +42,12 @@ def parser():
     ap.add_argument("--root", type=Path, default=None, help="writable root (default data/umarell_jam)")
     ap.add_argument("--workspace", type=Path, default=None, help="FactoryOS data root (cells/, catalogue/, products/)")
     ap.add_argument("--umarell", type=Path, default=None,
-                    help="plain Umarell 76ea13a checkout R/umarell is built from, or an already patched copy")
+                    help="plain Umarell 8a02db9 / 76ea13a checkout R/umarell is built from, or an already patched copy")
     ap.add_argument("--cache", "--components", dest="cache", type=Path, default=None,
                     help="component store (default R/components)")
     ap.add_argument("--output", type=Path, default=None, help="published plan bundles (default R/plans/bundles)")
     commands = ap.add_subparsers(dest="command", required=True)
-    s = commands.add_parser("setup", help="create / refresh R/umarell (apply.py U3 + fixes v8 + integration hooks)")
+    s = commands.add_parser("setup", help="create / refresh R/umarell (the base's patch series + integration hooks)")
     s.add_argument("--force", action="store_true")
     install = commands.add_parser("install", help="install the integration hooks into the patched copy")
     install.add_argument("--patch", type=Path, default=None, help="also write the applied diff here")

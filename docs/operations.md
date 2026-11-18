@@ -53,11 +53,10 @@ The options of `install`:
 - `--kiro-secret <secret name>`: an AWS Secrets Manager secret in the same Region with a Kiro API key for the
   planning agent (`''` for none). Read the [Security](../README.md#security) section first:
   every user can read that secret.
-- `--umarell-tarball <s3 uri>`: umarell from a tarball instead of GitHub ([Provide umarell as a
-  tarball](#provide-umarell-as-a-tarball)).
+- `--umarell-tarball <s3 uri>`: umarell from a tarball instead of GitHub, for an instance without a route to GitHub
+  ([Provide umarell as a tarball](#provide-umarell-as-a-tarball)).
 - `--umarell-jam-tarball <s3 uri or file>`: the umarell commit the umarell_jam planner builds on, from a tarball
-  instead of GitHub (optional; [Provide umarell as a tarball](#provide-umarell-as-a-tarball)). An update keeps the
-  installed one; `''` drops it.
+  instead of GitHub (the same). An update keeps the installed one; `''` drops it.
 - `--force`: rebuild the installed version.
 - `--build-project <name> --build-bucket <bucket>`: compile the release in that AWS CodeBuild project, with the
   export staged in that bucket, instead of on the instance. The installer stack passes its own (`<installer
@@ -157,41 +156,35 @@ version warns. If you run it with your own role, it also needs `ssm:GetParameter
 
 ## Provide umarell as a tarball
 
-The release build fetches umarell (the U3 and agentic planners) from GitHub at the commit in
-`source/deploy/umarell.pin`. While that repository is not public, pass an
-archive of that commit instead. Make it with `git archive --prefix=umarell/` in a clone that has the commit, and
-upload it to S3 in your account:
+The release build fetches umarell (the U3 and agentic planners) from its public GitHub repository at the commit in
+`source/deploy/umarell.pin`, and the commit the umarell_jam planner builds on (the planner router's fast weld planner:
+it reuses a cache of certified weld motions) from `source/deploy/umarell-jam.pin`. You need no tarball for that. Only
+when the instance cannot reach GitHub, pass archives of those commits instead. Make them with `git archive --prefix=umarell/` in a clone that has the
+commits, and upload them to S3 in your account (a local file works for umarell_jam too):
 
 ```sh
 git -C <umarell clone> archive --prefix=umarell/ -o /tmp/umarell.tar.gz "$(awk '!/^#/ && NF {print $1; exit}' source/deploy/umarell.pin)"
+git -C <umarell clone> archive --prefix=umarell/ -o /tmp/umarell-jam.tar.gz "$(awk '!/^#/ && NF {print $1; exit}' source/deploy/umarell-jam.pin)"
 aws s3 cp /tmp/umarell.tar.gz s3://<bucket>/umarell.tar.gz
 ```
 
-Then add `--umarell-tarball s3://<bucket>/umarell.tar.gz` to the install command. Without it, the release build
-fails when it installs the planners.
+Then add `--umarell-tarball s3://<bucket>/umarell.tar.gz` and `--umarell-jam-tarball /tmp/umarell-jam.tar.gz` (or
+an `s3://` copy) to the install command. Without umarell the release build fails when it installs the planners.
+Without umarell_jam's commit the release still installs: `status` shows `incomplete: umarell_jam`, and umarell_jam's
+jobs are planned by its fallback, umarell_u3 (minutes instead of seconds).
 
-**The umarell_jam planner** (the planner router's fast weld planner: it reuses a cache of certified weld motions
-and plans a prepared cell in seconds) is built on another, older umarell commit, the one in
-`source/deploy/umarell-jam.pin`. While the repository is not public, pass that commit as a second, optional archive,
-the same way (a local file works too):
-
-```sh
-git -C <umarell clone> archive --prefix=umarell/ -o /tmp/umarell-jam.tar.gz "$(awk '!/^#/ && NF {print $1; exit}' source/deploy/umarell-jam.pin)"
-```
-
-and add `--umarell-jam-tarball /tmp/umarell-jam.tar.gz` (or an `s3://` copy). Without it the release still installs:
-`status` shows `incomplete: umarell_jam`, and umarell_jam's jobs are planned by its fallback, umarell_u3 (minutes
-instead of seconds). The first umarell_jam job on a cell also prepares that cell's cache (minutes, at most about
-half an hour; what it could not prepare in that time umarell_u3 plans, and the next job continues the preparation);
-later jobs on the same cell take seconds.
+The first umarell_jam job on a cell prepares that cell's cache (minutes, at most about half an hour; what it could not
+prepare in that time umarell_u3 plans, and the next job continues the preparation); later jobs on the same cell take
+seconds.
 
 ## Install without input
 
 `deployment/deploy.sh` runs the same installation without any input, from the clone it is in: a new stack name per
 run, the static parameters at its top, and `--yes`. It checks the sign-in gate and waits for the release.
-`deployment/cleanup.sh` removes that installation again. Until the umarell repository is public, set
-`UMARELL_TARBALL` at the top of `deploy.sh`, or export `ONECLICK_UMARELL_TARBALL`; it stops at once otherwise.
-`UMARELL_JAM_TARBALL` (`ONECLICK_UMARELL_JAM_TARBALL`) is umarell_jam's, optional: without it, it only warns.
+`deployment/cleanup.sh` removes that installation again. It fetches umarell from GitHub, and stops at once when
+umarell's repository does not answer. Without a route to GitHub, set `UMARELL_TARBALL` at the top of `deploy.sh`, or
+export `ONECLICK_UMARELL_TARBALL`; `UMARELL_JAM_TARBALL` (`ONECLICK_UMARELL_JAM_TARBALL`) is umarell_jam's, and
+without it, it only warns.
 The CloudFormation installer runs the same scripts with `ONECLICK_*` overrides (deployment/README.md lists them).
 The two scripts are for automated validation. For your own deployment, use the [Deployment Steps](../README.md#deployment-steps).
 [deployment/README.md](../deployment/README.md) describes the installer, the AWS CDK app and their tests.
@@ -253,12 +246,13 @@ needs:
   the installer's `<installer stack>-build` project; its `ReleaseBuildLogs` output links to the builds and their logs.
   Nothing was sent to the instance. Fix the cause and update the installer stack again, or set **Release build** to
   `instance` to compile on the instance.
-- **The release build fails when it installs the planners.** umarell could not be fetched: install with
-  `--umarell-tarball` ([Provide umarell as a tarball](#provide-umarell-as-a-tarball)).
+- **The release build fails when it installs the planners.** umarell could not be fetched from GitHub (the release
+  log says so: no route to GitHub from the instance?): restore the route, or install with `--umarell-tarball`
+  ([Provide umarell as a tarball](#provide-umarell-as-a-tarball)).
 - **`status` shows `incomplete: umarell_jam`.** The release serves, but the umarell_jam planner is not set up, and its
   jobs fall back to umarell_u3. The release log has the reason (`WARNING: umarell_jam is not set up: …`). Usually its
-  umarell commit could not be fetched: install again with `--umarell-jam-tarball` ([Provide umarell as a
-  tarball](#provide-umarell-as-a-tarball)), with `--force` for the same version.
+  umarell commit could not be fetched from GitHub: restore the route, or add `--umarell-jam-tarball` ([Provide
+  umarell as a tarball](#provide-umarell-as-a-tarball)), and install again (`--force` for the same version).
 - **`status` shows `rolled-back`.** The new release failed its health check after the switch, and the previous
   release serves again. `status` and the build log show why.
 - **The URL signs you in and then shows an error page.** The first release is not `ready` yet: the installer stack
@@ -302,7 +296,7 @@ Delete these yourself, if they apply:
   the S3 auto-delete function and, in a Region other than us-east-1, the cross-Region parameter reader) in the
   Region of the deployment, and `/aws/lambda/us-east-1.<stack>-edge-*` (the Lambda@Edge replicas) in each Region
   where CloudFront ran the sign-in function. Delete them in the CloudWatch console of each Region.
-- The release zip and the umarell tarball you uploaded to your own bucket.
+- The release zip and any umarell tarballs you uploaded to your own bucket.
 
 The AWS CDK bootstrap stacks (`CDKToolkit`) stay: they belong to the account and are shared by every AWS CDK app in
 it.

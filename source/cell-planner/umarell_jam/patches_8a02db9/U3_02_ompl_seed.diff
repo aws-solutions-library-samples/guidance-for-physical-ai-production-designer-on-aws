@@ -1,0 +1,25 @@
+diff --git a/agents/trajectory/backends/ompl/planner.py b/agents/trajectory/backends/ompl/planner.py
+index a4399cffd4bceaedb9f3a594a8fe07eeb6de1146..9c2962158e3725359aa0c3dabe0bb7016d7b2b52 100644
+--- a/agents/trajectory/backends/ompl/planner.py
++++ b/agents/trajectory/backends/ompl/planner.py
+@@ -97,6 +97,20 @@ def _import_ompl():
+         from ompl import geometric as og
+ 
+         _OMPL = SimpleNamespace(ob=ob, og=og)
++        # umarell-fast U3 (patch U3_02): optional per-process seed. OMPL seeds every
++        # RNG from one process-wide seed generator; without this, the time-based
++        # default makes two runs of the same request differ. A deterministic
++        # orchestrator sets OMPL_SEED per worker so its runs are repeatable on the
++        # same host (the solve is still wall-clock budgeted: a loaded host can
++        # stop a search at a different iteration). Must run before any RNG exists.
++        # ompl_compound imports OMPL through this function, so it is seeded too.
++        _seed = os.environ.get("OMPL_SEED", "").strip()
++        if _seed:
++            try:
++                from ompl import util as _ou
++                _ou.RNG.setSeed(int(_seed))
++            except Exception:  # noqa: BLE001 -- seeding is best-effort, never fatal
++                pass
+     except Exception as exc:  # ImportError on host, other errors in broken envs
+         _OMPL_IMPORT_ERROR = repr(exc)
+         _OMPL = False

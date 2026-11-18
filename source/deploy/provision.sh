@@ -21,7 +21,7 @@
 #     umarell-base/                   the plain umarell commit (deploy/umarell-base.txt, if pinned): umarell_u3's
 #                                     source when umarell/ is that commit with the cell planner's fixes applied
 #     umarell-<commit>/               the plain umarell commit umarell_jam is built on (deploy/umarell-jam-base.txt,
-#                                     if pinned, public mode deploy/umarell-jam.pin: 76ea13a): the planner router's
+#                                     if pinned, public mode deploy/umarell-jam.pin): the planner router's
 #                                     umarell_jam's source
 #     cell-planner/                   the planner router's jobs and cell views
 #   /opt/factoryos-cell-planner/router/  factoryos-cell-planner (deploy/cell-planner.txt) and its venv, for
@@ -176,14 +176,14 @@ if [ "$public" = 1 ]; then
   # Public mode: deploy/umarell.pin's commit (its base and the chat tree with the cell planner's fixes and
   # deploy/umarell-public's patches) from git, or FACTORYOS_UMARELL_TARBALL (+ _SHA256) from the environment
   # (the installer's --umarell-tarball). Fatal: without umarell the agentic planner has nothing to run. While
-  # sample-umarell is not public its git fetch fails for everyone; that failure gets its own message.
+  # the pinned commit cannot be fetched (no route to GitHub) the failure gets its own message.
   umarell_err=$(mktemp)
   if ! "$here/fetch-umarell.sh" "$release" "$data" 2> "$umarell_err"; then
     cat "$umarell_err" >&2
     if [ -z "${FACTORYOS_UMARELL_TARBALL:-}" ] && grep -q '^fetch-umarell: cannot fetch ' "$umarell_err"; then
       read -r ucommit uurl _ < <(grep -vE '^\s*(#|$)' "$here/umarell.pin" | head -1) || true
-      echo "provision.sh: umarell cannot be installed: the pinned sample-umarell commit ${ucommit:-?} is not" \
-           "publicly fetchable from ${uurl:-?} (the repository is not public yet). Install with a tarball of it" \
+      echo "provision.sh: umarell cannot be installed: the pinned umarell commit ${ucommit:-?} could not be" \
+           "fetched from ${uurl:-?} (no route to GitHub from the instance?). Install with a tarball of it" \
            "instead: deployment/install.sh install ... --umarell-tarball s3://<bucket>/<key>.tar.gz (a" \
            "git archive --prefix=umarell/ of that commit)." >&2
     else
@@ -195,7 +195,7 @@ if [ "$public" = 1 ]; then
   cat "$umarell_err" >&2
   rm -f "$umarell_err"
 
-  # umarell_jam's plain umarell (deploy/umarell-jam.pin, 76ea13a), when the release's cell planner has umarell_jam and
+  # umarell_jam's plain umarell (deploy/umarell-jam.pin), when the release's cell planner has umarell_jam and
   # the host runs it (FACTORY_OS_CELL_PLANNER, FACTORY_OS_UMARELL_JAM in workspace.env): deploy/fetch-umarell.sh --jam,
   # from git or FACTORYOS_UMARELL_JAM_TARBALL (+ _SHA256; the installer's --umarell-jam-tarball). Not fatal: without it
   # umarell_jam does not set up and its jobs fall back to umarell_u3; provision-incomplete says so, the next deploy
@@ -212,8 +212,8 @@ if [ "$public" = 1 ]; then
     else
       cat "$jam_err" >&2
       if [ -z "${FACTORYOS_UMARELL_JAM_TARBALL:-}" ] && grep -q '^fetch-umarell: cannot fetch ' "$jam_err"; then
-        log "WARNING: umarell_jam's umarell cannot be installed: the pinned sample-umarell commit ${jcommit:-?} is not" \
-            "publicly fetchable from ${jurl:-?} (the repository is not public yet). Install with a tarball of it:" \
+        log "WARNING: umarell_jam's umarell cannot be installed: the pinned umarell commit ${jcommit:-?} could not be" \
+            "fetched from ${jurl:-?} (no route to GitHub from the instance?). Install with a tarball of it:" \
             "deployment/install.sh install ... --umarell-jam-tarball s3://<bucket>/<key>.tar.gz (a" \
             "git archive --prefix=umarell/ of that commit)."
       else
@@ -262,10 +262,10 @@ else
   fi
 fi
 
-# --- the plain umarell 76ea13a (deploy/umarell-jam-base.txt), if pinned: the planner router's umarell_jam (umarell
-# 76ea13a + the cell planner's fix set v8, which it applies to its own copy) takes its source from here
-# (<umarell>-<commit>, found by umarell_jam.py). Read-only for the router. Not in public mode (its archive is
-# internal): the public branch above installs it from deploy/umarell-jam.pin.
+# --- the internal servers' plain umarell for umarell_jam (deploy/umarell-jam-base.txt: 76ea13a), if pinned: the
+# planner router's umarell_jam (which patches its own copy: on 76ea13a the cell planner's fix set v8) takes its source
+# from here (<umarell>-<commit>, found by umarell_jam.py jam_source). Read-only for the router. Not in public mode (its
+# archive is internal): the public branch above installs deploy/umarell-jam.pin's public commit (8a02db9) instead.
 if [ "$public" != 1 ] && [ -f "$here/umarell-jam-base.txt" ] && read -r jcommit jsha jkey < <(grep -vE '^\s*(#|$)' "$here/umarell-jam-base.txt" | head -1) \
    && [ -n "${jkey:-}" ]; then
   [[ "$jcommit" =~ ^[0-9a-f]{7}$ ]] || { echo "deploy/umarell-jam-base.txt: '$jcommit' is not a 7-digit commit" >&2; exit 1; }

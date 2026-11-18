@@ -19,14 +19,14 @@
 #
 # Where the commit comes from:
 #   FACTORYOS_UMARELL_TARBALL (+ FACTORYOS_UMARELL_SHA256, required with it): a local `git archive --prefix=umarell/`
-#     of the commit (the installer's optional vendor/umarell-<sha12>.tar.gz, while the repository is not public);
+#     of the commit (the installer's optional vendor/umarell-<sha12>.tar.gz, e.g. for an instance without GitHub);
 #     checked by sha256 and, when the archive records one (git archive does), by its commit id.
 #   otherwise: `git fetch --depth 1 <url> <commit>` of deploy/umarell.pin's line, archived the same way (the same
 #     tree as the tarball: committed files only, export-ignore honoured, no .git).
 #
 # fetch-umarell.sh <release dir> <data dir> --jam
 #
-# The plain umarell commit the planner router's umarell_jam is built on (deploy/umarell-jam.pin, 76ea13a), and nothing
+# The plain umarell commit the planner router's umarell_jam is built on (deploy/umarell-jam.pin), and nothing
 # else: <data>/umarell-<first 7 hex> (root-owned, read-only; found by deploy/planner-router/umarell_jam.py jam_source),
 # unpatched (umarell_jam patches its own copy), stamped .umarell.sha256 = the pin's commit; a matching stamp is a no-op.
 # From FACTORYOS_UMARELL_JAM_TARBALL (+ FACTORYOS_UMARELL_JAM_SHA256, required with it; the installer's
@@ -97,6 +97,16 @@ if [ "$mode" = --jam ]; then
   mkdir -p "$data"
   tmp=$(mktemp -d "$data/.umarell-fetch.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT
+  # An update keeps the installer's recorded --umarell-jam-tarball: one of another commit than this release's pin (the
+  # pin moved, e.g. 76ea13a -> the public 8a02db9) is left out with a WARNING and the pin's commit fetched from git.
+  if [ -n "${FACTORYOS_UMARELL_JAM_TARBALL:-}" ] && [ -f "$FACTORYOS_UMARELL_JAM_TARBALL" ] && command -v git >/dev/null; then
+    recorded=$(gzip -dc "$FACTORYOS_UMARELL_JAM_TARBALL" | git get-tar-commit-id 2>/dev/null || true)
+    if [ -n "$recorded" ] && [ "$recorded" != "$commit" ]; then
+      log "WARNING: $(basename "$FACTORYOS_UMARELL_JAM_TARBALL") is an archive of ${recorded:0:7}, deploy/umarell-jam.pin" \
+          "pins $short: left out, $short from $url instead"
+      unset FACTORYOS_UMARELL_JAM_TARBALL FACTORYOS_UMARELL_JAM_SHA256
+    fi
+  fi
   get_tree "$commit" "$url" umarell-jam.pin FACTORYOS_UMARELL_JAM "$tmp/src"
   [ -d "$tmp/src/umarell/agents" ] || die "the umarell tree of $short has no agents/ (not umarell?)"
   echo "$commit" > "$tmp/src/umarell/.umarell.sha256"

@@ -1,0 +1,23 @@
+# Fix set v11 = set v10 (patches_08d5a39) rebased onto the public umarell 8a02db9
+# (8a02db9, aws-samples/sample-industrial-multi-robot-agents "Initial commit": a sanitized copy of the private 08d5a39 --
+# meshes and internal cells removed, comments / examples renamed (welding_cell_2x / 2s / 2t, body_weld_2 ->
+# welding_cell_2_small, GEO_FIXTURE_OP1000 -> FIXTURE_A), upstream d749dc5 merged, DEFAULT_CELL_ID welding_cell_2_small);
+# apply in this order on 8a02db9 (git apply or patch -p1 --forward --batch: no offset, no fuzz; umarell_fast/apply.py
+# --base 8a02db9 --with-upstream-fixes, base third_party/sample-umarell-8a02db9). v10's files and order, 28 dropped;
+# every hunk keeps v10's line numbers. patches_08d5a39 (v10) stays for the internal servers' 08d5a39.
+# Only the index lines changed (context identical), except:
+#   22v3: the normalize_static_obstacles docstring hunk re-done on 8a02db9's wording (its comment names
+#         welding_cell_2_small where 08d5a39 said body_weld_2); the code is v10's
+#   21v5: one comment of agents/cell/vass_motion.py says welding_cell_2_small instead of welding_cell_2t (8a02db9 has
+#         no welding_cell_2t; same rename as upstream's); the code is v10's
+04v3_hull_backstop.diff
+22v3_no_workpiece_dip.diff
+20v2_driver_continuous.diff
+# 23 and 21 come after 20 (23 needs 20 for fjt_trajectory, 21 for robot_agent.py)
+23v2_commanded_acceleration.diff
+21v5_vass_interlocks.diff
+24v2_voxel_boundary_inward.diff
+25v2_near_weld_refinement.diff
+27_hermite_rest_ends.diff
+# 28_context_compaction_in_model_step dropped: 8a02db9 has upstream d749dc5 itself (context_compaction.compacting_prompt,
+# the prompt callable instead of a pre_model_hook node; the patch reverse-applies, byte-identical but for the renames)

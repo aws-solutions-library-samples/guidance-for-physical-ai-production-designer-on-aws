@@ -69,12 +69,12 @@ Parameters:
     Default: ''
   UmarellTarballUri:
     Type: String
-    Description: Optional, any SourceMode. The umarell archive (.tar.gz) as s3://... or https://...; needed while umarell's GitHub repository is not public, unless the artifact set holds it.
+    Description: Optional, any SourceMode. The umarell archive (.tar.gz) as s3://... or https://..., instead of the public GitHub repository (for an account without a route to GitHub).
     AllowedPattern: '^((s3|https)://\S+)?$'
     Default: ''
   UmarellJamTarballUri:
     Type: String
-    Description: Optional, any SourceMode. The plain umarell commit the umarell_jam planner builds on (a git archive --prefix=umarell/ of deploy/umarell-jam.pin's commit, .tar.gz) as s3://... or https://...; while umarell's GitHub repository is not public, without it the install succeeds but umarell_jam is incomplete (its jobs fall back to umarell_u3).
+    Description: Optional, any SourceMode. The plain umarell commit the umarell_jam planner builds on (a git archive --prefix=umarell/ of deploy/umarell-jam.pin's commit, .tar.gz) as s3://... or https://..., instead of the public GitHub repository (for an account without a route to GitHub).
     AllowedPattern: '^((s3|https)://\S+)?$'
     Default: ''
   AppStackName:

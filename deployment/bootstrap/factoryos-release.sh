@@ -377,7 +377,7 @@ jam_check() {
     base="$R/var/lib/factoryos/umarell-${commit:0:7}"
     stamp=$(cat "$base/.umarell.sha256" 2>/dev/null || true)
     if [ ! -d "$base/agents" ]; then
-      err="no plain umarell ${commit:0:7} in $base (deploy/fetch-umarell.sh: from GitHub, or --umarell-jam-tarball while sample-umarell is not public)"
+      err="no plain umarell ${commit:0:7} in $base (deploy/fetch-umarell.sh: from GitHub, or --umarell-jam-tarball)"
     elif [ -n "$stamp" ] && [[ "$stamp" != "$commit"* ]]; then
       err="$base is not umarell $commit (its stamp: ${stamp:0:60})"
     fi

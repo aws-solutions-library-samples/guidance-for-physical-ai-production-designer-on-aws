@@ -222,7 +222,7 @@
     {
       "name": "umarell_jam",
       "kind": "rules",
-      "title": "umarell jam: umarell U3's planning (umarell 76ea13a + fix set v8 + U3's hooks) from a prepared cache of certified weld primitives, transfers and phase schedules: seconds where the cache is warm, falls back to umarell_u3 on a miss",
+      "title": "umarell jam: umarell U3's planning (the public umarell 8a02db9, or 76ea13a, with umarell_jam's fix set and U3's hooks) from a prepared cache of certified weld primitives, transfers and phase schedules: seconds where the cache is warm, falls back to umarell_u3 on a miss",
       "from": "plan:{jam_plan}",
       "checkpoint": "",
       "profile": "umarell",

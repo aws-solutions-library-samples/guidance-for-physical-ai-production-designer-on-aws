@@ -1,0 +1,1725 @@
+diff --git a/agents/robot/drivers/base_driver.py b/agents/robot/drivers/base_driver.py
+index cc3a8c4673077e2da1cabb1eb3795452c5073ffa..36c7b8a3bdd21699a4fc6bef36986ca7a248a054 100644
+--- a/agents/robot/drivers/base_driver.py
++++ b/agents/robot/drivers/base_driver.py
+@@ -18,7 +18,10 @@ class BaseDriver(ABC):
+         Execute a precomputed trajectory.
+ 
+         Args:
+-            trajectory:     [{"positions": [j1..j6], "time_s": float}]
++            trajectory:     [{"positions": [j1..j6], "time_s": float}]; points may
++                            also carry "velocities" (rad/s), which a driver
++                            forwards when they agree with the timing
++                            (utils.fjt_trajectory)
+             joint_names:    ROS 2 joint name list
+             velocity_scale: Speed scaling (0.1–1.0)
+ 
+diff --git a/agents/robot/drivers/ros2_control_driver.py b/agents/robot/drivers/ros2_control_driver.py
+index 3682cbc80163baa5ecc97f5fd54f3f783e30a8c3..21fb85fed85d4606d2d9f0c8ca78980ee87cb8e0 100644
+--- a/agents/robot/drivers/ros2_control_driver.py
++++ b/agents/robot/drivers/ros2_control_driver.py
+@@ -80,19 +80,16 @@ class Ros2ControlDriver(BaseDriver):
+         goal = FollowJointTrajectory.Goal()
+         goal.trajectory.joint_names = joint_names
+ 
+-        from agents.robot.fjt_profile import point_velocities
+-        scale = max(velocity_scale, 0.01)
+-        timed = [{**pt, "time_s": float(pt["time_s"]) / scale,
+-                  **({"velocities": [float(v) * scale for v in pt["velocities"]]}
+-                     if pt.get("velocities") else {})} for pt in trajectory]
+-        # The planned profile's velocities, not [0]*6 at every point: fjt_profile.
+-        for pt, vel in zip(timed, point_velocities(timed, 6)):
++        from agents.robot.fjt_profile import fjt_points
++        # Each point carries the velocity and acceleration of the timed
++        # trajectory, scaled with it (times / s, velocities * s, accelerations
++        # * s^2), so the joint_trajectory_controller interpolates one smooth
++        # curve (quintic segments). Positions are padded to 6 joints.
++        for pt in fjt_points(trajectory, velocity_scale=max(velocity_scale, 0.01), n_joints=6):
+             tpt = JointTrajectoryPoint()
+-            pos = list(pt["positions"][:6])
+-            while len(pos) < 6:
+-                pos.append(0.0)
+-            tpt.positions  = pos
+-            tpt.velocities = [float(v) for v in vel]
++            tpt.positions     = pt["positions"]
++            tpt.velocities    = pt["velocities"]
++            tpt.accelerations = pt["accelerations"]
+             t_s = float(pt["time_s"])
+             tpt.time_from_start = Duration(
+                 sec=int(t_s),
+diff --git a/agents/robot/fjt_profile.py b/agents/robot/fjt_profile.py
+index 86a6eaf7270d194dfd6f09474e7cf8e4e0c98dd7..d057c91027ee6b9cac79dd1b3b2c6d0e2624e772 100644
+--- a/agents/robot/fjt_profile.py
++++ b/agents/robot/fjt_profile.py
+@@ -1,54 +1,34 @@
+-"""Per-point joint velocities for a FollowJointTrajectory goal. ROS-free.
+-
+-The controller interpolates between the points it is sent with a cubic per
+-joint, from each point's position AND velocity. Every point used to go out with
+-``velocities = [0] * 6``: each segment then starts and ends at rest, so a
+-timed (TOPP-RA) leg was executed as a stop-and-go chain whose mid-segment speed
+-peaks at 1.5x the planned speed — past the very limits the timing was computed
+-for — and the arm shudders at every sample.
+-
+-The velocity sent at an interior point is the monotone (Fritsch–Carlson)
+-tangent of the two segments it joins: their harmonic mean when the joint keeps
+-moving the same way, zero where it reverses or holds. A monotone tangent keeps
+-each joint inside the range of its segment, so the executed motion stays in the
+-joint box of the validated straight segment (TOPP-RA samples are dense: the
+-deviation from the segment is second order), and it never overshoots a hold.
+-Ends are at rest. A point that carries its own ``velocities`` keeps them.
++"""Per-point joint derivatives for a FollowJointTrajectory goal. ROS-free.
++
++The controller (joint_trajectory_controller, ``interpolation_method: splines``)
++interpolates each segment from the fields BOTH of its points carry: positions
++only -> linear, + velocities -> cubic Hermite, + accelerations -> quintic.
++Every point used to go out with ``velocities = [0] * 6``: each segment then
++started and ended at rest, a stop-and-go chain.
++
++Velocities alone are not enough either. With monotone (Fritsch-Carlson)
++tangents and no accelerations, the controller runs a cubic Hermite per segment
++whose acceleration jumps at every point: on 50 ms samples of a TOPP-RA timing
++that commands about 2.25 x the acceleration the leg was timed to.
++
++This module is now a thin robot-side front of ``utils.fjt_trajectory`` (shared
++with the simulated controllers, which interpolate the goal exactly like the
++controller): every point gets the velocity AND acceleration of one C2 curve
++through all the timed positions (quintic segments in the controller) -- the
++planner's own ``velocities`` when they belong to the timing, else the clamped
++C2 spline's; at rest at both ends, at holds and at a two-phase leg's seam.
+ """
+ from __future__ import annotations
+ 
++from utils.fjt_trajectory import fjt_points, scale_time  # noqa: F401  (re-exported)
++
+ 
+ def point_velocities(trajectory: list, n_joints: int = 6) -> list:
+     """``[[v_j, ...] per point]`` for ``trajectory`` (``positions`` + ``time_s``,
+-    already time-scaled)."""
+-    pts = list(trajectory or [])
+-    n = len(pts)
+-    out = [[0.0] * n_joints for _ in range(n)]
+-    if n < 3:
+-        return _own(pts, out, n_joints)
+-
+-    def q(k):
+-        p = list(pts[k].get("positions") or [])[:n_joints]
+-        return [float(v) for v in p] + [0.0] * (n_joints - len(p))
+-
+-    t = [float(p.get("time_s", 0.0)) for p in pts]
+-    Q = [q(k) for k in range(n)]
+-    for k in range(1, n - 1):
+-        h0, h1 = t[k] - t[k - 1], t[k + 1] - t[k]
+-        if h0 <= 0.0 or h1 <= 0.0:
+-            continue                      # a repeated time: hold there
+-        for j in range(n_joints):
+-            s0 = (Q[k][j] - Q[k - 1][j]) / h0
+-            s1 = (Q[k + 1][j] - Q[k][j]) / h1
+-            if s0 * s1 > 0.0:             # same direction on both sides
+-                out[k][j] = 2.0 * s0 * s1 / (s0 + s1)
+-    return _own(pts, out, n_joints)
+-
+-
+-def _own(pts, out, n_joints):
+-    for k, p in enumerate(pts):
+-        v = p.get("velocities") if isinstance(p, dict) else None
+-        if v:
+-            vv = [float(x) for x in list(v)[:n_joints]]
+-            out[k] = vv + [0.0] * (n_joints - len(vv))
+-    return out
++    already time-scaled): the velocities ``fjt_points`` sends."""
++    return [p["velocities"] for p in fjt_points(list(trajectory or []), n_joints=n_joints)]
++
++
++def point_accelerations(trajectory: list, n_joints: int = 6) -> list:
++    """``[[a_j, ...] per point]``: the accelerations ``fjt_points`` sends."""
++    return [p["accelerations"] for p in fjt_points(list(trajectory or []), n_joints=n_joints)]
+diff --git a/agents/robot/robot_agent.py b/agents/robot/robot_agent.py
+index 9a149203c7e05d5a2308b65df68507f8b6dd4d1c..b599cafb3257b92e7bf595784e8d21573b9d62b8 100644
+--- a/agents/robot/robot_agent.py
++++ b/agents/robot/robot_agent.py
+@@ -51,26 +51,30 @@ HOME_JOINTS = home_pose(CELL_ID, ROBOT_ID, _HOME_FALLBACK)
+ 
+ 
+ def _build_fjt_goal(trajectory: list[dict]):
+-    """Build a FollowJointTrajectory goal from trajectory dicts."""
++    """Build a FollowJointTrajectory goal from trajectory dicts.
++
++    Every point carries the velocity and acceleration of the timed trajectory
++    (``fjt_profile.fjt_points``), so the joint_trajectory_controller
++    interpolates one smooth curve through the waypoints (quintic segments).
++    Zero velocities made each segment a rest-to-rest cubic (a stop at every
++    waypoint); velocities without accelerations make it a cubic Hermite whose
++    acceleration jumps at every waypoint.
++    """
+     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+     from control_msgs.action import FollowJointTrajectory
+     from builtin_interfaces.msg import Duration
+ 
+-    from agents.robot.fjt_profile import point_velocities
++    from agents.robot.fjt_profile import fjt_points
+ 
+     goal = FollowJointTrajectory.Goal()
+     goal.trajectory.joint_names = JOINT_NAMES
+ 
+-    # The planned profile's velocities, not [0]*6 at every point: see fjt_profile.
+-    velocities = point_velocities(trajectory, 6)
+-    for pt, vel in zip(trajectory, velocities):
++    # Padded to 6 joints if the URDF has fewer.
++    for pt in fjt_points(trajectory, n_joints=6):
+         tpt = JointTrajectoryPoint()
+-        pos = pt["positions"][:6]
+-        # Pad to 6 joints if URDF has fewer
+-        while len(pos) < 6:
+-            pos.append(0.0)
+-        tpt.positions  = pos
+-        tpt.velocities = [float(v) for v in vel]
++        tpt.positions     = pt["positions"]
++        tpt.velocities    = pt["velocities"]
++        tpt.accelerations = pt["accelerations"]
+         t_s = float(pt["time_s"])
+         tpt.time_from_start = Duration(
+             sec=int(t_s),
+@@ -189,12 +193,11 @@ class RobotAgent:
+             self._logger.warning(f"[{ROBOT_ID}] Empty trajectory for {op_id}")
+             return
+ 
+-        # Apply velocity scale (stretch time)
++        # Apply velocity scale (stretch time; a copy, whose velocities scale
++        # with it and accelerations with its square)
+         if vscale != 1.0 and vscale > 0:
+-            for pt in traj:
+-                pt["time_s"] = pt["time_s"] / vscale
+-                if pt.get("velocities"):            # slower clock, slower joints
+-                    pt["velocities"] = [float(v) * vscale for v in pt["velocities"]]
++            from agents.robot.fjt_profile import scale_time
++            traj = scale_time(traj, vscale)
+ 
+         threading.Thread(
+             target=self._execute_trajectory,
+diff --git a/agents/trajectory/backends/ompl/planner.py b/agents/trajectory/backends/ompl/planner.py
+index 02c01c02c665377e33586ea1c8c0400e2024be4a..1540d1461ac623513fea92f6b18db79ed32c85a9 100644
+--- a/agents/trajectory/backends/ompl/planner.py
++++ b/agents/trajectory/backends/ompl/planner.py
+@@ -767,8 +767,10 @@ def _parameterize_two_phase(
+     # and stall the executor for one tick.
+     out = list(transit)
+     for pt in approach[1:]:
++        # {**pt}: keep the sample's velocities (a time shift does not change
++        # them).
+         out.append({
+-            "positions": pt["positions"],
++            **pt,
+             "time_s": round(t_end + float(pt["time_s"]), 4),
+             "phase": "approach",
+         })
+diff --git a/agents/trajectory/backends/ompl_compound/planner.py b/agents/trajectory/backends/ompl_compound/planner.py
+index 80c7fea17a33fd444fb05a85bbbacd3d016786bd..38f6b744dce135787a15dbfa685107028e9980d0 100644
+--- a/agents/trajectory/backends/ompl_compound/planner.py
++++ b/agents/trajectory/backends/ompl_compound/planner.py
+@@ -119,7 +119,10 @@ def unstack(vector: Sequence[float], sizes: Sequence[int]) -> list[list[float]]:
+ def _shifted(samples: list[dict], offset: float, phase: str,
+              drop_first: bool) -> list[dict]:
+     pts = samples[1:] if drop_first else samples
++    # The samples' velocities are kept (a time shift does not change them): the
++    # driver forwards them, and their exact 0 at a junction marks the stop there.
+     return [{"positions": list(p["positions"]),
++             **({"velocities": list(p["velocities"])} if p.get("velocities") else {}),
+              "time_s": round(offset + float(p["time_s"]), 4),
+              "phase": phase} for p in pts]
+ 
+@@ -140,8 +143,11 @@ def compose_timelines(retracts: dict, transit: list[dict], sizes: dict,
+     t_lift = max([float(r[-1]["time_s"]) for r in retracts.values() if r] or [0.0])
+     per_arm_transit = {ns: [] for ns in names}
+     for pt in transit:
+-        for ns, q in zip(names, unstack(pt["positions"], [sizes[n] for n in names])):
+-            per_arm_transit[ns].append({"positions": q, "time_s": pt["time_s"]})
++        qd = (unstack(pt["velocities"], [sizes[n] for n in names]) if pt.get("velocities")
++              else [None] * len(names))
++        for ns, q, v in zip(names, unstack(pt["positions"], [sizes[n] for n in names]), qd):
++            per_arm_transit[ns].append({"positions": q, "time_s": pt["time_s"],
++                                        **({"velocities": v} if v is not None else {})})
+     t_transit = float(transit[-1]["time_s"]) if transit else 0.0
+ 
+     out: dict = {}
+@@ -153,11 +159,15 @@ def compose_timelines(retracts: dict, transit: list[dict], sizes: dict,
+             if float(lift[-1]["time_s"]) < t_lift - 1e-6:
+                 # Hold the standoff until every arm has lifted off.
+                 traj.append({"positions": list(lift[-1]["positions"]),
++                             **({"velocities": [0.0] * len(lift[-1]["positions"])}
++                                if lift[-1].get("velocities") else {}),
+                              "time_s": round(t_lift, 4), "phase": "transit"})
+         traj += _shifted(per_arm_transit[ns], t_lift, "transit", drop_first=bool(traj))
+         if t_lift > 0.0 and not lift and per_arm_transit[ns]:
+             # No lift-off of its own: wait at the start while the others lift.
+             traj.insert(0, {"positions": list(per_arm_transit[ns][0]["positions"]),
++                            **({"velocities": [0.0] * sizes[ns]}
++                               if per_arm_transit[ns][0].get("velocities") else {}),
+                             "time_s": 0.0, "phase": "transit"})
+         descent = descents.get(ns) or []
+         if descent:
+diff --git a/agents/trajectory/tools/time_parameterization.py b/agents/trajectory/tools/time_parameterization.py
+index a80abbd836c3ea3cd55e6f27f56318cc66503735..3c63ae7f0532adc8c48a03c313a5acc356ee7515 100644
+--- a/agents/trajectory/tools/time_parameterization.py
++++ b/agents/trajectory/tools/time_parameterization.py
+@@ -2,7 +2,9 @@
+ Time parameterization for planned joint-space paths.
+ 
+ Turns a geometric joint path (a list of waypoint configurations produced by the
+-OMPL/RRT planners) into a timed trajectory ``[{"positions", "time_s"}]``.
++OMPL/RRT planners) into a timed trajectory ``[{"positions", "time_s"}]``. The
++TOPP-RA path also attaches each sample's ``velocities`` (the derivative of that
++timing), which the robot driver forwards to the controller.
+ 
+ Primary method: **TOPP-RA** (Time-Optimal Path Parameterization by Reachability
+ Analysis) — computes the fastest timing along the fixed path subject to per-joint
+@@ -136,7 +138,10 @@ def parameterize(
+     path itself (TOPP-RA enforces them only at its gridpoints).
+ 
+     Returns:
+-        ``[{"positions": [...], "time_s": float}, ...]`` starting at t=0.
++        ``[{"positions": [...], "time_s": float}, ...]`` starting at t=0. The
++        TOPP-RA result also carries ``"velocities"`` per sample (rad/s, zero at
++        both ends); the Hermite fallback does not (the driver then derives them
++        from the timed positions, ``utils.fjt_trajectory``).
+     """
+     import numpy as np
+ 
+@@ -222,8 +227,15 @@ def parameterize(
+             if len(ts) == 0 or ts[-1] < duration:
+                 ts = np.append(ts, duration)
+             qs = jnt_traj(ts)                    # (len(ts), dof)
++            # The velocity of this timing at each sample, so the driver
++            # forwards it instead of stopping the arm at every sample
++            # (utils.fjt_trajectory). Every piece starts and ends at rest: an
++            # exact 0 there marks the junction as a stop for the driver.
++            qds = jnt_traj(ts, 1)
++            qds[0] = qds[-1] = 0.0
+             first = 1 if out else 0              # the junction point once
+             out += [{"positions": [round(float(v), 6) for v in qs[i]],
++                     "velocities": [round(float(v), 6) for v in qds[i]],
+                      "time_s": round(t0 + float(ts[i]), 4)} for i in range(first, len(ts))]
+             t0 += duration
+         return out
+diff --git a/controller/isaac_sim_controller.py b/controller/isaac_sim_controller.py
+index 555655856f622718bae9da476cb4056956dc346d..75b87d434678833a2acd90f74270ad52806fd932 100644
+--- a/controller/isaac_sim_controller.py
++++ b/controller/isaac_sim_controller.py
+@@ -58,10 +58,12 @@ Environment variables
+   PUBLISH_RATE_HZ      command stream rate Hz (default: 50)
+   POSITION_TOL         goal-reached tolerance rad (default: 0.02)
+   GOAL_TIMEOUT_EXTRA   extra seconds after traj duration (default: 5.0)
+-  ROBOT_VELOCITY_SCALE scale factor for hold_time and timeouts (default: 1.0)
+-  TRAJ_INTERP_FACTOR   sub-points between waypoints (default: 4)
+-  TRAJ_HOLD_TIME       hold seconds at endpoint (default: auto = 0.5/scale)
+-  TRAJ_DECEL_POINTS    deceleration points (default: 4)
++  ROBOT_VELOCITY_SCALE scale factor for timeouts (default: 1.0)
++
++Between the goal's points the command stream follows the interpolation of
++ros2_control's joint_trajectory_controller (``utils.fjt_trajectory.sample``:
++linear / cubic / quintic by the fields the points carry), on the goal's own
++clock, so Isaac moves the arm the way the hardware controller would.
+ """
+ from __future__ import annotations
+ 
+@@ -100,11 +102,6 @@ PUBLISH_RATE_HZ    = float(os.environ.get("PUBLISH_RATE_HZ",    "50"))
+ POSITION_TOL       = float(os.environ.get("POSITION_TOL",       "0.02"))
+ GOAL_TIMEOUT_EXTRA = float(os.environ.get("GOAL_TIMEOUT_EXTRA", "5.0")) / max(0.5, _v_scale)
+ 
+-# Enrichment parameters — match pinocchio_robot_controller
+-INTERP_FACTOR = int(os.environ.get("TRAJ_INTERP_FACTOR", "4"))
+-HOLD_TIME     = float(os.environ.get("TRAJ_HOLD_TIME",   str(round(0.5 / max(0.5, _v_scale), 2))))
+-DECEL_POINTS  = int(os.environ.get("TRAJ_DECEL_POINTS",  "4"))
+-
+ # Wrist-flip detection: reject waypoint-to-waypoint jumps > MAX_JOINT_DELTA rad.
+ # π (3.14) — any jump larger than half a revolution is treated as a flip.
+ MAX_JOINT_DELTA = float(os.environ.get("MAX_JOINT_DELTA", str(math.pi)))
+@@ -172,11 +169,6 @@ def _shortest_angular_delta(a: float, b: float) -> float:
+     return _wrap_angle(b - a)
+ 
+ 
+-def _angular_lerp(a: float, b: float, t: float) -> float:
+-    """Interpolate from angle a to b via the shortest path."""
+-    return a + t * _shortest_angular_delta(a, b)
+-
+-
+ def _validate_waypoints(points: list, max_delta: float = MAX_JOINT_DELTA) -> list:
+     """Clamp large joint jumps between adjacent waypoints (wrist-flip guard).
+ 
+@@ -210,103 +202,55 @@ def _validate_waypoints(points: list, max_delta: float = MAX_JOINT_DELTA) -> lis
+     return validated
+ 
+ 
+-def _interpolate_trajectory(start: List[float], traj_points: list, rate_hz: float) -> List[List[float]]:
+-    """Expand sparse JointTrajectoryPoints into dense position vectors at rate_hz.
+-
+-    Uses shortest-path angular interpolation so the dense sampling itself cannot
+-    introduce a wrist flip.
+-    """
+-    result: List[List[float]] = []
+-    prev_pos  = list(start)
+-    prev_time = 0.0
++def _goal_points(start: List[float], traj_points: list) -> list:
++    """The goal's points as joint_trajectory_controller follows them: as dicts
++    (``t``, positions, velocities, accelerations), wrist-flip guarded relative
++    to ``start``, reached from ``start`` (at rest) when the first point lies in
++    the future, and at rest at the last point (a velocity given there is set to
++    0; JTC rejects such a goal by default)."""
++    pts = []
+     for pt in traj_points:
+-        t_sec  = pt.time_from_start.sec + pt.time_from_start.nanosec * 1e-9
+         target = list(pt.positions[:JOINT_COUNT])
+         if not target:
+             continue
+-        duration = max(t_sec - prev_time, 1.0 / rate_hz)
+-        n_steps  = max(1, int(duration * rate_hz))
+-        for i in range(n_steps):
+-            alpha = (i + 1) / n_steps
+-            result.append([_angular_lerp(prev_pos[j], target[j], alpha) for j in range(len(target))])
+-        prev_pos  = target
+-        prev_time = t_sec
+-    return result
++        pts.append({
++            "positions":     target,
++            "velocities":    list(pt.velocities[:JOINT_COUNT]) if pt.velocities else [],
++            "accelerations": list(pt.accelerations[:JOINT_COUNT]) if pt.accelerations else [],
++            "t":             pt.time_from_start.sec + pt.time_from_start.nanosec * 1e-9,
++        })
++    if not pts:
++        return []
++    pts = _validate_waypoints([{"positions": list(start), "velocities": [], "t": 0.0}] + pts,
++                              MAX_JOINT_DELTA)[1:]
++    first, n = pts[0], len(start)
++    if first["t"] > 1e-9:
++        pts.insert(0, {"positions": list(start),
++                       "velocities": [0.0] * n if first["velocities"] else [],
++                       "accelerations": [0.0] * n if first["accelerations"] else [],
++                       "t": 0.0})
++    if pts[-1]["velocities"]:
++        pts[-1]["velocities"] = [0.0] * len(pts[-1]["velocities"])
++    return pts
+ 
+ 
+-# ---------------------------------------------------------------------------
+-# Enrichment pipeline (matches pinocchio_robot_controller)
+-# ---------------------------------------------------------------------------
++def _interpolate_trajectory(start: List[float], traj_points: list, rate_hz: float) -> List[List[float]]:
++    """Dense position commands at ``rate_hz`` for an FJT goal.
+ 
+-def _enrich_interpolate(points: list, factor: int) -> list:
+-    if factor <= 1 or len(points) < 2:
+-        return points
+-    out = []
+-    for i in range(len(points) - 1):
+-        p1, p2 = points[i], points[i + 1]
+-        out.append(p1)
+-        for j in range(1, factor):
+-            alpha = j / factor
+-            pos = [_angular_lerp(p1["positions"][k], p2["positions"][k], alpha)
+-                   for k in range(len(p1["positions"]))]
+-            if p1.get("velocities") and p2.get("velocities"):
+-                vel = [p1["velocities"][k] + alpha * (p2["velocities"][k] - p1["velocities"][k])
+-                       for k in range(len(p1["velocities"]))]
+-            else:
+-                vel = [0.0] * len(pos)
+-            out.append({"positions": pos, "velocities": vel,
+-                        "t": p1["t"] + j * (p2["t"] - p1["t"]) / factor})
+-    out.append(points[-1])
+-    return out
+-
+-
+-def _enrich_deceleration(points: list, n_decel: int) -> list:
+-    if n_decel < 1 or len(points) < 2:
+-        return points
+-    last, prev = points[-1], points[-2]
+-    peak_vel = max(abs(v) for v in prev.get("velocities", [])) if prev.get("velocities") else 0.0
+-    if peak_vel < 0.01:
+-        return points
+-    seg = last["t"] - prev["t"]
+-    decel_window = max(0.3, min(seg, peak_vel * 0.4))
+-    t_start = last["t"] - decel_window
+-    alpha_start = max(0.0, (t_start - prev["t"]) / seg if seg > 1e-9 else 0.0)
+-    pos_start = [prev["positions"][k] + alpha_start * (last["positions"][k] - prev["positions"][k])
+-                 for k in range(len(last["positions"]))]
+-    decel = []
+-    for i in range(1, n_decel + 1):
+-        alpha  = i / (n_decel + 1)
+-        smooth = 3 * alpha ** 2 - 2 * alpha ** 3
+-        pos    = [pos_start[k] + smooth * (last["positions"][k] - pos_start[k])
+-                  for k in range(len(last["positions"]))]
+-        vel_s  = max(0.0, 1.0 - smooth)
+-        vel    = ([prev["velocities"][k] * vel_s for k in range(len(prev["velocities"]))]
+-                  if prev.get("velocities") else [0.0] * len(pos))
+-        decel.append({"positions": pos, "velocities": vel,
+-                      "t": t_start + i * decel_window / (n_decel + 1)})
+-    splice = len(points) - 1
+-    for idx in range(len(points) - 1, -1, -1):
+-        if points[idx]["t"] <= t_start:
+-            splice = idx
+-            break
+-    return points[:splice + 1] + decel + [last]
+-
+-
+-def _enrich_hold(points: list, hold_time: float, step: float = 0.1) -> list:
+-    if hold_time <= 0 or not points:
+-        return points
+-    last    = points[-1]
+-    final_v = max(abs(v) for v in last.get("velocities", [])) if last.get("velocities") else 0.0
+-    if final_v < 0.005:
+-        return points
+-    peak = max((max(abs(v) for v in pt["velocities"]) for pt in points if pt.get("velocities")), default=0.0)
+-    actual = min(hold_time * 3, hold_time + peak * 0.2)
+-    n = max(1, int(actual / step))
+-    dof = len(last["positions"])
+-    return points + [
+-        {"positions": list(last["positions"]), "velocities": [0.0] * dof, "t": last["t"] + (i + 1) * step}
+-        for i in range(n)
+-    ]
++    Sampled at the absolute goal times k / rate_hz (k = 1, 2, ..., ending on the
++    last point's time) with joint_trajectory_controller's interpolation of the
++    points (``utils.fjt_trajectory.sample``). Absolute times keep the stream as
++    long as the goal: rounding each segment down to whole steps, as before,
++    played a 50 ms segment in 40 ms at 50 Hz.
++    """
++    from utils.fjt_trajectory import sample
++
++    pts = _goal_points(start, traj_points)
++    if not pts:
++        return []
++    t_end = float(pts[-1]["t"])
++    n_steps = max(1, int(math.ceil(t_end * rate_hz - 1e-9)))
++    return [sample(pts, min((k + 1) / rate_hz, t_end))[0] for k in range(n_steps)]
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -367,7 +311,7 @@ class IsaacSimController(Node):
+             f"\n  Our joint states     : {FULL_NS}/joint_states"
+             f"\n  FJT action           : {FJT_ACTION}"
+             f"\n  Command rate         : {PUBLISH_RATE_HZ} Hz   pos tol: {POSITION_TOL} rad"
+-            f"\n  Velocity scale       : {_v_scale}  hold={HOLD_TIME:.2f}s"
++            f"\n  Velocity scale       : {_v_scale}"
+             f"\n  Max joint delta      : {math.degrees(MAX_JOINT_DELTA):.0f}° (wrist-flip guard)"
+         )
+ 
+@@ -419,45 +363,20 @@ class IsaacSimController(Node):
+ 
+         n_pts = len(trajectory.points)
+         self.get_logger().info(
+-            f"[IsaacSimController] {ROBOT_ID}: executing {n_pts} waypoints "
+-            f"(interp×{INTERP_FACTOR}, decel={DECEL_POINTS}, hold={HOLD_TIME:.2f}s)"
++            f"[IsaacSimController] {ROBOT_ID}: executing {n_pts} waypoints"
+         )
+ 
+         with self._joint_lock:
+             start = list(self._latest_joints) if self._latest_joints else [0.0] * JOINT_COUNT
+ 
+-        raw = []
+-        for pt in trajectory.points:
+-            t = pt.time_from_start.sec + pt.time_from_start.nanosec * 1e-9
+-            raw.append({
+-                "positions":  list(pt.positions[:JOINT_COUNT]),
+-                "velocities": list(pt.velocities[:JOINT_COUNT]) if pt.velocities else [],
+-                "t": t,
+-            })
+-
+-        # Wrist-flip validation relative to the live joint position.
+-        raw = _validate_waypoints([{"positions": start, "velocities": [], "t": 0.0}] + raw, MAX_JOINT_DELTA)[1:]
+-
+-        # Enrichment pipeline (produces the deceleration/hold tail).
+-        if INTERP_FACTOR > 1:
+-            raw = _enrich_interpolate(raw, INTERP_FACTOR)
+-        if len(raw) >= 2:
+-            raw = _enrich_deceleration(raw, DECEL_POINTS)
+-        if HOLD_TIME > 0:
+-            raw = _enrich_hold(raw, HOLD_TIME)
+-        if raw:
+-            raw[-1]["velocities"] = [0.0] * JOINT_COUNT
+-
+-        # Dense, time-proportional command stream to Isaac at PUBLISH_RATE_HZ.
++        # Dense command stream to Isaac at PUBLISH_RATE_HZ, on the goal's clock
++        # (wrist-flip guarded relative to the live joint position).
+         dense = _interpolate_trajectory(start, trajectory.points, PUBLISH_RATE_HZ)
+ 
+-        traj_end_t = (trajectory.points[-1].time_from_start.sec +
+-                      trajectory.points[-1].time_from_start.nanosec * 1e-9) if trajectory.points else 0.0
+-        hold_positions = [rp["positions"] for rp in raw if rp["t"] > traj_end_t + 0.01]
+-
+         dt = 1.0 / PUBLISH_RATE_HZ
++        t_stream = time.monotonic()
+ 
+-        for positions in dense:
++        for k, positions in enumerate(dense):
+             if goal_handle.is_cancel_requested:
+                 goal_handle.canceled()
+                 r = FollowJointTrajectory.Result()
+@@ -480,16 +399,8 @@ class IsaacSimController(Node):
+                 act.positions = list(self._latest_joints) if self._latest_joints else positions
+             fb.actual = act
+             goal_handle.publish_feedback(fb)
+-            time.sleep(dt)
+-
+-        # Deceleration/hold tail — smooth the stop.
+-        for positions in hold_positions:
+-            cmd = JointState()
+-            cmd.header.stamp = self.get_clock().now().to_msg()
+-            cmd.name     = ISAAC_JOINT_NAMES
+-            cmd.position = positions
+-            self._cmd_pub.publish(cmd)
+-            time.sleep(dt)
++            # Absolute schedule: the publish work does not accumulate as drift.
++            time.sleep(max(0.0, t_stream + (k + 1) * dt - time.monotonic()))
+ 
+         # Wait for convergence (shortest-path error to handle wrap-around).
+         goal_pos = list(trajectory.points[-1].positions[:JOINT_COUNT])
+diff --git a/controller/pinocchio_robot_controller.py b/controller/pinocchio_robot_controller.py
+index f422300ecfeb28bd4c2f6d2d53f93409c5e1761d..956142030b53b3af098dd786ccddceaafb7bd9d1 100644
+--- a/controller/pinocchio_robot_controller.py
++++ b/controller/pinocchio_robot_controller.py
+@@ -16,10 +16,15 @@ as off-schedule. With it, the arms track their planned trajectories in sim.
+ Responsibilities:
+   1. FollowJointTrajectory action server at
+        /{cell}/{ns}/{rid}/joint_trajectory_controller/follow_joint_trajectory
+-  2. Trajectory enrichment (manifold-correct Pinocchio interpolation when the
+-     URDF loads, linear otherwise) + a short deceleration + hold at the end.
+-  3. ~120 Hz control loop stepping the joints toward the trajectory and
+-     publishing /{cell}/{ns}/{rid}/joint_states.
++  2. Interpolation between the goal's points exactly as ros2_control's
++     joint_trajectory_controller does it (``utils.fjt_trajectory.sample``):
++     linear for positions-only points, cubic with velocities, quintic with
++     velocities and accelerations; from the current pose when the first point
++     lies in the future; at rest after the last point. A simulated arm then
++     moves the way the hardware controller would command it, stop-and-go
++     included when a client sends zero velocities.
++  3. ~120 Hz control loop stepping the joints along the trajectory and
++     publishing /{cell}/{ns}/{rid}/joint_states (positions and velocities).
+ 
+ Ported and trimmed from multi-robot-agent/controller/pinocchio_robot_controller.py:
+   - loads the URDF via utils.arm_model (cell.yaml reference or the generated
+@@ -33,7 +38,6 @@ Environment variables:
+   JOINT_COUNT       actuated joints (default: 6)
+   CELL_BASE_PATH    cells mount (default: /cells)
+   PUBLISH_RATE_HZ   control/joint_state rate (default: 120)
+-  TRAJ_INTERP_FACTOR / TRAJ_HOLD_TIME / TRAJ_DECEL_POINTS  enrichment tuning
+ """
+ from __future__ import annotations
+ 
+@@ -91,11 +95,6 @@ class PinocchioRobotController(Node):
+         self._traj_start: float = 0.0
+         self._traj_active: bool = False
+ 
+-        _v_scale = float(os.environ.get("ROBOT_VELOCITY_SCALE", "1.0"))
+-        self._interp_factor = int(os.environ.get("TRAJ_INTERP_FACTOR", "4"))
+-        self._hold_time = float(os.environ.get("TRAJ_HOLD_TIME", str(round(0.5 / max(0.5, _v_scale), 2))))
+-        self._decel_points = int(os.environ.get("TRAJ_DECEL_POINTS", "4"))
+-
+         self._pin_model = None  # (model, data) once the URDF loads
+         self._pin_lock = threading.Lock()
+         threading.Thread(target=self._load_pinocchio, daemon=True).start()
+@@ -151,15 +150,7 @@ class PinocchioRobotController(Node):
+         raw = _validate_waypoints(
+             [{"positions": start_joints, "velocities": [], "t": 0.0}] + raw, max_delta
+         )[1:]
+-
+-        if self._interp_factor > 1:
+-            raw = _enrich_interpolate(raw, self._interp_factor)
+-        if len(raw) >= 2:
+-            raw = _enrich_deceleration(raw, self._decel_points)
+-        if self._hold_time > 0:
+-            raw = _enrich_hold(raw, self._hold_time)
+-        if raw:
+-            raw[-1]["velocities"] = [0.0] * JOINT_COUNT
++        raw = _prepare_points(raw, start_joints)
+ 
+         with self._joint_lock:
+             self._traj_points = raw
+@@ -201,6 +192,7 @@ class PinocchioRobotController(Node):
+             out.append({
+                 "positions": list(pt.positions[:JOINT_COUNT]),
+                 "velocities": list(pt.velocities[:JOINT_COUNT]) if pt.velocities else [],
++                "accelerations": list(pt.accelerations[:JOINT_COUNT]) if pt.accelerations else [],
+                 "t": t,
+             })
+         return out
+@@ -253,7 +245,7 @@ class PinocchioRobotController(Node):
+         return [(1 - alpha) * q0[i] + alpha * q1[i] for i in range(JOINT_COUNT)]
+ 
+ 
+-# ── Wrist-flip guard + enrichment (pure Python, ported verbatim) ─────────────
++# ── Wrist-flip guard (pure Python, ported verbatim) + JTC interpolation ──────
+ 
+ def _wrap_angle(a: float) -> float:
+     return (a + math.pi) % (2 * math.pi) - math.pi
+@@ -278,98 +270,31 @@ def _validate_waypoints(points: list, max_delta: float = math.pi) -> list:
+     return validated
+ 
+ 
+-def _enrich_interpolate(points: list, factor: int) -> list:
+-    if factor <= 1 or len(points) < 2:
+-        return points
+-    out = []
+-    for i in range(len(points) - 1):
+-        p1, p2 = points[i], points[i + 1]
+-        out.append(p1)
+-        for j in range(1, factor):
+-            alpha = j / factor
+-            pos = [p1["positions"][k] + alpha * (p2["positions"][k] - p1["positions"][k])
+-                   for k in range(len(p1["positions"]))]
+-            if p1["velocities"] and p2["velocities"]:
+-                vel = [p1["velocities"][k] + alpha * (p2["velocities"][k] - p1["velocities"][k])
+-                       for k in range(len(p1["velocities"]))]
+-            else:
+-                vel = [0.0] * len(pos)
+-            out.append({"positions": pos, "velocities": vel,
+-                        "t": p1["t"] + j * (p2["t"] - p1["t"]) / factor})
+-    out.append(points[-1])
+-    return out
+-
+-
+-def _enrich_deceleration(points: list, n_decel: int) -> list:
+-    if n_decel < 1 or len(points) < 2:
+-        return points
+-    last, prev = points[-1], points[-2]
+-    peak_vel = max(abs(v) for v in prev["velocities"]) if prev["velocities"] else 0.0
+-    if peak_vel < 0.01:
+-        return points
+-    seg = last["t"] - prev["t"]
+-    decel_window = max(0.3, min(seg, peak_vel * 0.4))
+-    t_start = last["t"] - decel_window
+-    alpha_start = max(0.0, (t_start - prev["t"]) / seg if seg > 1e-9 else 0.0)
+-    pos_start = [prev["positions"][k] + alpha_start * (last["positions"][k] - prev["positions"][k])
+-                 for k in range(len(last["positions"]))]
+-    decel = []
+-    for i in range(1, n_decel + 1):
+-        alpha = i / (n_decel + 1)
+-        smooth = 3 * alpha ** 2 - 2 * alpha ** 3
+-        pos = [pos_start[k] + smooth * (last["positions"][k] - pos_start[k])
+-               for k in range(len(last["positions"]))]
+-        vel_s = max(0.0, 1.0 - smooth)
+-        vel = ([prev["velocities"][k] * vel_s for k in range(len(prev["velocities"]))]
+-               if prev["velocities"] else [0.0] * len(pos))
+-        decel.append({"positions": pos, "velocities": vel,
+-                      "t": t_start + i * decel_window / (n_decel + 1)})
+-    splice = len(points) - 1
+-    for idx in range(len(points) - 1, -1, -1):
+-        if points[idx]["t"] <= t_start:
+-            splice = idx
+-            break
+-    return points[:splice + 1] + decel + [last]
+-
+-
+-def _enrich_hold(points: list, hold_time: float, step: float = 0.1) -> list:
+-    if hold_time <= 0 or not points:
+-        return points
+-    last = points[-1]
+-    final_v = max(abs(v) for v in last["velocities"]) if last["velocities"] else 0.0
+-    if final_v < 0.005:
++def _prepare_points(points: list, start_joints: list) -> list:
++    """The points the control loop follows, as joint_trajectory_controller treats
++    a goal: a first point in the future is reached from the current pose (at
++    rest), and the goal ends at rest (a velocity given at the last point is set
++    to 0; JTC rejects such a goal by default)."""
++    if not points:
+         return points
+-    peak = max((max(abs(v) for v in pt["velocities"]) for pt in points if pt["velocities"]), default=0.0)
+-    actual = min(hold_time * 3, hold_time + peak * 0.2)
+-    n = max(1, int(actual / step))
+-    dof = len(last["positions"])
+-    return points + [
+-        {"positions": list(last["positions"]), "velocities": [0.0] * dof, "t": last["t"] + (i + 1) * step}
+-        for i in range(n)
+-    ]
++    pts = [dict(p) for p in points]
++    first = pts[0]
++    if float(first["t"]) > 1e-9:
++        n = len(start_joints)
++        pts.insert(0, {"positions": list(start_joints),
++                       "velocities": [0.0] * n if first.get("velocities") else [],
++                       "accelerations": [0.0] * n if first.get("accelerations") else [],
++                       "t": 0.0})
++    if pts[-1].get("velocities"):
++        pts[-1]["velocities"] = [0.0] * len(pts[-1]["velocities"])
++    return pts
+ 
+ 
+ def _sample_trajectory(points: list, elapsed: float):
+-    if elapsed <= points[0]["t"]:
+-        p = points[0]
+-        return list(p["positions"]), (p["velocities"] or [0.0] * len(p["positions"]))
+-    if elapsed >= points[-1]["t"]:
+-        p = points[-1]
+-        return list(p["positions"]), [0.0] * len(p["positions"])
+-    for i in range(len(points) - 1):
+-        t0, t1 = points[i]["t"], points[i + 1]["t"]
+-        if t0 <= elapsed <= t1:
+-            d = t1 - t0
+-            alpha = (elapsed - t0) / d if d > 1e-9 else 1.0
+-            p0, p1 = points[i], points[i + 1]
+-            v0 = p0["velocities"] or [0.0] * len(p0["positions"])
+-            v1 = p1["velocities"] or [0.0] * len(p1["positions"])
+-            pos = [(1 - alpha) * p0["positions"][k] + alpha * p1["positions"][k]
+-                   for k in range(len(p0["positions"]))]
+-            vel = [(1 - alpha) * v0[k] + alpha * v1[k] for k in range(len(v0))]
+-            return pos, vel
+-    p = points[-1]
+-    return list(p["positions"]), [0.0] * len(p["positions"])
++    """(positions, velocities) commanded at ``elapsed`` s into the goal."""
++    from utils.fjt_trajectory import sample
++    pos, vel, _acc = sample(points, elapsed)
++    return pos, vel
+ 
+ 
+ def main():
+diff --git a/tests/cell/test_position_confirmed_execution.py b/tests/cell/test_position_confirmed_execution.py
+index 5de89bf525cfdf2482480616f3f6049eb61b6c7e..210a14ec031ba8dcb890f7003899753d8e6fa950 100644
+--- a/tests/cell/test_position_confirmed_execution.py
++++ b/tests/cell/test_position_confirmed_execution.py
+@@ -2,6 +2,7 @@
+ collision monitor is watching. Host-runnable (fakes from test_bt_executor)."""
+ from __future__ import annotations
+ 
++import math
+ import time
+ 
+ import pytest
+@@ -162,20 +163,35 @@ def test_stale_feedback_is_not_where_the_arm_is():
+ # ── the controller is sent the planned velocities ───────────────────────────
+ 
+ def test_interior_points_carry_the_profile_velocity():
+-    from agents.robot.fjt_profile import point_velocities
++    # fjt_profile now delegates to utils.fjt_trajectory (umarell issue 20): an
++    # interior velocity is the C2 spline's, not the harmonic mean of the two
++    # segment slopes -- with accelerations sent too, the controller's quintic
++    # then follows one smooth curve (a monotone tangent without accelerations
++    # commanded ~2.25 x a_max on 50 ms TOPP-RA samples). What the old test
++    # pinned and still holds: ends at rest, moving the way the path goes, a
++    # hold stationary (velocity AND acceleration 0 at both of its ends).
++    from agents.robot.fjt_profile import point_accelerations, point_velocities
+     traj = [{"positions": [0.0], "time_s": 0.0}, {"positions": [1.0], "time_s": 1.0},
+             {"positions": [3.0], "time_s": 2.0}, {"positions": [3.0], "time_s": 3.0},
+             {"positions": [2.0], "time_s": 4.0}]
+     v = [p[0] for p in point_velocities(traj, 1)]
++    a = [p[0] for p in point_accelerations(traj, 1)]
+     assert v[0] == 0.0 and v[-1] == 0.0                # ends at rest
+-    assert v[1] == pytest.approx(2 * 1 * 2 / 3)         # harmonic mean of 1 and 2
+-    assert v[2] == 0.0                                  # into a hold
+-    assert v[3] == 0.0                                  # reversal
++    assert v[1] > 0.0                                   # moving up, as the path does
++    assert v[2] == 0.0 and v[3] == 0.0                  # into and out of a hold
++    assert a[2] == 0.0 and a[3] == 0.0                  # ... held still
+ 
+ 
+ def test_a_point_with_its_own_velocities_keeps_them():
++    # The planner's velocities are forwarded when every point carries them and
++    # they belong to the timing (TOPP-RA's do); a lone velocity on one point, or
++    # velocities that do not match the timing (a re-timed copy whose velocities
++    # were not scaled), are replaced by the spline's (utils.fjt_trajectory).
+     from agents.robot.fjt_profile import point_velocities
+-    traj = [{"positions": [0.0], "time_s": 0.0},
+-            {"positions": [1.0], "time_s": 1.0, "velocities": [0.7]},
+-            {"positions": [2.0], "time_s": 2.0}]
+-    assert point_velocities(traj, 1)[1] == [0.7]
++    ts = [0.1 * k for k in range(11)]
++    q = [0.5 - 0.5 * math.cos(math.pi * t) for t in ts]
++    qd = [0.5 * math.pi * math.sin(math.pi * t) for t in ts]
++    traj = [{"positions": [x], "time_s": t, "velocities": [w]} for x, w, t in zip(q, qd, ts)]
++    assert point_velocities(traj, 1)[5] == pytest.approx([qd[5]], abs=1e-9)
++    stale = [{**p, "velocities": [1.3 * p["velocities"][0]]} for p in traj]
++    assert point_velocities(stale, 1)[5] != pytest.approx([1.3 * qd[5]], abs=1e-6)
+diff --git a/tests/test_execution_chain_continuous.py b/tests/test_execution_chain_continuous.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..827799679f41ed8b94f6a17d0da87c19ad9f3dbc
+--- /dev/null
++++ b/tests/test_execution_chain_continuous.py
+@@ -0,0 +1,202 @@
++"""The execution chain forwards the timing's derivatives and the simulators interpolate like JTC.
++
++* robot_agent._build_fjt_goal and Ros2ControlDriver.execute_trajectory: every
++  point carries velocities and accelerations (no more ``[0.0] * 6``, which made
++  joint_trajectory_controller stop at every waypoint), scaled with the
++  velocity_scale;
++* the Pinocchio sim controller and the Isaac bridge follow the goal the way JTC
++  does: one-point goals start from the current pose (the sim used to teleport to
++  the target), and the Isaac stream lasts as long as the goal (it used to play a
++  50 ms segment in 40 ms).
++
++ROS is stubbed: the message types are plain attribute holders.
++"""
++from __future__ import annotations
++
++import importlib.util
++import os
++import sys
++import types
++from pathlib import Path
++from unittest.mock import patch
++
++import numpy as np
++import pytest
++
++ROOT = Path(__file__).resolve().parents[1]
++
++
++class _Msg:
++    def __init__(self, **kw):
++        self.positions, self.velocities, self.accelerations = [], [], []
++        self.__dict__.update(kw)
++
++
++class _Goal:
++    def __init__(self):
++        self.trajectory = types.SimpleNamespace(joint_names=[], points=[])
++
++
++class _FJT:
++    Goal = _Goal
++
++    class Result:
++        SUCCESSFUL, INVALID_GOAL, GOAL_TOLERANCE_VIOLATED = 0, -1, -5
++
++
++class _Done:
++    def __init__(self, r):
++        self._r = r
++
++    def done(self):
++        return True
++
++    def result(self):
++        return self._r
++
++
++SENT = []
++
++
++class _Client:
++    def __init__(self, *a, **k):
++        pass
++
++    def wait_for_server(self, timeout_sec=None):
++        return True
++
++    def send_goal_async(self, goal):
++        SENT.append(goal)
++        res = types.SimpleNamespace(result=types.SimpleNamespace(error_code=0))
++        return _Done(types.SimpleNamespace(accepted=True, get_result_async=lambda: _Done(res)))
++
++
++def _stub_modules():
++    def m(name, **kw):
++        mod = types.ModuleType(name)
++        mod.__dict__.update(kw)
++        return mod
++    node = type("Node", (), {"__init__": lambda self, *a, **k: None})
++    return {
++        "rclpy": m("rclpy", spin_once=lambda *a, **k: None),
++        "rclpy.action": m("rclpy.action", ActionClient=_Client, ActionServer=object,
++                          CancelResponse=types.SimpleNamespace(ACCEPT=1),
++                          GoalResponse=types.SimpleNamespace(ACCEPT=1)),
++        "rclpy.node": m("rclpy.node", Node=node),
++        "rclpy.callback_groups": m("rclpy.callback_groups", ReentrantCallbackGroup=object),
++        "rclpy.executors": m("rclpy.executors", MultiThreadedExecutor=object),
++        "rclpy.qos": m("rclpy.qos", QoSPresetProfiles=types.SimpleNamespace(
++            SENSOR_DATA=types.SimpleNamespace(value=None))),
++        "trajectory_msgs": m("trajectory_msgs"),
++        "trajectory_msgs.msg": m("trajectory_msgs.msg", JointTrajectory=_Msg, JointTrajectoryPoint=_Msg),
++        "control_msgs": m("control_msgs"),
++        "control_msgs.action": m("control_msgs.action", FollowJointTrajectory=_FJT),
++        "builtin_interfaces": m("builtin_interfaces"),
++        "builtin_interfaces.msg": m("builtin_interfaces.msg",
++                                    Duration=lambda sec=0, nanosec=0: _Msg(sec=sec, nanosec=nanosec)),
++        "sensor_msgs": m("sensor_msgs"),
++        "sensor_msgs.msg": m("sensor_msgs.msg", JointState=_Msg),
++        "std_msgs": m("std_msgs"),
++        "std_msgs.msg": m("std_msgs.msg", String=_Msg, Bool=_Msg),
++    }
++
++
++@pytest.fixture
++def ros_stubs():
++    with patch.dict(sys.modules, _stub_modules()):
++        SENT.clear()
++        yield
++
++
++def _load(rel):
++    spec = importlib.util.spec_from_file_location(f"_t_{Path(rel).stem}", ROOT / rel)
++    mod = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(mod)
++    return mod
++
++
++def _leg(T=2.0, dt=0.05):
++    ts = np.append(np.arange(0.0, T, dt), T)
++    x = ts / T
++    s = 10 * x ** 3 - 15 * x ** 4 + 6 * x ** 5
++    amp = np.array([0.8, -0.5, 0.3, 1.2, -0.9, 2.0])
++    return [{"positions": [float(v) for v in s[i] * amp], "time_s": float(ts[i])}
++            for i in range(len(ts))]
++
++
++def _points(goal):
++    return [{"t": p.time_from_start.sec + p.time_from_start.nanosec * 1e-9,
++             "positions": list(p.positions), "velocities": list(p.velocities),
++             "accelerations": list(p.accelerations)} for p in goal.trajectory.points]
++
++
++def _moving_interior(points):
++    return [p for p in points[1:-1]]
++
++
++def test_robot_agent_goal_carries_the_timing_derivatives(ros_stubs):
++    from agents.robot import robot_agent
++    goal = robot_agent._build_fjt_goal(_leg())
++    pts = _points(goal)
++    assert pts[0]["velocities"] == [0.0] * 6 and pts[-1]["velocities"] == [0.0] * 6
++    assert all(any(abs(v) > 1e-4 for v in p["velocities"]) for p in _moving_interior(pts))
++    assert all(len(p["accelerations"]) == 6 for p in pts)
++    assert pts[-1]["t"] == pytest.approx(2.0, abs=1e-6)
++
++
++def test_robot_agent_velocity_scale_scales_the_derivatives(ros_stubs):
++    from agents.robot import robot_agent
++    from utils.fjt_trajectory import scale_time
++    full = _points(robot_agent._build_fjt_goal(_leg()))
++    half = _points(robot_agent._build_fjt_goal(scale_time(_leg(), 0.5)))
++    assert half[-1]["t"] == pytest.approx(2 * full[-1]["t"], abs=1e-6)
++    for f, h in zip(full, half):
++        assert np.allclose(h["velocities"], 0.5 * np.asarray(f["velocities"]), atol=1e-7)
++
++
++def test_ros2_control_driver_forwards_scaled_derivatives(ros_stubs):
++    from agents.robot.drivers.ros2_control_driver import Ros2ControlDriver
++    drv = Ros2ControlDriver(object(), "/x/follow_joint_trajectory")
++    r = drv.execute_trajectory(_leg(), [f"j{i}" for i in range(6)], velocity_scale=0.5)
++    assert r["success"]
++    pts = _points(SENT[-1])
++    assert pts[-1]["t"] == pytest.approx(4.0, abs=1e-6)
++    assert all(any(abs(v) > 1e-4 for v in p["velocities"]) for p in _moving_interior(pts))
++    peak = max(max(abs(v) for v in p["velocities"]) for p in pts)
++    assert peak == pytest.approx(0.5 * 1.875 * 2.0 / 2.0, rel=0.02)    # smoothstep peak, A6 amp 2.0
++
++
++def test_sim_controller_follows_jtc_and_does_not_teleport(ros_stubs):
++    pc = _load("controller/pinocchio_robot_controller.py")
++    start = [0.0] * 6
++    target = [0.6, -0.4, 0.2, 0.5, -0.3, 0.8]
++    pts = pc._prepare_points([{"positions": target, "velocities": [0.0] * 6,
++                               "accelerations": [0.0] * 6, "t": 2.5}], start)
++    q0, _v0 = pc._sample_trajectory(pts, 0.0)
++    q_mid, v_mid = pc._sample_trajectory(pts, 1.25)
++    q_end, v_end = pc._sample_trajectory(pts, 3.0)
++    assert q0 == start
++    assert np.allclose(q_mid, 0.5 * np.asarray(target), atol=1e-9)        # min-jerk midpoint
++    assert np.allclose(v_mid, 1.875 * np.asarray(target) / 2.5, atol=1e-9)
++    assert q_end == target and v_end == [0.0] * 6
++
++
++def test_sim_controller_reproduces_stop_and_go_for_zero_velocities(ros_stubs):
++    """What a client sending zero velocities gets on hardware, the sim now shows."""
++    pc = _load("controller/pinocchio_robot_controller.py")
++    pts = pc._prepare_points([{"positions": [0.0] * 6, "velocities": [0.0] * 6, "t": 0.0},
++                              {"positions": [0.1] * 6, "velocities": [0.0] * 6, "t": 0.05},
++                              {"positions": [0.2] * 6, "velocities": [0.0] * 6, "t": 0.10}], [0.0] * 6)
++    _q, v = pc._sample_trajectory(pts, 0.05)
++    assert v == [0.0] * 6
++
++
++def test_isaac_stream_lasts_as_long_as_the_goal(ros_stubs):
++    from agents.robot import robot_agent
++    ic = _load("controller/isaac_sim_controller.py")
++    goal = robot_agent._build_fjt_goal(_leg(T=2.0))
++    dense = ic._interpolate_trajectory([0.0] * 6, goal.trajectory.points, 50.0)
++    assert len(dense) == 100                      # 2.0 s at 50 Hz (was 80: 40 ms per 50 ms segment)
++    assert np.allclose(dense[-1], goal.trajectory.points[-1].positions)
++    step = np.abs(np.diff(np.array(dense), axis=0)).max()
++    assert step < 1.875 * 2.0 / 2.0 / 50.0 * 1.05
+diff --git a/tests/test_fjt_trajectory.py b/tests/test_fjt_trajectory.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e7d66e004d3cd4d961d8a11a2bd2132ac2997367
+--- /dev/null
++++ b/tests/test_fjt_trajectory.py
+@@ -0,0 +1,229 @@
++"""FollowJointTrajectory points carry the timing's derivatives (utils.fjt_trajectory).
++
++The robot agent and the ros2_control driver used to send ``velocities = [0.0] * 6``
++with every point. joint_trajectory_controller interpolates such a goal with
++rest-to-rest cubic segments, so the arm stopped at every waypoint. These tests pin
++the replacement: velocities and accelerations of one smooth curve through the timed
++positions, exact rests at the ends and in holds, and the JTC interpolation that
++the simulated controllers now share. Pure numpy, no ROS.
++"""
++from __future__ import annotations
++
++import math
++
++import numpy as np
++import pytest
++
++from utils import fjt_trajectory as F
++
++
++def _rest_to_rest(T=2.0, dt=0.05, amp=(0.8, -0.5, 0.3, 1.2, -0.9, 2.0)):
++    """A smooth rest-to-rest move (quintic smoothstep) sampled at ``dt``, with its
++    exact velocity, as a planner would emit it."""
++    amp = np.asarray(amp)
++    ts = np.append(np.arange(0.0, T, dt), T)
++    x = ts / T
++    s = 10 * x ** 3 - 15 * x ** 4 + 6 * x ** 5
++    sd = (30 * x ** 2 - 60 * x ** 3 + 30 * x ** 4) / T
++    q = s[:, None] * amp
++    v = sd[:, None] * amp
++    return ts, q, v
++
++
++def _traj(ts, q, v=None):
++    out = []
++    for i, t in enumerate(ts):
++        p = {"positions": [float(x) for x in q[i]], "time_s": float(t)}
++        if v is not None:
++            p["velocities"] = [float(x) for x in v[i]]
++        out.append(p)
++    return out
++
++
++def _command(points, cycle=0.004, tail=0.1):
++    pts = [dict(p, t=p["time_s"]) for p in points]
++    ts = np.arange(0.0, pts[-1]["t"] + tail, cycle)
++    return ts, np.array([F.sample(pts, t)[0] for t in ts])
++
++
++def test_positions_only_plan_gets_the_velocities_of_its_timing():
++    ts, q, v = _rest_to_rest()
++    pts = F.fjt_points(_traj(ts, q))
++    V = np.array([p["velocities"] for p in pts])
++    assert np.all(V[0] == 0.0) and np.all(V[-1] == 0.0)
++    # interior: the C2 spline through the samples recovers the timing's velocity
++    assert np.abs(V[1:-1] - v[1:-1]).max() < 0.01 * np.abs(v).max()
++    assert all(len(p["accelerations"]) == 6 for p in pts)
++
++
++def test_the_arm_no_longer_stops_at_every_waypoint():
++    ts, q, v = _rest_to_rest()
++    fixed = F.fjt_points(_traj(ts, q))
++    zeros = [dict(p, velocities=[0.0] * 6) for p in _traj(ts, q)]   # what the agent sent
++    peak_a = (np.abs(np.gradient(v, ts, axis=0))).max(axis=0)
++    for points, expect_ok in ((fixed, True), (zeros, False)):
++        tc, Q = _command(points)
++        acc = np.abs(np.diff(Q, 2, axis=0)) / 0.004 ** 2
++        ratio = float((acc.max(axis=0) / peak_a).max())
++        assert (ratio < 1.2) == expect_ok, ratio
++
++
++def test_planner_velocities_are_forwarded_when_they_match_the_timing():
++    ts, q, v = _rest_to_rest()
++    pts = F.fjt_points(_traj(ts, q, v))
++    V = np.array([p["velocities"] for p in pts])
++    assert np.allclose(V[1:-1], v[1:-1], atol=1e-8)
++
++
++def test_stale_planner_velocities_are_not_forwarded():
++    """A copy re-timed 2x slower that kept its velocities: they no longer belong."""
++    ts, q, v = _rest_to_rest()
++    stale = _traj(2.0 * ts, q, v)
++    V = np.array([p["velocities"] for p in F.fjt_points(stale)])
++    assert np.abs(V[1:-1] - 0.5 * v[1:-1]).max() < 0.01 * np.abs(v).max()
++
++
++def test_velocity_scale_scales_time_and_derivatives_together():
++    ts, q, v = _rest_to_rest()
++    base = F.fjt_points(_traj(ts, q, v))
++    slow = F.fjt_points(_traj(ts, q, v), velocity_scale=0.5)
++    assert slow[-1]["time_s"] == pytest.approx(2 * base[-1]["time_s"])
++    for b, s in zip(base, slow):
++        assert s["positions"] == b["positions"]
++        assert np.allclose(s["velocities"], 0.5 * np.asarray(b["velocities"]), atol=1e-8)
++        assert np.allclose(s["accelerations"], 0.25 * np.asarray(b["accelerations"]), atol=1e-6)
++
++
++def test_scale_time_returns_a_copy():
++    traj = [{"positions": [0.0], "time_s": 1.0, "velocities": [2.0]}]
++    out = F.scale_time(traj, 0.5)
++    assert out[0]["time_s"] == 2.0 and out[0]["velocities"] == [1.0]
++    assert traj[0]["time_s"] == 1.0 and traj[0]["velocities"] == [2.0]
++
++
++def test_a_hold_inside_a_goal_stays_still():
++    ts, q, _v = _rest_to_rest()
++    t1 = ts[-1]
++    traj = _traj(ts, q) + [{"positions": [float(x) for x in q[-1]], "time_s": t1 + 0.5}]
++    traj += [{"positions": [float(x) for x in q[-1 - i]], "time_s": t1 + 0.5 + ts[i]}
++             for i in range(1, len(ts))]
++    pts = F.fjt_points(traj)
++    i_hold = len(ts) - 1
++    for i in (i_hold, i_hold + 1):
++        assert pts[i]["velocities"] == [0.0] * 6 and pts[i]["accelerations"] == [0.0] * 6
++    held = [F.sample([dict(p, t=p["time_s"]) for p in pts], t)[0]
++            for t in np.linspace(t1, t1 + 0.5, 25)]
++    assert np.abs(np.asarray(held) - q[-1]).max() < 1e-12
++
++
++def test_one_and_two_point_moves_are_rest_to_rest():
++    one = F.fjt_points([{"positions": [1.0] * 6, "time_s": 2.5}])
++    assert one[0]["velocities"] == [0.0] * 6 and one[0]["accelerations"] == [0.0] * 6
++    two = F.fjt_points([{"positions": [0.0] * 6, "time_s": 0.0},
++                        {"positions": [1.0] * 6, "time_s": 2.0}])
++    for p in two:
++        assert p["velocities"] == [0.0] * 6 and p["accelerations"] == [0.0] * 6
++
++
++def test_positions_are_padded_to_six_joints():
++    pts = F.fjt_points([{"positions": [0.1, 0.2], "time_s": 0.0},
++                        {"positions": [0.3, 0.4], "time_s": 1.0}])
++    assert [len(p["positions"]) for p in pts] == [6, 6]
++    assert pts[0]["positions"][2:] == [0.0] * 4
++
++
++@pytest.mark.parametrize("fields,mode", [((), "linear"), (("velocities",), "cubic"),
++                                         (("velocities", "accelerations"), "quintic")])
++def test_sample_uses_the_interpolation_jtc_picks(fields, mode):
++    p0 = {"t": 0.0, "positions": [0.0], "velocities": [0.5], "accelerations": [1.0]}
++    p1 = {"t": 1.0, "positions": [1.0], "velocities": [0.5], "accelerations": [-1.0]}
++    a = {k: v for k, v in p0.items() if k in ("t", "positions") + fields}
++    b = {k: v for k, v in p1.items() if k in ("t", "positions") + fields}
++    assert F.segment_mode(a, b) == mode
++    q0, v0, a0 = F.sample([a, b], 1e-9)
++    q1, v1, a1 = F.sample([a, b], 1.0 - 1e-9)
++    assert q0[0] == pytest.approx(0.0, abs=1e-6) and q1[0] == pytest.approx(1.0, abs=1e-6)
++    if mode != "linear":
++        assert v0[0] == pytest.approx(0.5, abs=1e-6) and v1[0] == pytest.approx(0.5, abs=1e-6)
++    if mode == "quintic":
++        assert a0[0] == pytest.approx(1.0, abs=1e-5) and a1[0] == pytest.approx(-1.0, abs=1e-5)
++    q_end, v_end, _ = F.sample([a, b], 5.0)
++    assert q_end == [1.0] and v_end == [0.0]
++
++
++def test_derived_curve_is_c2_through_the_knots():
++    ts, q, _v = _rest_to_rest(dt=0.07)
++    pts = [dict(p, t=p["time_s"]) for p in F.fjt_points(_traj(ts, q))]
++    for k in range(1, len(pts) - 1):
++        t = pts[k]["t"]
++        left = F.sample(pts, t - 1e-7)
++        right = F.sample(pts, t + 1e-7)
++        assert np.allclose(left[0], q[k], atol=1e-6)
++        assert np.allclose(left[1], right[1], atol=1e-4)
++        assert np.allclose(left[2], right[2], atol=1e-2)
++
++
++def test_topp_ra_emits_the_velocities_of_its_timing():
++    pytest.importorskip("toppra")
++    from agents.trajectory.tools.time_parameterization import parameterize
++    path = [[0.0, -1.5708, 1.5708, 0.0, 0.0, 0.0], [0.6, -1.4, 1.5, 0.4, 0.3, 0.2],
++            [1.5, -1.2, 1.3, 1.6, -0.6, 1.2], [1.98, -1.46, 1.68, 2.43, -1.69, 2.02]]
++    vel = [2.72, 2.72, 2.72, 5.76, 5.76, 10.7]
++    traj = parameterize(path, vel_limits=vel, accel_limits=[3, 3, 3, 6, 6, 8], velocity_scale=0.7)
++    assert all("velocities" in p for p in traj)
++    assert traj[0]["velocities"] == [0.0] * 6 and traj[-1]["velocities"] == [0.0] * 6
++    t = np.array([p["time_s"] for p in traj])
++    q = np.array([p["positions"] for p in traj])
++    v = np.array([p["velocities"] for p in traj])
++    assert (np.abs(v) <= 0.7 * np.asarray(vel) * 1.001 + 1e-6).all()
++    slope = np.diff(q, axis=0) / np.diff(t)[:, None]
++    assert np.abs(0.5 * (v[:-1] + v[1:]) - slope).max() < 0.05
++    # and the driver forwards them (they belong to the timing); a sample a few ms
++    # after the previous one gets the fitted curve's value, which is within 1e-4
++    sent = np.array([p["velocities"] for p in F.fjt_points(traj)])
++    assert np.allclose(sent[1:-2], v[1:-2], atol=1e-8)
++    assert np.allclose(sent[-2], v[-2], atol=1e-4)
++
++
++def test_rest_masks():
++    t = [0.0, 0.1, 0.2, 0.3, 0.4]
++    q = [[0.0], [0.1], [0.1], [0.2], [0.3]]
++    rest, still = F.rest_masks(t, q)
++    assert rest.tolist() == [True, True, True, False, True]
++    assert still.tolist() == [False, True, True, False, False]
++    assert math.isclose(F.REST_TOL_RAD, 1e-9)
++
++
++def test_a_phase_seam_is_a_rest():
++    """Each phase of a two-phase leg is timed rest-to-rest: the seam is a stop."""
++    ts, q, _v = _rest_to_rest()
++    traj = [dict(p, phase="transit") for p in _traj(ts, q)]
++    t1 = ts[-1]
++    traj += [{"positions": [float(x) for x in q[-1] + 0.1 * (q[-1 - i] - q[-1])], "phase": "approach",
++              "time_s": float(t1 + ts[i])} for i in range(1, len(ts))]
++    pts = F.fjt_points(traj)
++    seam = len(ts) - 1
++    assert pts[seam]["velocities"] == [0.0] * 6 and pts[seam]["accelerations"] == [0.0] * 6
++    assert any(abs(v) > 1e-3 for v in pts[seam - 1]["velocities"])
++    assert any(abs(v) > 1e-4 for v in pts[seam + 1]["velocities"])
++
++
++def test_all_zero_velocities_are_the_old_format_not_a_timing():
++    ts, q, v = _rest_to_rest()
++    zeros = [dict(p, velocities=[0.0] * 6) for p in _traj(ts, q)]
++    V = np.array([p["velocities"] for p in F.fjt_points(zeros)])
++    assert np.abs(V[1:-1] - v[1:-1]).max() < 0.01 * np.abs(v).max()
++
++
++def test_a_last_sample_just_after_the_previous_one_gives_no_spurious_acceleration():
++    """TOPP-RA's last sample often lands 1 ms after the one before it; positions are
++    rounded to 1e-6 rad, so the slope between them is noise."""
++    T = 2.001
++    ts = np.append(np.arange(0.0, 2.0 + 1e-9, 0.05), T)
++    x = ts / T
++    s = 10 * x ** 3 - 15 * x ** 4 + 6 * x ** 5
++    q = np.round(s[:, None] * np.array([0.8, -0.5, 0.3, 1.2, -0.9, 2.0]), 6)
++    pts = F.fjt_points(_traj(ts, q))
++    A = np.abs(np.array([p["accelerations"] for p in pts]))
++    peak_true = 5.774 * 2.0 / T ** 2              # smoothstep peak acceleration, A6
++    assert A.max() < 1.2 * peak_true
+diff --git a/utils/fjt_trajectory.py b/utils/fjt_trajectory.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..d912ea3e98b14bc0150b6e8ab170e035a4b9ee56
+--- /dev/null
++++ b/utils/fjt_trajectory.py
+@@ -0,0 +1,449 @@
++"""
++FollowJointTrajectory points with derivatives that agree with the timed trajectory.
++
++ros2_control's ``joint_trajectory_controller`` (JTC) interpolates each segment
++according to the fields that BOTH of its points carry:
++
++  * positions only                          -> linear (velocity jumps at every point)
++  * positions + velocities                  -> cubic Hermite
++  * positions + velocities + accelerations  -> quintic Hermite
++
++Sending ``velocities = [0.0] * 6`` with every point (what the robot agent and
++the ros2_control driver did) makes every segment a rest-to-rest cubic: the arm
++stops at every waypoint, 20 times a second on a 20 Hz plan, and the commanded
++acceleration between two stops is many times the limit the plan was timed to.
++
++``with_derivatives`` / ``fjt_points`` give every point of a timed trajectory
++``[{"positions", "time_s", ...}]`` the velocity and acceleration of ONE smooth
++(C2) curve through all the timed positions:
++
++  * velocities: the planner's own (``"velocities"`` on every point; TOPP-RA
++    attaches them), unless the command they give is clearly rougher than with
++    the velocities of the C2 cubic spline through the timed positions (a copy
++    re-timed without scaling its velocities). Older plans and hand-built moves
++    carry none and get the spline's;
++  * accelerations: those of the C2 interpolant through these positions and
++    velocities. A planner's sampled acceleration is not used: TOPP-RA's is
++    piecewise constant, and a point sample of it can sit on either side of a
++    switch;
++  * rest points are exactly at rest: velocity 0 at the first and the last point
++    of a goal; velocity and acceleration 0 at both ends of a hold (consecutive
++    points with the same positions) and at the seam of a two-phase leg (umarell
++    times transit and approach rest-to-rest each), so holds stay stationary and
++    consecutive goals join without a velocity jump. A two-point move is a
++    minimum-jerk rest-to-rest quintic.
++
++The curve passes through every point at its time; between points it is what the
++timed trajectory's own interpolating spline would be. It does not change the
++timing: a timing that is infeasible stays infeasible.
++
++``sample`` is the controller side: JTC's ``splines`` interpolation of such
++points, used by the simulated controllers so that what a simulation shows is
++what the hardware controller will command.
++
++Pure Python + numpy, no ROS import: unit-testable on a bare host.
++"""
++from __future__ import annotations
++
++from typing import Optional, Sequence
++
++# A segment whose every joint moves less than this (rad) is a hold. Plans store
++# positions rounded to 1e-6 rad, so a hold is an exact repeat.
++REST_TOL_RAD = 1e-9
++# Segments shorter than this (s) carry no slope information.
++_MIN_DT_S = 1e-9
++
++
++def _arr(rows, n: int):
++    import numpy as np
++    out = np.zeros((len(rows), n))
++    for i, r in enumerate(rows):
++        r = [float(v) for v in list(r)[:n]]
++        out[i, :len(r)] = r
++    return out
++
++
++def _given(points: Sequence[dict], key: str, n: int):
++    """The ``key`` field of every point as an (N, n) array, or None unless every
++    point carries a list of at least ``n`` values."""
++    rows = [p.get(key) for p in points]
++    if not rows or any(r is None or len(r) < n for r in rows):
++        return None
++    return _arr(rows, n)
++
++
++def rest_masks(times, positions):
++    """(rest, still) boolean masks over the points.
++
++    ``rest``: velocity 0 there: the first and the last point, and both ends of a
++    segment with no motion (a hold) or of zero duration.
++    ``still``: acceleration 0 as well: both ends of such a segment, so the hold
++    is stationary.
++    """
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
++    n = len(t)
++    rest = np.zeros(n, bool)
++    still = np.zeros(n, bool)
++    if n == 0:
++        return rest, still
++    rest[0] = rest[-1] = True
++    if n == 1:
++        still[0] = True
++    else:
++        seg = (np.abs(np.diff(q, axis=0)).max(axis=1) <= REST_TOL_RAD) | (np.diff(t) <= _MIN_DT_S)
++        still[:-1] |= seg
++        still[1:] |= seg
++        rest |= still
++    return rest, still
++
++
++def _slopes(t, q):
++    import numpy as np
++    h = np.diff(t)
++    ok = h > _MIN_DT_S
++    s = np.zeros((len(h), q.shape[1]))
++    s[ok] = np.diff(q, axis=0)[ok] / h[ok][:, None]
++    return h, s
++
++
++def _spline_velocities(t, q, rest):
++    """Knot velocities of the C2 cubic spline through (t, q), clamped to 0 at
++    the rest points (each run between rests is solved on its own)."""
++    import numpy as np
++    n = len(t)
++    v = np.zeros_like(q)
++    if n < 3:
++        return v
++    h, s = _slopes(t, q)
++    idx = np.flatnonzero(rest)
++    for i0, i1 in zip(idx[:-1], idx[1:]):
++        m = i1 - i0                      # segments in the run; unknowns v[i0+1 .. i1-1]
++        if m < 2:
++            continue
++        # h_i v_{i-1} + 2 (h_{i-1} + h_i) v_i + h_{i-1} v_{i+1} = 3 (h_i s_{i-1} + h_{i-1} s_i)
++        k = np.arange(i0 + 1, i1)
++        sub = h[k]                       # coefficient of v_{i-1}
++        diag = 2.0 * (h[k - 1] + h[k])
++        sup = h[k - 1]                   # coefficient of v_{i+1}
++        rhs = 3.0 * (h[k][:, None] * s[k - 1] + h[k - 1][:, None] * s[k])
++        cp = np.zeros(len(k))
++        dp = np.zeros((len(k), q.shape[1]))
++        for j in range(len(k)):          # Thomas algorithm (diagonally dominant)
++            den = diag[j] - (sub[j] * cp[j - 1] if j else 0.0)
++            cp[j] = sup[j] / den
++            dp[j] = (rhs[j] - (sub[j] * dp[j - 1] if j else 0.0)) / den
++        for j in range(len(k) - 1, -1, -1):
++            v[k[j]] = dp[j] - (cp[j] * v[k[j] + 1] if j < len(k) - 1 else 0.0)
++    return v
++
++
++def _knot_accelerations(t, q, v):
++    """Acceleration at each knot of the cubic Hermite curve through (t, q, v):
++    the mean of the two adjacent segments' end values (they are equal where the
++    curve is C2, e.g. for the spline velocities)."""
++    import numpy as np
++    n = len(t)
++    a = np.zeros_like(q)
++    if n < 2:
++        return a
++    h, s = _slopes(t, q)
++    hs = np.where(h > _MIN_DT_S, h, 1.0)[:, None]
++    left = (6.0 * s - 4.0 * v[:-1] - 2.0 * v[1:]) / hs      # at the start of segment i
++    right = (-6.0 * s + 2.0 * v[:-1] + 4.0 * v[1:]) / hs    # at the end of segment i
++    a[0] = left[0]
++    a[-1] = right[-1]
++    if n > 2:
++        a[1:-1] = 0.5 * (right[:-1] + left[1:])
++    return a
++
++
++# The planner's velocities are forwarded unless the command they give is more
++# than 20 % rougher (peak per-cycle acceleration, any joint; + 1e-3 rad/s^2) than
++# the spline's. Measured on 216 random TOPP-RA legs: the exact velocities pass on
++# 210 (they sample a bang-bang acceleration, so they are not always the
++# smoothest); copies re-timed by >= 5 % without scaling their velocities never.
++_ROUGHER_OK = 1.2
++_ROUGH_FLOOR = 1e-3
++
++# Two points this close in time (fraction of the median spacing) and in joint
++# space are not fitted separately: the slope between them is position rounding.
++_KNOT_DT_FRAC = 0.5
++_KNOT_DQ_RAD = 1e-4
++
++
++def _knots(times, positions, must=None):
++    """Indices of the points the curve is fitted to.
++
++    A point that follows the previous fitted one by less than half the median
++    spacing AND by less than 1e-4 rad on every joint is skipped: the slope
++    between them is mostly position rounding (plans round to 1e-6 rad, and
++    TOPP-RA's last sample of a phase lands anywhere from 0 to 50 ms after the
++    one before it, where the arm is nearly at rest). The last point and the
++    ``must`` points (rests) are always fitted, in place of a skippable fitted
++    point just before them. Skipped points get the curve's derivatives.
++    """
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
++    n = len(t)
++    if n < 3:
++        return np.arange(n)
++    must = np.zeros(n, bool) if must is None else np.asarray(must, bool).copy()
++    must[0] = must[-1] = True
++    h = np.diff(t)
++    pos = h[h > _MIN_DT_S]
++    thr = _KNOT_DT_FRAC * float(np.median(pos)) if len(pos) else 0.0
++
++    def close(i, j):
++        return t[i] - t[j] < thr and float(np.abs(q[i] - q[j]).max()) < _KNOT_DQ_RAD
++
++    keep = [0]
++    for i in range(1, n):
++        c = close(i, keep[-1])
++        if not must[i]:
++            if not c:
++                keep.append(i)
++        elif c and not must[keep[-1]]:
++            keep[-1] = i
++        else:
++            keep.append(i)
++    return np.asarray(keep)
++
++
++def _hermite_at(tk, qk, vk, t):
++    """(velocity, acceleration) at times ``t`` of the cubic Hermite curve
++    through the knots (tk, qk, vk)."""
++    import numpy as np
++    i = np.clip(np.searchsorted(tk, t, side="right") - 1, 0, len(tk) - 2)
++    T = np.maximum(tk[i + 1] - tk[i], _MIN_DT_S)[:, None]
++    x = (t - tk[i])[:, None]
++    p0, p1, v0, v1 = qk[i], qk[i + 1], vk[i], vk[i + 1]
++    c2 = (-3 * p0 + 3 * p1 - 2 * v0 * T - v1 * T) / T ** 2
++    c3 = (2 * p0 - 2 * p1 + v0 * T + v1 * T) / T ** 3
++    return v0 + 2 * c2 * x + 3 * c3 * x ** 2, 2 * c2 + 6 * c3 * x
++
++
++def cycle_accelerations(times, positions, velocities, accelerations, cycle: float = 0.004):
++    """Per-joint peak |acceleration| that joint_trajectory_controller asks of the
++    drive: its quintic interpolation of the points sampled every ``cycle`` s
++    (plus the hold after the last point), second differences. (dof,) array."""
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
++    if len(t) < 2:
++        return np.zeros(q.shape[1])
++    v = np.asarray(velocities, float)
++    a = np.asarray(accelerations, float)
++    g = t[0] + cycle * np.arange(int((t[-1] - t[0]) / cycle) + 3)
++    i = np.clip(np.searchsorted(t, g, side="right") - 1, 0, len(t) - 2)
++    T = np.maximum(t[i + 1] - t[i], _MIN_DT_S)[:, None]
++    x = np.minimum(g - t[i], t[i + 1] - t[i])[:, None]
++    p0, p1, v0, v1, a0, a1 = q[i], q[i + 1], v[i], v[i + 1], a[i], a[i + 1]
++    c3 = (-20 * p0 + 20 * p1 - 3 * a0 * T ** 2 + a1 * T ** 2 - 12 * v0 * T - 8 * v1 * T) / (2 * T ** 3)
++    c4 = (30 * p0 - 30 * p1 + 3 * a0 * T ** 2 - 2 * a1 * T ** 2 + 16 * v0 * T + 14 * v1 * T) / (2 * T ** 4)
++    c5 = (-12 * p0 + 12 * p1 - a0 * T ** 2 + a1 * T ** 2 - 6 * v0 * T - 6 * v1 * T) / (2 * T ** 5)
++    Q = p0 + x * (v0 + x * (0.5 * a0 + x * (c3 + x * (c4 + x * c5))))
++    Q[g >= t[-1]] = q[-1]
++    if len(Q) < 3:
++        return np.zeros(q.shape[1])
++    return np.abs(np.diff(Q, 2, axis=0)).max(axis=0) / cycle ** 2
++
++
++def estimate_derivatives(times, positions, velocities=None, rests=None):
++    """(velocities, accelerations) as (N, dof) arrays for a timed path.
++
++    The curve is fitted to the knots of ``_knots`` (every point except one that
++    follows the previous knot closely at rounding-level displacement) and
++    evaluated at every point.
++
++    Velocities: the planner's (``velocities``), unless the command they give is
++    rougher than the C2 cubic spline's through the positions: its peak
++    per-cycle acceleration (``cycle_accelerations``) more than 20 % above the
++    spline's on some joint. Exact derivatives of the timing pass; velocities
++    that do not belong to it (e.g. a copy re-timed without scaling them) bend
++    the curve between the points and are replaced by the spline's.
++    Accelerations: those of the C2 interpolant through the positions and the
++    chosen velocities. Rest points per ``rest_masks``; a run with a single
++    moving segment (a two-point move) is a minimum-jerk quintic (zero
++    acceleration at both ends). ``rests`` (bool per point, optional) marks
++    further points where the timing itself is at rest (e.g. the seam of a
++    two-phase leg, timed rest-to-rest on each side): velocity and acceleration
++    0 there, and the spline is clamped there.
++    """
++    import numpy as np
++    t = np.asarray(times, float)
++    q = np.asarray(positions, float)
++    n = len(t)
++    rest, still = rest_masks(t, q)
++    if rests is not None:
++        rests = np.asarray(rests, bool)
++        rest |= rests
++        still |= rests
++    if n >= 2:
++        idx = np.flatnonzero(rest)
++        single = idx[np.flatnonzero(np.diff(idx) == 1)]
++        still[single] = True             # both ends of a one-segment run
++        still[single + 1] = True
++    k = _knots(t, q, rest)
++    tk, qk = t[k], q[k]
++    rest_k = rest_masks(tk, qk)[0] | rest[k]
++    dropped = np.setdiff1d(np.arange(n), k)
++
++    def curve(vk):
++        vk = np.where(rest_k[:, None], 0.0, vk)
++        v = np.zeros_like(q)
++        a = np.zeros_like(q)
++        v[k] = vk
++        a[k] = _knot_accelerations(tk, qk, vk)
++        if len(dropped):
++            v[dropped], a[dropped] = _hermite_at(tk, qk, vk, t[dropped])
++        v[rest] = 0.0
++        a[still] = 0.0
++        return v, a
++
++    v, a = curve(_spline_velocities(tk, qk, rest_k))
++    if velocities is not None and n >= 2:
++        vg, ag = curve(np.asarray(velocities, float)[k])
++        if np.all(cycle_accelerations(t, q, vg, ag)
++                  <= _ROUGHER_OK * cycle_accelerations(t, q, v, a) + _ROUGH_FLOOR):
++            v, a = vg, ag
++    return v, a
++
++
++def timing_rests(points: Sequence[dict], use_velocities: bool = True):
++    """Interior points where the timing is known to be at rest: the last point of
++    a ``phase`` (umarell times each phase of a two-phase leg rest-to-rest:
++    transit, then approach) and, with ``use_velocities``, points whose planner
++    velocity is exactly 0 on every joint. Bool list."""
++    n = len(points)
++    out = [False] * n
++    for i in range(1, n - 1):
++        ph, nxt = points[i].get("phase"), points[i + 1].get("phase")
++        vel = points[i].get("velocities") if use_velocities else None
++        if (ph is not None and nxt is not None and ph != nxt) or (vel and not any(vel)):
++            out[i] = True
++    return out
++
++
++def with_derivatives(trajectory: Sequence[dict], n_joints: Optional[int] = None,
++                     time_key: str = "time_s") -> list[dict]:
++    """Copies of the points with ``positions`` (padded with 0.0 to ``n_joints``),
++    ``velocities`` and ``accelerations`` from ``estimate_derivatives``; every
++    other key is kept."""
++    import numpy as np
++    pts = list(trajectory)
++    if not pts:
++        return []
++    n = int(n_joints) if n_joints else max(len(p["positions"]) for p in pts)
++    t = np.array([float(p.get(time_key, 0.0)) for p in pts])
++    q = _arr([p["positions"] for p in pts], n)
++    vg = _given(pts, "velocities", n)
++    if vg is not None and not np.any(vg):
++        vg = None                        # all-zero placeholders (the old goal format) carry no timing
++    v, a = estimate_derivatives(t, q, vg, timing_rests(pts, use_velocities=vg is not None))
++    out = []
++    for i, p in enumerate(pts):
++        d = dict(p)
++        d["positions"] = [float(x) for x in q[i]]
++        d["velocities"] = [round(float(x), 9) for x in v[i]]
++        d["accelerations"] = [round(float(x), 9) for x in a[i]]
++        out.append(d)
++    return out
++
++
++def scale_time(trajectory: Sequence[dict], velocity_scale: float,
++               time_key: str = "time_s") -> list[dict]:
++    """A copy slowed down by ``velocity_scale`` (> 0): times divided by it,
++    velocities multiplied by it, accelerations by its square. Same path."""
++    k = float(velocity_scale)
++    out = []
++    for p in trajectory:
++        d = dict(p)
++        if k > 0 and k != 1.0:
++            if time_key in d:
++                d[time_key] = float(d[time_key]) / k
++            if d.get("velocities"):
++                d["velocities"] = [float(x) * k for x in d["velocities"]]
++            if d.get("accelerations"):
++                d["accelerations"] = [float(x) * k * k for x in d["accelerations"]]
++        out.append(d)
++    return out
++
++
++def fjt_points(trajectory: Sequence[dict], velocity_scale: float = 1.0,
++               n_joints: int = 6) -> list[dict]:
++    """What a FollowJointTrajectory goal should carry for ``trajectory``:
++    ``[{"positions", "velocities", "accelerations", "time_s"}]``, with
++    ``time_s`` already divided by ``velocity_scale``."""
++    return [{"positions": p["positions"], "velocities": p["velocities"],
++             "accelerations": p["accelerations"], "time_s": float(p["time_s"])}
++            for p in with_derivatives(scale_time(trajectory, velocity_scale), n_joints)]
++
++
++# ── Controller side: JTC "splines" interpolation ─────────────────────────────
++
++def segment_mode(p0: dict, p1: dict) -> str:
++    """JTC's choice for the segment p0 -> p1, by the fields BOTH points carry."""
++    if p0.get("velocities") and p1.get("velocities"):
++        return "quintic" if (p0.get("accelerations") and p1.get("accelerations")) else "cubic"
++    return "linear"
++
++
++def _segment(p0, v0, a0, p1, v1, a1, T, x, mode):
++    """(q, qd, qdd) at time x in [0, T] of one segment (lists of floats).
++    Polynomial coefficients as in joint_trajectory_controller's trajectory.cpp."""
++    q, qd, qdd = [], [], []
++    for k in range(len(p0)):
++        if mode == "linear":
++            c = (p0[k], (p1[k] - p0[k]) / T, 0.0, 0.0, 0.0, 0.0)
++        elif mode == "cubic":
++            c = (p0[k], v0[k],
++                 (-3 * p0[k] + 3 * p1[k] - 2 * v0[k] * T - v1[k] * T) / T ** 2,
++                 (2 * p0[k] - 2 * p1[k] + v0[k] * T + v1[k] * T) / T ** 3, 0.0, 0.0)
++        else:
++            c = (p0[k], v0[k], 0.5 * a0[k],
++                 (-20 * p0[k] + 20 * p1[k] - 3 * a0[k] * T ** 2 + a1[k] * T ** 2
++                  - 12 * v0[k] * T - 8 * v1[k] * T) / (2 * T ** 3),
++                 (30 * p0[k] - 30 * p1[k] + 3 * a0[k] * T ** 2 - 2 * a1[k] * T ** 2
++                  + 16 * v0[k] * T + 14 * v1[k] * T) / (2 * T ** 4),
++                 (-12 * p0[k] + 12 * p1[k] - a0[k] * T ** 2 + a1[k] * T ** 2
++                  - 6 * v0[k] * T - 6 * v1[k] * T) / (2 * T ** 5))
++        q.append(c[0] + x * (c[1] + x * (c[2] + x * (c[3] + x * (c[4] + x * c[5])))))
++        qd.append(c[1] + x * (2 * c[2] + x * (3 * c[3] + x * (4 * c[4] + x * 5 * c[5]))))
++        qdd.append(2 * c[2] + x * (6 * c[3] + x * (12 * c[4] + x * 20 * c[5])))
++    return q, qd, qdd
++
++
++def sample(points: Sequence[dict], t: float, time_key: str = "t"):
++    """Commanded (positions, velocities, accelerations) at time ``t`` of a goal's
++    points, as ros2_control's joint_trajectory_controller interpolates them
++    (``interpolation_method: splines``). Before the first point: the first point;
++    after the last point: the last point, at rest.
++    """
++    if not points:
++        return [], [], []
++    n = len(points[0]["positions"])
++    zero = [0.0] * n
++    first, last = points[0], points[-1]
++    if t <= float(first[time_key]):
++        return (list(first["positions"]), list(first.get("velocities") or zero),
++                list(first.get("accelerations") or zero))
++    if t >= float(last[time_key]):
++        return list(last["positions"]), zero, zero
++    lo, hi = 0, len(points) - 1
++    while hi - lo > 1:                   # t0 <= t < t1
++        mid = (lo + hi) // 2
++        if float(points[mid][time_key]) <= t:
++            lo = mid
++        else:
++            hi = mid
++    p0, p1 = points[lo], points[hi]
++    T = float(p1[time_key]) - float(p0[time_key])
++    if T <= _MIN_DT_S:
++        return (list(p1["positions"]), list(p1.get("velocities") or zero),
++                list(p1.get("accelerations") or zero))
++    return _segment(p0["positions"], p0.get("velocities") or zero, p0.get("accelerations") or zero,
++                    p1["positions"], p1.get("velocities") or zero, p1.get("accelerations") or zero,
++                    T, t - float(p0[time_key]), segment_mode(p0, p1))

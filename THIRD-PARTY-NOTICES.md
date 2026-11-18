@@ -63,8 +63,8 @@ licence inventory is generated from those lock files for a release, not kept her
 
 | Component | Used for | Licence | Confirmed |
 |---|---|---|---|
-| [umarell](https://github.com/aws-samples/sample-umarell) @ `08d5a39` (`source/deploy/umarell.pin`), with the upstream fixes of `source/cell-planner/docs/upstream/patches_08d5a39/` | the agentic planner and its planning tools (U3) | as published in that repository | not checked locally: to be confirmed when it is public |
-| The umarell patches of `source/deploy/umarell-public/` | applied to umarell's chat tree at deploy time (the trajectory MCP server on loopback) | as umarell | to be confirmed with umarell |
+| [umarell](https://github.com/aws-samples/sample-industrial-multi-robot-agents) @ `8a02db9` (`source/deploy/umarell.pin`, `source/deploy/umarell-jam.pin`), with the upstream fixes of `source/cell-planner/docs/upstream/patches_8a02db9/` | the agentic planner and its planning tools (U3, umarell_jam) | MIT-0 | yes (its `LICENSE`) |
+| The umarell patches of `source/deploy/umarell-public/` | applied to umarell's chat tree at deploy time (the trajectory MCP server on loopback) | MIT-0, as umarell | yes |
 | Kiro CLI 2.26.1 (`KIRO_VERSION` in `source/deploy/provision.sh`) | the agentic planner's agent, installed on the instance (checked by its sha256) | Kiro's terms ([kiro.dev](https://kiro.dev)); not redistributed | — |
 | Ubuntu 24.04 LTS (arm64), from Canonical's public AMI | the instance's operating system and its apt packages | the licences of its packages (Ubuntu's terms); not redistributed | — |
 | Rust (rustup and the toolchains `source/rust-toolchain.toml` names), wasm-bindgen-cli, binaryen (`wasm-opt`), Node.js | the release build on the instance (`deployment/bootstrap/install-build-deps.sh`, each checked by its sha256 or pinned version) | MIT OR Apache-2.0 (Rust, wasm-bindgen); Apache-2.0 (binaryen); MIT (Node.js); not redistributed | not checked locally |

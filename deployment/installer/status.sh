@@ -26,7 +26,7 @@ if inc:
     print("  incomplete: %s (provisioned without it; the next update provisions it again)" % ", ".join(inc))
     if "umarell_jam" in inc:
         print("         umarell_jam: its jobs fall back to umarell_u3 (minutes, not seconds); why: the release log "
-              "(WARNING: umarell_jam); while sample-umarell is not public, install with --umarell-jam-tarball")
+              "(WARNING: umarell_jam); an instance that cannot reach GitHub needs --umarell-jam-tarball")
 if phase in ("failed", "rolled-back") and j.get("logStream"):
     print("  log:   %s%s (CloudWatch Logs)" % (sys.argv[2] + " " if sys.argv[2] else "", j["logStream"]))
 ' "$state" "$lg" | sed "1s/^/${B}Release${N}  /"

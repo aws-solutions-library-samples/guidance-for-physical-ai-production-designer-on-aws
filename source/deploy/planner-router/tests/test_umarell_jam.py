@@ -145,9 +145,9 @@ sys.exit(0)
 
 
 def checkout(path: Path, layout: str) -> Path:
-    """A umarell tree with the layout umarell_u3.base_of tells apart: 76ea13a or 08d5a39."""
+    """A umarell tree with the layout umarell_u3.base_of tells apart: 76ea13a, 08d5a39 or the public 8a02db9."""
     (path / "agents" / "trajectory" / "backends").mkdir(parents=True)
-    if layout == "08d5a39":
+    if layout in ("08d5a39", "8a02db9"):
         (path / "utils").mkdir()
         (path / "utils" / "weld_surface.py").write_text("")
         (path / "agents" / "trajectory" / "plan_jobs.py").write_text("")
@@ -155,6 +155,9 @@ def checkout(path: Path, layout: str) -> Path:
         tools.mkdir()
         (tools / "fastgeom.py").write_text("")
         (tools / "plan_memo.py").write_text("")
+    if layout == "8a02db9":
+        (path / "agents" / "trajectory" / "context_compaction.py").write_text("def compacting_prompt(system):\n")
+        (path / "agents" / "cell_defaults.py").write_text('DEFAULT_CELL_ID = "welding_cell_2_small"\n')
     return path
 
 
@@ -189,7 +192,33 @@ class JamUnitTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def test_the_jam_base_is_76ea13a(self):
+    def test_the_jam_bases_are_8a02db9_then_76ea13a(self):
+        """A public install has <umarell>-8a02db9 (deploy/umarell-jam.pin), the internal servers <umarell>-76ea13a
+        (deploy/umarell-jam-base.txt); with both, the public commit."""
+        umarell = checkout(self.tmp / "umarell", "8a02db9")
+        self.assertEqual(J.jam_source(umarell), umarell.resolve(), "the public checkout itself is a jam base")
+        shutil.rmtree(umarell)
+        umarell = checkout(self.tmp / "umarell", "08d5a39")
+        old = checkout(self.tmp / "umarell-76ea13a", "76ea13a")
+        self.assertEqual(J.jam_source(umarell), old.resolve())
+        self.assertEqual(J.jam_base(J.jam_source(umarell)), "76ea13a")
+        pub = checkout(self.tmp / "umarell-8a02db9", "8a02db9")
+        self.assertEqual(J.jam_source(umarell), pub.resolve())
+        self.assertEqual(J.jam_base(pub), "8a02db9")
+        shutil.rmtree(pub)
+        checkout(pub, "08d5a39")                          # a dir named for the public commit but holding 08d5a39
+        self.assertEqual(J.jam_source(umarell), old.resolve())
+
+    def test_jam_base_without_a_source_is_the_patched_copys(self):
+        root = self.tmp / "root"
+        self.assertEqual(J.jam_base(None, root), J.JAM_BASE)
+        (root / "umarell").mkdir(parents=True)
+        (root / "umarell" / "UF_APPLIED.json").write_text(json.dumps({"base": "76ea13a"}))
+        self.assertEqual((J.copy_base(root), J.jam_base(None, root)), ("76ea13a", "76ea13a"))
+        (root / "umarell" / "UF_APPLIED.json").write_text(json.dumps({"base": "08d5a39"}))   # no jam base
+        self.assertEqual((J.copy_base(root), J.jam_base(None, root)), (None, J.JAM_BASE))
+
+    def test_the_76ea13a_layout_is_a_jam_base(self):
         umarell = checkout(self.tmp / "umarell", "08d5a39")
         checkout(self.tmp / "umarell-base", "08d5a39")
         self.assertIsNone(J.jam_source(umarell), "08d5a39 is umarell_u3's base, not umarell_jam's")
@@ -226,6 +255,14 @@ class JamUnitTest(unittest.TestCase):
                                        "--welds", "W01", "W02", "--robots", "r1", "--speed", "normal",
                                        "--timeout", "600", "--repair-budget", "300", "--prepare-budget", "0",
                                        "--out", str(out)])
+
+    def test_shared_cache_uri_per_base(self):
+        self.assertEqual(J.cache_uri(env_file=self.wsenv, base="76ea13a"),
+                         "s3://factoryos-data-1-eu-central-1/catalogue/umarell-jam-cache/")
+        self.assertEqual(J.cache_uri(env_file=self.wsenv, base="8a02db9"),
+                         "s3://factoryos-data-1-eu-central-1/catalogue/umarell-jam-cache/8a02db9/")
+        with mock.patch.dict(os.environ, {"FACTORY_OS_JAM_CACHE_S3": "s3://other/jam"}):   # as is, any base
+            self.assertEqual(J.cache_uri(env_file=self.wsenv, base="8a02db9"), "s3://other/jam/")
 
     def test_shared_cache_uri(self):
         self.assertEqual(J.cache_uri(env_file=self.wsenv),
@@ -274,7 +311,7 @@ class JamUnitTest(unittest.TestCase):
         (bucket / "body_weld_4x8.tgz").write_bytes(b"y" * 5)
         self.assertIn("imported body_weld_4x8.tgz", J.pull_shared_cache(cli, uri="s3://b/x/", aws=aws))
         self.assertEqual(self.imported(), ["body_weld_3.tgz", "body_weld_4x8.tgz"])
-        done = json.loads((self.tmp / "root" / "catalogue-pull" / ".imported.json").read_text())
+        done = json.loads((self.tmp / "root" / f"catalogue-pull-{J.JAM_BASE}" / ".imported.json").read_text())
         self.assertEqual(sorted(done), ["body_weld_3.tgz", "body_weld_4x8.tgz"])
 
     def test_pull_never_raises(self):
@@ -282,7 +319,8 @@ class JamUnitTest(unittest.TestCase):
         cli = self.cli()
         (bucket / "bad.tgz").write_bytes(b"z")
         self.assertIn("FAILED bad.tgz", J.pull_shared_cache(cli, uri="s3://b/x/", aws=aws))
-        self.assertNotIn("bad.tgz", json.loads((self.tmp / "root" / "catalogue-pull" / ".imported.json").read_text()))
+        self.assertNotIn("bad.tgz", json.loads((self.tmp / "root" / f"catalogue-pull-{J.JAM_BASE}" / ".imported.json")
+                                            .read_text()))
         (self.tmp / "bin" / "aws").write_text("#!/bin/sh\necho denied >&2\nexit 1\n")
         self.assertIn("failed: denied", J.pull_shared_cache(cli, uri="s3://b/x/", aws=aws))
 
@@ -392,7 +430,7 @@ class JamRouterTest(T.RouterBase):
         self.assertEqual((p["kind"], p["robots"], p["fixture"], p["from"]), ("rules", "1-4", True, "plan:{jam_plan}"))
         ok, why, warnings = self.router.gate(p, self.CID, self.cell)
         self.assertTrue(ok, why)
-        self.assertTrue(any("no plain umarell 76ea13a" in w for w in warnings), warnings)
+        self.assertTrue(any("no plain umarell" in w for w in warnings), warnings)
         self.assertTrue(any("deploy/umarell-jam.pin" in w and "--umarell-jam-tarball" in w for w in warnings), warnings)
         self.assertTrue(any("component cache" in w for w in warnings), warnings)
         checkout(self.tmp / "umarell-76ea13a", "76ea13a")
@@ -466,6 +504,21 @@ class JamRouterTest(T.RouterBase):
         plan = json.loads((self.cell / st["plan_path"]).read_text())
         self.assertEqual(plan["planner"], "umarell_jam")
         self.assertFalse((self.u3_root / "last_run.json").exists(), "no fallback on success")
+
+    def test_a_public_install_plans_on_8a02db9(self):
+        """deploy/umarell-jam.pin's public commit at <umarell>-8a02db9 (fetch-umarell.sh --jam) is umarell_jam's
+        --umarell, also when an older 76ea13a tree is still installed; the job records the base."""
+        checkout(self.tmp / "umarell-76ea13a", "76ea13a")
+        pub = checkout(self.tmp / "umarell-8a02db9", "8a02db9")
+        self.fake("ok")
+        r = self.router.plan("umarell_jam")
+        st = self.wait(r["job_id"])
+        self.assertEqual(st["status"], "done", st)
+        call = self.last_call()
+        argv = call["argv"]
+        self.assertEqual(argv[argv.index("--umarell") + 1], str(pub.resolve()))
+        self.assertEqual(call["UMARELL_BASE"], "8a02db9")
+        self.assertEqual(st["export"]["jam"]["umarell_base"], "8a02db9")
 
     def test_options_are_mapped(self):
         self.fake("ok")

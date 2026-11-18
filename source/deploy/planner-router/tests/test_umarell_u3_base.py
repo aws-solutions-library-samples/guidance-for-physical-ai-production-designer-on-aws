@@ -63,6 +63,41 @@ class BaseTest(unittest.TestCase):
         self.assertEqual((tp / "sample-umarell-08d5a39").resolve(), base.resolve())
         self.assertFalse((tp / "sample-umarell-dc60669").exists())
 
+    def _08d5a39_layout(self, name: str, compacting: bool, default_cell: str) -> Path:
+        base = checkout(self.tmp / name, True, "plain", dc60669=True)
+        tools = base / "agents" / "trajectory" / "tools"
+        tools.mkdir(parents=True, exist_ok=True)
+        (tools / "fastgeom.py").write_text("")
+        (tools / "plan_memo.py").write_text("")
+        (base / "agents" / "trajectory" / "context_compaction.py").write_text(
+            "def compact_for_model(state):\n    pass\n"
+            + ("\n\ndef compacting_prompt(system_prompt: str):\n    pass\n" if compacting else ""))
+        (base / "agents" / "cell_defaults.py").write_text(f'DEFAULT_CELL_ID = "{default_cell}"\n')
+        return base
+
+    def test_the_public_8a02db9_is_told_from_08d5a39_and_linked_under_its_own_name(self):
+        src = cell_planner(self.tmp / "src")
+        (src / "docs" / "upstream" / "patches_8a02db9").mkdir(parents=True)
+        (src / "docs" / "upstream" / "patches_8a02db9" / "series.txt").write_text("01_x.diff\n")
+        root = self.tmp / "root"
+        base = self._08d5a39_layout("umarell-base", True, "welding_cell_2_small")
+        self.assertEqual(U.base_of(base), "8a02db9")
+        U.sync_root(src, base, root)
+        tp = root / "third_party"
+        self.assertEqual((tp / "sample-umarell-8a02db9").resolve(), base.resolve())
+        self.assertFalse((tp / "sample-umarell-08d5a39").exists() or (tp / "sample-umarell-08d5a39").is_symlink(),
+                         "an 08d5a39 link to the public tree would let U3 apply set v10 (with 28) to it")
+        self.assertTrue((root / "docs" / "upstream" / "patches_8a02db9" / "series.txt").is_file())
+
+    def test_08d5a39_stays_08d5a39_plain_or_with_fix_28(self):
+        # plain 08d5a39: the pre_model_hook, welding_cell_2x; with fix 28 applied: the prompt callable, welding_cell_2x
+        self.assertEqual(U.base_of(self._08d5a39_layout("plain", False, "welding_cell_2x")), "08d5a39")
+        self.assertEqual(U.base_of(self._08d5a39_layout("fixed", True, "welding_cell_2x")), "08d5a39")
+        # an 08d5a39 layout whose agents/ files are missing is not taken for the public tree
+        bare = self._08d5a39_layout("bare", True, "welding_cell_2_small")
+        (bare / "agents" / "cell_defaults.py").unlink()
+        self.assertEqual(U.base_of(bare), "08d5a39")
+
     def test_dc60669_is_told_from_76ea13a_and_linked_under_its_own_name(self):
         src = cell_planner(self.tmp / "src")
         root = self.tmp / "root"

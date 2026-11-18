@@ -75,7 +75,8 @@ install.sh uninstall [--snapshot] [--edge-only] [--confirm-stack <stack>] [--yes
   (`instanceType`, `volumeGb`, `bedrock`, `bedrockModelIds`, `kiroSecretName`, `umarellJam`) are kept in the SSM
   parameter `/factoryos/<stack>/install-options` (String, JSON) and reused by an update unless given again.
 - `--umarell-tarball s3://<bucket>/<key>.tar.gz`: a `git archive --prefix=umarell/` of `deploy/umarell.pin`'s commit,
-  copied to `vendor/umarell-<sha12>.tar.gz` of the source bucket (While sample-umarell is not public, below).
+  copied to `vendor/umarell-<sha12>.tar.gz` of the source bucket. Optional: without it provisioning fetches the pin
+  from GitHub (umarell, below); for an instance without a route to GitHub.
 - `--umarell-jam-tarball s3://<bucket>/<key>.tar.gz | <local file>.tar.gz`: a `git archive --prefix=umarell/` of
   `deploy/umarell-jam.pin`'s commit (umarell_jam, below), checked as `--umarell-tarball`'s (a gzip tar whose first
   entry is under `umarell/`) before anything changes, and uploaded by the release step to
@@ -147,7 +148,7 @@ install.sh uninstall [--snapshot] [--edge-only] [--confirm-stack <stack>] [--yes
 - Name chosen by CloudFormation (no fixed name). Block public access, SSL only, SSE-S3, versioned,
   `RemovalPolicy.RETAIN` = false (uninstall empties it first) — `autoDeleteObjects: false`.
 - `releases/<version>.zip` or `releases/<version>.tar.gz` (`--from-checkout`, and `.tar.gz` exports): the exports.
-  `vendor/umarell-<sha12>.tar.gz`: an optional umarell tarball (while sample-umarell is not public);
+  `vendor/umarell-<sha12>.tar.gz`: an optional umarell tarball (an install without a route to GitHub);
   `vendor/umarell-jam-<sha12>.tar.gz`: an optional umarell_jam tarball (the same).
   `releases/factoryos-viewer-linux-arm64-<version>.tar.gz`: the bundle of a release built in AWS CodeBuild (below).
 - Instance role: `s3:GetObject` on `releases/*` and `vendor/*`, `s3:ListBucket` on the bucket (prefix-limited).
@@ -357,14 +358,16 @@ invitation message with the URL.
   `public-export/manifest.txt`).
 - `0001-trajectory-mcp-host.patch`: the trajectory planner's MCP server binds `TRAJ_MCP_HOST` (default `127.0.0.1`)
   instead of `0.0.0.0`.
-- While sample-umarell is not public, an anonymous fetch of the pin fails and public provisioning stops with a message
-  naming `install.sh --umarell-tarball`.
+- The pin is the public repository's (`aws-samples/sample-industrial-multi-robot-agents`), fetched anonymously. When
+  the fetch fails (no route to GitHub from the instance), public provisioning stops with a message that the commit
+  could not be fetched from the pin's URL, naming `install.sh --umarell-tarball`.
 - **umarell_jam's umarell.** `deploy/umarell-jam.pin` (in the build root): `<40-hex commit> <git URL>`, the plain
-  commit the planner router's umarell_jam patches (76ea13a). `deploy/fetch-umarell.sh --jam` installs it, unpatched
-  and read-only, as `/var/lib/factoryos/umarell-<7 hex>` (stamp: the commit), from `git fetch --depth 1` or the
-  `--umarell-jam-tarball` (`FACTORYOS_UMARELL_JAM_TARBALL` / `_SHA256`, checked by sha256 and `git get-tar-commit-id`).
-  Optional: a failure, a private repository among them, marks umarell_jam incomplete (`provision-incomplete`) and
-  provisioning goes on.
+  commit the planner router's umarell_jam patches (today `deploy/umarell.pin`'s commit). `deploy/fetch-umarell.sh
+  --jam` installs it, unpatched and read-only, as `/var/lib/factoryos/umarell-<7 hex>` (stamp: the commit), from
+  `git fetch --depth 1` or the optional `--umarell-jam-tarball` (`FACTORYOS_UMARELL_JAM_TARBALL` / `_SHA256`, checked
+  by sha256 and `git get-tar-commit-id`).
+  Optional: a failure (a commit that could not be fetched among them) marks umarell_jam incomplete
+  (`provision-incomplete`) and provisioning goes on.
 
 ## Release build in AWS CodeBuild
 `install.sh install --build-project <project> --build-bucket <bucket>` (the CloudFormation installer passes its
@@ -410,8 +413,8 @@ behave exactly as above.
 - `Release` (`latest` or a tag)
 - `RepoUrl` (`https://github.com/<owner>/<repo>`)
 - `ArtifactsUri` (`s3://bucket/prefix/`)
-- `SourceArchiveUri`, `UmarellTarballUri` and `UmarellJamTarballUri` (`s3://` or `https://`; the last optional:
-  without it umarell_jam is incomplete while umarell's repository is not public). `UmarellJamTarballUri` is part of
+- `SourceArchiveUri`, `UmarellTarballUri` and `UmarellJamTarballUri` (`s3://` or `https://`, all optional; without
+  the last two umarell and umarell_jam come from the public GitHub repository). `UmarellJamTarballUri` is part of
   `StartBuild`'s `Config` only when set (`|jam=<uri>` appended), so updating an installer stack to this template
   starts no build by itself.
 - `AppStackName` (the `install.sh --stack-name`, default `pai-pd`)

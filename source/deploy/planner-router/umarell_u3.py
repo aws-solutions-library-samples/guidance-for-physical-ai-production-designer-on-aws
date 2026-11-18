@@ -8,8 +8,9 @@
 U3 (factoryos-cell-planner umarell_fast/u3, `python -m umarell_fast.u3`) is umarell's own planning tools (OMPL,
 its gates, its behaviour-tree assembler) driven by a deterministic parallel orchestrator instead of the LLM, on a
 copy of the plain umarell commit with the upstream fixes for it applied (eccb1bc: docs/upstream/patches, set v5;
-76ea13a: docs/upstream/patches_76ea13a, set v8; dc60669: docs/upstream/patches_dc60669, set v9; UMARELL_BASE tells U3
-which). No Bedrock call. The plain commit is
+76ea13a: docs/upstream/patches_76ea13a, set v8; dc60669: docs/upstream/patches_dc60669, set v9; 08d5a39:
+docs/upstream/patches_08d5a39, set v10; the public 8a02db9: docs/upstream/patches_8a02db9, set v11; UMARELL_BASE tells
+U3 which). No Bedrock call. The plain commit is
 <umarell>-base (deploy/umarell-base.txt) when the chat's checkout already has the fixes, else the checkout itself.
 
 The cell planner's source tree is read-only and U3 writes under its own root (data/umarell_fast: the patched copy and
@@ -172,7 +173,9 @@ def has_meshes(robots: Path) -> bool:
 # The umarell commits U3 knows (umarell_fast/u3 --base), by their layout: 76ea13a moved the planners to
 # agents/trajectory/backends/, dc60669 added utils/weld_surface.py and agents/trajectory/plan_jobs.py (the cell
 # planner's umarell_fast/u3 tree_base); apply.py takes each from third_party/<name> with its own fix set.
-BASES = {"08d5a39": "sample-umarell-08d5a39", "dc60669": "sample-umarell-dc60669", "76ea13a": "sample-umarell-76ea13a",
+# 8a02db9 is the public umarell (aws-samples/sample-industrial-multi-robot-agents): 08d5a39's layout, told apart by
+# its content (is_public_8a02db9).
+BASES = {"8a02db9": "sample-umarell-8a02db9", "08d5a39": "sample-umarell-08d5a39", "dc60669": "sample-umarell-dc60669", "76ea13a": "sample-umarell-76ea13a",
          "eccb1bc": "sample-umarell"}
 
 
@@ -183,6 +186,21 @@ def u3_source(umarell: Path) -> Path:
     return base.resolve() if (base / "agents").is_dir() else umarell
 
 
+def _has(path: Path, text: str) -> bool:
+    try:
+        return text in path.read_text()
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def is_public_8a02db9(source: Path) -> bool:
+    """An 08d5a39-layout tree that is the public 8a02db9 (the cell planner's umarell_fast/u3 is_public_8a02db9):
+    upstream d749dc5's prompt callable (plain 08d5a39 has the pre_model_hook node) and the public default cell
+    (08d5a39: welding_cell_2x), so a patched 08d5a39 (fix 28 adds the callable) is still 08d5a39."""
+    return (_has(source / "agents" / "trajectory" / "context_compaction.py", "def compacting_prompt(")
+            and _has(source / "agents" / "cell_defaults.py", 'DEFAULT_CELL_ID = "welding_cell_2_small"'))
+
+
 def base_of(source: Path) -> str:
     if not (source / "agents" / "trajectory" / "backends").is_dir():
         return "eccb1bc"
@@ -190,7 +208,7 @@ def base_of(source: Path) -> str:
         # 08d5a39 (perf/body-weld-2-planning) added the compiled geometry kernels and the plan memo
         tools = source / "agents" / "trajectory" / "tools"
         if (tools / "fastgeom.py").is_file() and (tools / "plan_memo.py").is_file():
-            return "08d5a39"
+            return "8a02db9" if is_public_8a02db9(source) else "08d5a39"
         return "dc60669"
     return "76ea13a"
 

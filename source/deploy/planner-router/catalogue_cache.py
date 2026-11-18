@@ -6,9 +6,14 @@ component cache) shares them between workspaces as bundles under its own prefix:
 
 * catalogue/u3-plan-cache/                 umarell_u3: `python -m umarell_fast.plan_cache --root C export --cell X
                                            --out F` / `import F`; named <cell>__<cell planner commit[:7]>.tgz
-* catalogue/umarell-jam-cache/76ea13a/     umarell_jam: `python -m umarell_jam --root R bundle --out F --cells X` /
-                                           `--root R import F` (MANIFEST.json kind "umarell-jam-components"); named
-                                           <cell>__<planner[:8]>-<impl[:8]>.tgz (its bundle command picks it)
+* catalogue/umarell-jam-cache/            umarell_jam on umarell 76ea13a (the internal servers): `python -m umarell_jam
+                                           --root R bundle --out F --cells X` / `--root R import F` (MANIFEST.json kind
+                                           "umarell-jam-components"); named <cell>__<planner[:8]>-<impl[:8]>.tgz (its
+                                           bundle command picks it)
+* catalogue/umarell-jam-cache/8a02db9/    umarell_jam on the public umarell 8a02db9 (jam_prefix: one folder per
+                                           other base; its planner revision differs, so 76ea13a's components never
+                                           hit there and the other way round). A pull imports its prefix's own
+                                           *.tgz only, never a base folder below it (top_level_only)
 
 pull (before planning, every workspace: the workspace roles read catalogue/*): ``aws s3 sync`` of the prefix's *.tgz
 into a mirror folder, then the planner's importer on every bundle new or changed since the last pull; a bundle counts
@@ -41,7 +46,17 @@ from typing import Callable, Optional
 
 WORKSPACE_ENV = Path("/etc/factoryos/workspace.env")
 U3_PREFIX = "catalogue/u3-plan-cache/"
-JAM_PREFIX = "catalogue/umarell-jam-cache/"         # + <umarell base>/
+JAM_PREFIX = "catalogue/umarell-jam-cache/"         # umarell_jam's on 76ea13a (flat, as since 2026-11-11)
+JAM_FLAT_BASE = "76ea13a"                            # the base whose bundles are JAM_PREFIX's own; others: + <base>/
+
+
+def jam_prefix(base: Optional[str] = None) -> str:
+    """umarell_jam's catalogue prefix for an umarell base: JAM_PREFIX for 76ea13a (or None), else JAM_PREFIX<base>/."""
+    if base is None or base == JAM_FLAT_BASE:
+        return JAM_PREFIX
+    if not NAME.match(base):
+        raise ValueError(f"not an umarell base: {base!r}")
+    return f"{JAM_PREFIX}{base}/"
 AUTO_PUSH_ENV = "FACTORY_OS_CATALOGUE_CACHE_PUSH"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -105,10 +120,12 @@ def sha256_file(path: Path) -> str:
 # ---------------------------------------------------------------- pull
 def pull(uri: str, mirror: Path, importer: Callable[[Path], list], env: Optional[dict] = None,
          cwd: Optional[Path] = None, region: Optional[str] = None, timeout_s: float = 90.0,
-         import_lock: Optional[Path] = None, aws: Optional[str] = None, env_file: Optional[Path] = None) -> str:
+         import_lock: Optional[Path] = None, aws: Optional[str] = None, env_file: Optional[Path] = None,
+         top_level_only: bool = False) -> str:
     """``aws s3 sync`` of ``uri``'s *.tgz into ``mirror``, then ``importer(bundle)`` (an argv, run in ``cwd`` with
     ``env``) on every bundle new or changed since the last pull, holding ``import_lock`` (exclusive) while importing
-    when given. One pull at a time per mirror (a lock). Never raises: returns what happened, for the log."""
+    when given. ``top_level_only``: not the *.tgz in folders below ``uri`` (umarell_jam's per-base folders below the
+    flat 76ea13a prefix). One pull at a time per mirror (a lock). Never raises: returns what happened, for the log."""
     aws = aws or aws_cli()
     if not aws:
         return "no aws CLI"
@@ -116,7 +133,8 @@ def pull(uri: str, mirror: Path, importer: Callable[[Path], list], env: Optional
     region = bucket_region(region, env_file)
     with open(mirror / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        cmd = [aws, "s3", "sync", uri, str(mirror), "--exclude", "*", "--include", "*.tgz", "--only-show-errors"]
+        cmd = [aws, "s3", "sync", uri, str(mirror), "--exclude", "*", "--include", "*.tgz",
+               *(["--exclude", "*/*"] if top_level_only else []), "--only-show-errors"]   # later filters win
         if region:
             cmd += ["--region", region]
         try:

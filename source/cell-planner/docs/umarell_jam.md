@@ -1,7 +1,8 @@
 # umarell_jam: a reusable, certified Umarell weld planner
 
-`umarell_jam` (top-level package, sibling of `umarell_fast/`) implements `weld-request-v1` on the bundled Umarell
-76ea13a + upstream fix set v8 + U3 hooks numerical planner, from a content-addressed cache of certified components
+`umarell_jam` (top-level package, sibling of `umarell_fast/`) implements `weld-request-v1` on Umarell's numerical
+planner, patched (Umarell 8a02db9, the public commit: umarell_jam's series `umarell_jam/patches_8a02db9`, the
+upstream fix set v10 rebased; or Umarell 76ea13a: upstream fix set v8 + U3 hooks, what the preparation session ran), from a content-addressed cache of certified components
 (weld primitives, phase packs, stroke proofs, transfers, pair proofs). It returns a complete, checked tree or an
 explicit non-executable result. The routine path performs no LLM calls and does not cache whole requests.
 Preparation is independent of policy training.
@@ -34,8 +35,11 @@ python -m umarell_jam [--root R] [--workspace W] [--umarell U] [--cache C] [--ou
   `/var/lib/factoryos/...` reference (and absolute symlink) onto W, so the cell keys of W do not depend on where W
   is. Umarell's own planner (the native candidate generation of `prepare` and of repairs) reads the cell's absolute
   references literally: plan natively either on `/var/lib/factoryos` itself or on a staged copy.
-* `--umarell U`: the plain Umarell 76ea13a checkout `R/umarell` is built from (default
-  `third_party/sample-umarell-76ea13a`); a directory that already is a patched copy (UF_APPLIED.json +
+* `--umarell U`: the plain Umarell checkout `R/umarell` is built from: the public 8a02db9
+  (https://github.com/aws-samples/sample-industrial-multi-robot-agents, `8a02db9ba7db260366451f8c38bafb378cd65c29`)
+  or 76ea13a, recognised by its `.umarell.sha256` stamp (the pinned commit, as the orchestrator's fetch-umarell.sh
+  writes it) or its layout (`native_copy.tree_base`; any other base is a setup failure). Default
+  `third_party/sample-umarell-8a02db9` when present, else `third_party/sample-umarell-76ea13a`. A directory that already is a patched copy (UF_APPLIED.json +
   WELD_INTEGRATION.json, with hooks that import `umarell_jam`) is used as it is. A copy installed by the session's
   package (hooks importing `umarell_fast.weld_cache`) is refused: let umarell_jam build `R/umarell` (its planner
   revision is the same, see below).
@@ -48,17 +52,30 @@ need only the standard library (`bundle` also PyYAML).
 ## Setup
 
 ```
-python -m umarell_jam --root R [--umarell <plain 76ea13a checkout>] setup [--force]
+python -m umarell_jam --root R [--umarell <plain 8a02db9 or 76ea13a checkout>] setup [--force]
 ```
 
-`umarell_fast/apply.py --variant U3 --base 76ea13a --with-upstream-fixes --src <checkout>` (fix set v8 and the U3
-hook patches) into a temporary sibling, then `install` (umarell_jam/install.py: the integration hooks, recorded
-in `umarell_jam/patches/integration.diff`; the diff of the actual edits is written to `R/logs/integration.diff`
+Into a temporary sibling:
+
+* 8a02db9: the checkout copied (rsync, without .git / caches / venvs), then `umarell_jam/patches_8a02db9/series.txt`
+  applied in order (`patch -p1 --forward --batch`; a rejected hunk fails setup): the upstream fix set v10
+  (docs/upstream/patches_08d5a39) rebased onto 8a02db9 without 28 (8a02db9 contains it), then the U3 hook U3_02
+  (OMPL seed). `UF_APPLIED.json` is written by native_copy (base 8a02db9). umarell_fast/apply.py is not used.
+* 76ea13a: `umarell_fast/apply.py --variant U3 --base 76ea13a --with-upstream-fixes --src <checkout>` (fix set v8
+  and the U3 hook patches).
+
+Then `install` (umarell_jam/install.py: the integration hooks, recorded
+in `umarell_jam/patches_8a02db9/integration.diff` on 8a02db9, `umarell_jam/patches/integration.diff` on
+76ea13a: the same edits, other line numbers; the diff of the actual edits is written to `R/logs/integration.diff`
 and compared), then renamed to `R/umarell`. The stamp `R/umarell/UMARELL_JAM_COPY.json` records the checkout
-path and file fingerprint, apply.py, every patch, the installer and the integration record; any difference
+base, path and file fingerprint, every patch (76ea13a: also apply.py), the installer and the integration record (a
+76ea13a stamp has exactly the keys it always had, so an existing 76ea13a copy stays current); any difference
 rebuilds the copy. Every planning command (`plan`, `plan-cell`, `serve`, `build`, `prepare`, `simulate`,
-`evaluate`, `manifest`) runs this check first. `umarell_fast/apply.py` gained `--src` for this (the only change to
-umarell_fast).
+`evaluate`, `manifest`) runs this check first. `umarell_fast/apply.py` gained `--src` for this; on 8a02db9 /
+08d5a39 `umarell_fast.workers.install_kernels("x76")` (which `native.setup` asks for) installs nothing: umarell
+vectorised and Numba-compiled the checks x76 speeds up itself (its source guards refuse there), so umarell's own
+predicate runs (with numba when it imports and `NUMBA_GEOM` is not 0, else its NumPy path; the jam venv has no
+numba).
 
 The hooks touch agents/trajectory/agent.py (the `constraints["weld_request"]` entry), agents/trajectory/tools/
 btcpp.py and behaviour_tree.py (the WeldPhase / WeldBoundary nodes and ports), agents/cell/bt_executor.py (their
@@ -135,7 +152,7 @@ session ran most steps on every staged cell); `coverage_phase_prepare` plans eve
 ## FactoryOS jobs: `plan-cell`
 
 ```
-python -m umarell_jam --root R --workspace W [--umarell <plain umarell 76ea13a checkout>] plan-cell \
+python -m umarell_jam --root R --workspace W [--umarell <plain umarell 8a02db9 / 76ea13a checkout>] plan-cell \
     --cell-id ID [--task-file F.json] [--welds W01 …] [--robots robot1 …] [--speed max|normal] \
     [--timeout S] [--repair-budget S] [--prepare-budget S] [--job JOB] [--allow-stack-mismatch] --out PLAN.json
 ```
@@ -177,7 +194,7 @@ python -m umarell_jam --root R --workspace W [--umarell <plain umarell 76ea13a c
    the file.
 
 Exit codes: 0 success, 2 invalid request (bad options, unknown / unloadable cell, task program, welds, robots),
-3 no complete plan (timeout_or_unknown, infeasible, a refused commit), 4 setup failed (no 76ea13a checkout, apply
+3 no complete plan (timeout_or_unknown, infeasible, a refused commit), 4 setup failed (no 8a02db9 / 76ea13a checkout, a patch
 or install failure, numerical runtime missing).
 
 btexport: `python -m tools.btexport --from plan:PLAN.json` loads and exports the converted plan in the default
@@ -211,8 +228,15 @@ third_party/sample-umarell-76ea13a checkout, equal to the `geometry_cache_proven
 results). tests/umarell_jam/test_cache_compat.py pins the per-module revisions and `implementation_revision()`
 on every run. It pins the planner revision `32e3896b3992637d4cbd8dc02ea3bf736d73ac3b5d959e2e8b0baa34167f3b50` only
 when `UMARELL_JAM_UMARELL` names a setup copy (R/umarell) or a plain 76ea13a checkout, which the test sets up into a
-temporary directory first (`test_planner_revision_is_the_legacy_one`; skipped otherwise, since the checkout is
+temporary directory first (`test_planner_revision_is_the_pinned_one`; skipped otherwise, since the checkout is
 not part of every test environment).
+
+On the public 8a02db9 the planner revision is a new one, `4bd36dc2d731eb4710836ba414dc0f861f2ebd0f7da3ef32a8866de0dd5676d6`
+(pinned by the same test for an 8a02db9 checkout or copy): every component key contains it, so a cache certified on
+76ea13a (the session's, the catalogue's 76ea13a bundles) is a complete miss on 8a02db9 and the other way round.
+The checker revision `implementation_revision()` and every per-module revision are unchanged (no umarell_jam module
+changed). A public install starts with an empty cache: `--repair-budget` / `--prepare-budget` fill it (the cold
+plan), and its bundles carry the 8a02db9 planner revision in `planner` (and in their file name).
 
 Consequences:
 
@@ -581,7 +605,7 @@ stack, the stack warning, `--strict-stack` and `UMARELL_JAM_STRICT_STACK`), prep
 toppra on a monkeypatched fingerprint, the fingerprint keys) and plan-cell (request, conversion, btexport loader and
 replay, progress, exit codes, the result's stack, cache-only `plan` / `plan-cell` without toppra and
 `--allow-stack-mismatch`). The planner-revision pin in test_cache_compat.py needs
-`UMARELL_JAM_UMARELL` (a setup copy or a plain 76ea13a checkout). The real-cell tests in
+`UMARELL_JAM_UMARELL` (a setup copy or a plain 8a02db9 / 76ea13a checkout). The real-cell tests in
 test_release_runtime.py need a prepared cache: `UMARELL_JAM_ROOT` (default data/umarell_jam) with components and
 `R/umarell`, or `UMARELL_JAM_CACHE`, `UMARELL_JAM_UMARELL` (a patched copy with umarell_jam hooks),
 `UMARELL_JAM_WORKSPACE` with body_weld_1; the policy test also `UMARELL_JAM_EXPORT` (an immutable export directory).

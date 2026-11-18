@@ -27,6 +27,11 @@ Three umarell bases (``BASES``), each a read-only, never modified copy with its 
   fixes ``docs/upstream/patches_08d5a39`` (set v10 = v9 rebased, 22v3 adjusted to 13d446b's Numba box kernel), hooks
   ``umarell_fast/patches_08d5a39`` (U1_01 context only, U1_02, U3_02; U3_01 dropped: 08d5a39 parses robots.yaml once
   per content itself, ``cell_layout.load_yaml_text``). Destinations ``repo_<V>_08d5a39``, ``repo_<V>_08d5a39_fix``.
+* ``8a02db9`` (the public umarell, aws-samples/sample-industrial-multi-robot-agents, 2026-11-17: a sanitized copy of
+  08d5a39 with upstream d749dc5; opt-in: ``--base 8a02db9``): ``third_party/sample-umarell-8a02db9``, fixes
+  ``docs/upstream/patches_8a02db9`` (set v11 = v10 rebased, 28 dropped: 8a02db9 has d749dc5), hooks
+  ``umarell_fast/patches_08d5a39`` (they apply to 8a02db9 + v11 unchanged). Destinations ``repo_<V>_8a02db9``,
+  ``repo_<V>_8a02db9_fix``.
 
 Which base: ``--base`` if given, else the base of ``--upstream-fixes-set`` (default v9, so dc60669) -- WITH OR WITHOUT
 ``--with-upstream-fixes``: ``apply.py`` alone builds the newest base, ``--upstream-fixes-set v5`` alone the old one.
@@ -110,6 +115,13 @@ BASES = {
                                src=ROOT / "third_party" / "sample-umarell-08d5a39",
                                fixes=ROOT / "docs" / "upstream" / "patches_08d5a39",
                                ours=ROOT / "umarell_fast" / "patches_08d5a39", default_set="v10", suffix="_08d5a39"),
+    # the public umarell (aws-samples/sample-industrial-multi-robot-agents, one commit): 08d5a39 sanitized (meshes and
+    # internal cells removed, comments renamed) + upstream d749dc5; opt-in (--base 8a02db9 / UMARELL_BASE). The
+    # 08d5a39 hook patches apply to it unchanged (after v11), so it shares their folder.
+    "8a02db9": SimpleNamespace(head="8a02db9", commit="8a02db9ba7db260366451f8c38bafb378cd65c29",
+                               src=ROOT / "third_party" / "sample-umarell-8a02db9",
+                               fixes=ROOT / "docs" / "upstream" / "patches_8a02db9",
+                               ours=ROOT / "umarell_fast" / "patches_08d5a39", default_set="v11", suffix="_8a02db9"),
 }
 UPSTREAM_FIX_SETS = {
     "v1": ("01_self_collision", "02_tool_spheres", "03_tool_floor_obstacles", "05_departure_drag",
@@ -148,7 +160,10 @@ UPSTREAM_FIX_SETS["v9"] = ("04v3_hull_backstop", "22v3_no_workpiece_dip", "20v2_
 # instead of a graph node -- 08d5a39's node costs 3 recursion steps per turn and long LLM plans hit LangGraph's
 # recursion limit (bench 2026-11-05: body_weld_4x8 / body_weld_2x8, ompl-compound, GRAPH_RECURSION_LIMIT)
 UPSTREAM_FIX_SETS["v10"] = UPSTREAM_FIX_SETS["v9"] + ("28_context_compaction_in_model_step",)
-FIX_SET_BASE = {s: ("08d5a39" if s == "v10" else "dc60669" if s == "v9" else
+# 2026-11-17: base 8a02db9, the public umarell (= patches_8a02db9/series.txt): v10 rebased (22v3's docstring hunk on
+# 8a02db9's wording), 28 dropped -- 8a02db9 has d749dc5's compacting_prompt itself
+UPSTREAM_FIX_SETS["v11"] = UPSTREAM_FIX_SETS["v9"]
+FIX_SET_BASE = {s: ("8a02db9" if s == "v11" else "08d5a39" if s == "v10" else "dc60669" if s == "v9" else
                     "76ea13a" if s in ("v6", "v7", "v8") else "eccb1bc")
                 for s in UPSTREAM_FIX_SETS}
 DEFAULT_FIX_SET = "v9"
@@ -190,8 +205,8 @@ def main(argv=None) -> Path:
                          "v6..v8 (76ea13a) / v1..v5 / v4r3 (eccb1bc) is named; also without --with-upstream-fixes)")
     ap.add_argument("--with-upstream-fixes", action="store_true")
     ap.add_argument("--upstream-fixes-set", choices=sorted(UPSTREAM_FIX_SETS), default=None,
-                    help="which fix set --with-upstream-fixes applies (default: the base's default set, v9 on "
-                         "dc60669 = v8 rebased without 26, v8 on 76ea13a = v7 + 27, v7 = v6 + 24/25/26, v6 = 04v3/22v2/20v2/23v2/21v5, v5 on eccb1bc; on eccb1bc: v5 = v4 with 21 v3 + 23; "
+                    help="which fix set --with-upstream-fixes applies (default: the base's default set, v11 on "
+                         "8a02db9 = v10 without 28, v10 on 08d5a39 = v9 + 28, v9 on dc60669 = v8 rebased without 26, v8 on 76ea13a = v7 + 27, v7 = v6 + 24/25/26, v6 = 04v3/22v2/20v2/23v2/21v5, v5 on eccb1bc; on eccb1bc: v5 = v4 with 21 v3 + 23; "
                          "v4r3 = v4 as shipped in round 3 (21 v2); v4 = v3 + 20/21/22; v3 = v2 + 16/17/18v2/19; "
                          "v2 = 01-07 + 04v2/12-15; v1 = 01/02/03/05/06/07)")
     ap.add_argument("--dest", default=None)

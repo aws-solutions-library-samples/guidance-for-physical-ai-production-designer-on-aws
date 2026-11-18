@@ -270,5 +270,6 @@ on, and their licences: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). To rep
 
 ## Authors
 
-- Jan Metzner
-- Hubert Asamer
+- Fabrizio Manfredi ([GitHub](https://github.com/f-manfred))
+- Jan Metzner ([GitHub](https://github.com/jmetzner))
+- Hubert Asamer ([GitHub](https://github.com/asamerh4))

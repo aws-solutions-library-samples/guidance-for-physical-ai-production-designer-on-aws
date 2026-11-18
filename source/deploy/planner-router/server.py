@@ -1029,8 +1029,9 @@ class Router:
                             "session's stack (pin 2.7.0, hpp-fcl 2.4.4, numpy 1.26.4, toppra 0.6.3; its cache keys "
                             "depend on it), so it will fail to set up (then, with options.fallback, umarell_u3 plans)")
         if umarell_jam.jam_source(self.s.umarell.resolve()) is None:
-            warnings.append(f"no plain umarell {umarell_jam.JAM_BASE} on this host ({self.s.umarell}-"
-                            f"{umarell_jam.JAM_BASE}: deploy/provision.sh installs it from deploy/umarell-jam.pin's "
+            bases = " / ".join(umarell_jam.JAM_BASES)
+            warnings.append(f"no plain umarell {bases} on this host ({self.s.umarell}-<{bases}>: "
+                            "deploy/provision.sh installs it from deploy/umarell-jam.pin's "
                             "commit, or the installer's --umarell-jam-tarball, on a public install; from "
                             "deploy/umarell-jam-base.txt's archive on the internal servers): umarell_jam may fail to "
                             "set up (then, with options.fallback, umarell_u3 plans the job)")

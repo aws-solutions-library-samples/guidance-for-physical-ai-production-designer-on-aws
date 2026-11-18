@@ -62,6 +62,8 @@ def kernel_selfcheck(cell: str, n: int = 40, max_s: float = 15.0) -> dict:
 
 
 KERNELS = ("none", "np", "npplus", "fix", "u1", "x76")
+# bases whose own collision checks already are x76's (13d446b, 08d5a39 and the public 8a02db9): x76 is a no-op there
+X76_UPSTREAM = ("08d5a39", "8a02db9")
 
 
 def install_kernels(kernels: str) -> dict:
@@ -84,6 +86,12 @@ def install_kernels(kernels: str) -> dict:
         from umarell_fast.u2 import kernels_fix
         return kernels_fix.install()
     if kernels == "x76":
+        if umarell_base() in X76_UPSTREAM:
+            # umarell vectorised / compiled exactly what x76 speeds up (its _moving_hit, the Numba pair kernel, the
+            # YAML parse caches); x76's source guards refuse there. umarell's own predicate is the x76 predicate.
+            print(f"[uf] x76: not installed on umarell {umarell_base()} (umarell's own checks are the fast ones)",
+                  flush=True)
+            return {}
         from umarell_fast import kernels_76ea13a
         return kernels_76ea13a.install()
     if kernels == "u1":

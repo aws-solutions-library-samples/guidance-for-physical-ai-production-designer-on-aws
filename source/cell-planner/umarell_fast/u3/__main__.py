@@ -119,8 +119,11 @@ def set_planning_speeds(cell_dir: Path, values: dict) -> dict:
 
 
 def tree_base(src: Path) -> str | None:
-    """Which umarell base a source tree's layout is: ``08d5a39`` (the dc60669 layout plus the compiled collision
-    kernels, agents/trajectory/tools/fastgeom.py, and the reuse memo, agents/trajectory/tools/plan_memo.py),
+    """Which umarell base a source tree's layout is: ``8a02db9`` (the public umarell: the 08d5a39 layout with
+    upstream d749dc5's ``compacting_prompt`` in agents/trajectory/context_compaction.py and the public default cell,
+    ``DEFAULT_CELL_ID = "welding_cell_2_small"`` in agents/cell_defaults.py), ``08d5a39`` (the dc60669 layout plus
+    the compiled collision kernels, agents/trajectory/tools/fastgeom.py, and the reuse memo,
+    agents/trajectory/tools/plan_memo.py),
     ``dc60669`` (the backends layout plus the converter's weld
     surface module, utils/weld_surface.py, and the per-run planning jobs, agents/trajectory/plan_jobs.py),
     ``76ea13a`` (planner backends are packages, agents/trajectory/backends/ompl/planner.py), ``eccb1bc``
@@ -130,12 +133,28 @@ def tree_base(src: Path) -> str | None:
         if (src / "utils" / "weld_surface.py").is_file() and (src / "agents" / "trajectory" / "plan_jobs.py").is_file():
             tools = src / "agents" / "trajectory" / "tools"
             if (tools / "fastgeom.py").is_file() and (tools / "plan_memo.py").is_file():
-                return "08d5a39"
+                return "8a02db9" if is_public_8a02db9(src) else "08d5a39"
             return "dc60669"
         return "76ea13a"
     if (src / "agents" / "trajectory" / "tools" / "ompl_planner.py").is_file():
         return "eccb1bc"
     return None
+
+
+def _has(path: Path, text: str) -> bool:
+    try:
+        return text in path.read_text()
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
+def is_public_8a02db9(src: Path) -> bool:
+    """An 08d5a39-layout tree that is the public 8a02db9: d749dc5's prompt callable (08d5a39 has the pre_model_hook;
+    our fix 28 adds the callable to a PATCHED 08d5a39 only) and the public default cell (08d5a39: welding_cell_2x).
+    Neither file is touched by fix set v10 / v11 or the hook patches."""
+    src = Path(src)
+    return (_has(src / "agents" / "trajectory" / "context_compaction.py", "def compacting_prompt(")
+            and _has(src / "agents" / "cell_defaults.py", 'DEFAULT_CELL_ID = "welding_cell_2_small"'))
 
 
 def select_base(A, requested: str | None = None, log=print) -> str:
@@ -202,7 +221,7 @@ def choose_kernels(requested: str, ubase: str, patches: list, workpiece: list, f
     clash = bool(workpiece) and nodip
     why = (f"cell has {len(workpiece)} is_workpiece box(es) (e.g. {workpiece[0]}) and the copy has the "
            f"no-workpiece-dip fix: the eccb1bc drop-in kernels skip workpiece boxes, fix 22 does not") if clash else ""
-    if ubase == "08d5a39":
+    if ubase in ("08d5a39", "8a02db9"):
         # 08d5a39 (13d446b) vectorised / compiled exactly what x76 speeds up (_moving_hit in _config_is_free, the
         # Numba pair_min_gap in _check_robot_pair_collision, the YAML parse caches): x76's source guards refuse to
         # install there (the loop it mirrors is gone, the pair check is not the proven original). auto -> none
@@ -210,7 +229,7 @@ def choose_kernels(requested: str, ubase: str, patches: list, workpiece: list, f
         if requested == "auto":
             return "none"
         if requested == "x76":
-            log("[u3] WARNING kernels x76 on 08d5a39: its guards refuse (umarell vectorised those checks itself); "
+            log(f"[u3] WARNING kernels x76 on {ubase}: its guards refuse (umarell vectorised those checks itself); "
                 "use auto / none")
     if requested == "auto" and ubase != "eccb1bc":
         # the eccb1bc drop-ins mirror eccb1bc's predicate (no arm-vs-itself check, no envelope / tool hulls /
@@ -297,15 +316,15 @@ def main(argv=None) -> int:
     ap.add_argument("--tag", default=None)
     ap.add_argument("--task", default="car_door_spot_welding.json")
     ap.add_argument("--with-upstream-fixes", action="store_true",
-                    help="working copy with the base's default upstream fix set (v10 on 08d5a39, v9 on dc60669, v8 on 76ea13a, v5 on eccb1bc)")
+                    help="working copy with the base's default upstream fix set (v11 on 8a02db9, v10 on 08d5a39, v9 on dc60669, v8 on 76ea13a, v5 on eccb1bc)")
     ap.add_argument("--base", default=None,
-                    help="umarell base: 08d5a39 | dc60669 | 76ea13a | eccb1bc (default: $UMARELL_BASE, else apply.py's default, "
+                    help="umarell base: 8a02db9 | 08d5a39 | dc60669 | 76ea13a | eccb1bc (default: $UMARELL_BASE, else apply.py's default, "
                          "dc60669; else the newest base whose third_party/sample-umarell[-<base>] exists)")
     ap.add_argument("--workers", type=int, default=0, help="worker processes (default: cpu count, max 48)")
     ap.add_argument("--kernels", default="auto",
                     help="none | np | npplus | fix | u1 | x76 | auto. auto: on eccb1bc u1 (else npplus / fix); on "
                          "76ea13a / dc60669 x76 (umarell's own predicate, moving-obstacle loop vectorised; the eccb1bc drop-ins "
-                         "re-create eccb1bc's predicate and refuse to install there); on 08d5a39 none (umarell vectorised and "
+                         "re-create eccb1bc's predicate and refuse to install there); on 08d5a39 / 8a02db9 none (umarell vectorised and "
                          "Numba-compiled those checks itself; x76's guards refuse there). Every "
                          "set is self-checked against umarell's own predicate during the run; on a mismatch the planning is "
                          "re-run on umarell's own functions. auto on eccb1bc picks none for a cell with is_workpiece "

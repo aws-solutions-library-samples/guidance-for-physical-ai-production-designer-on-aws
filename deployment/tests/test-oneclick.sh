@@ -198,7 +198,7 @@ check "deploy.sh: the deadline's default is 6 h" \
 reset; export FAKE_UMARELL_PRIVATE=1
 out=$(run "$SD/deploy.sh"); rc=$?
 check "deploy.sh: umarell not public and no UMARELL_TARBALL: stops at step 3, before any install" \
-  $([ "$rc" != 0 ] && grep -q 'umarell is not public yet' <<<"$out" && grep -q 'UMARELL_TARBALL' <<<"$out" \
+  $([ "$rc" != 0 ] && grep -q "umarell's repository does not answer" <<<"$out" && grep -q 'UMARELL_TARBALL' <<<"$out" \
      && ! grep -q '^install.sh' "$T/calls" && ! grep -q CDKToolkit "$T/calls"; echo $?) "$out"
 reset; export FAKE_INSTALL_RC=3
 out=$(run "$SD/deploy.sh"); rc=$?
@@ -244,7 +244,7 @@ check "deploy.sh: umarell-jam.pin in umarell's public repository: not asked agai
 reset; printf '%s\n' "$jam_pin" > "$T/umarell-jam.pin"; export FAKE_UMARELL_PRIVATE=1
 out=$(run "$T/deploy-params.sh"); rc=$?
 check "deploy.sh: UMARELL_TARBALL, a private repository, no UMARELL_JAM_TARBALL: warns and installs (umarell_jam incomplete)" \
-  $([ "$rc" = 0 ] && grep -q "WARNING: umarell_jam's umarell (https://github.com/aws-samples/sample-umarell.git) is not public yet" <<<"$out" \
+  $([ "$rc" = 0 ] && grep -q "WARNING: umarell_jam's umarell (https://github.com/aws-samples/sample-umarell.git) does not answer" <<<"$out" \
      && grep -q 'UMARELL_JAM_TARBALL' <<<"$out" && grep -q '^install.sh install ' "$T/calls" && ! grep -q -- '--umarell-jam-tarball' "$T/calls"; echo $?) "$out"
 reset; printf '%s\n' "$jam_pin" > "$T/umarell-jam.pin"; export FAKE_UMARELL_PRIVATE=1
 out=$(ONECLICK_UMARELL_JAM_TARBALL=s3://bkt/umarell-jam.tar.gz run "$T/deploy-params.sh"); rc=$?

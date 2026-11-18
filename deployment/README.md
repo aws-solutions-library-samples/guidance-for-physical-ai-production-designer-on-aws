@@ -86,7 +86,7 @@ check that the user data does not depend on the release version, so that an upda
 
 **After an installation** (from a workstation, against an installed stack): `test/smoke.py` checks the denial matrix,
 signs in with a temporary user (TOTP enrolled, deleted afterwards), and checks the viewer, the WebSockets, the tools,
-the umarell_jam planner when the release ships it (on the instance, as `factoryos`: its plain umarell 76ea13a and its
+the umarell_jam planner when the release ships it (on the instance, as `factoryos`: its plain umarell and its
 venv, `python -m umarell_jam ... setup` within 180 s into a temporary root, and `describe_planner umarell_jam` without
 the gate's setup warnings; `--jam-cell <cell>` also checks it is available for that cell; a release that ships it
 without it set up fails) and that the instance listens only on loopback and port 80 (again after Start Simulation,
@@ -136,12 +136,13 @@ The release builds on the instance in `factoryos-release.service`, which outlive
 again at any time.
 
 **umarell_jam** (the cache-based umarell weld planner of the planner router) needs the plain umarell commit of
-`source/deploy/umarell-jam.pin` (76ea13a) besides umarell's own. While sample-umarell is not public, pass it as
-`--umarell-jam-tarball <s3://… | file>` (`git archive --format=tar.gz --prefix=umarell/
-76ea13aafdeede10be11936cf0830613e8717907 > umarell-jam.tar.gz` in a clone that has the commit); the installer checks
-it before anything changes, uploads it to `vendor/umarell-jam-<sha12>.tar.gz` of the source bucket and records it in
-the installation's options, so an update keeps it (`--umarell-jam-tarball ''` drops it). It is optional: without it,
-or when anything of umarell_jam's setup fails on the instance, the release still ends `ready`, `status` shows
+`source/deploy/umarell-jam.pin`, which the instance fetches from the public GitHub repository like umarell's own
+(`source/deploy/umarell.pin`). For an instance without a route to GitHub, pass archives instead: `--umarell-tarball`
+and `--umarell-jam-tarball <s3://… | file>` (`git archive --format=tar.gz --prefix=umarell/ <commit> >
+umarell-jam.tar.gz` in a clone that has the commit); the installer checks it before anything changes, uploads it to
+`vendor/umarell-jam-<sha12>.tar.gz` of the source bucket and records it in the installation's options, so an update
+keeps it (`--umarell-jam-tarball ''` drops it). umarell_jam is optional: without its commit, or when anything of
+umarell_jam's setup fails on the instance, the release still ends `ready`, `status` shows
 `incomplete: umarell_jam`, the release log has a `WARNING: umarell_jam is not set up: …` line, and umarell_jam's jobs
 fall back to umarell_u3 (minutes instead of seconds). The next update provisions it again.
 
@@ -157,7 +158,7 @@ fall back to umarell_u3 (minutes instead of seconds). The next update provisions
   clone, the staging repo, a CodeBuild source: the revision under test), or, as a standalone copy (ASCV's
   BuilderSpace copy), clones `REPO_URL` (`git clone --depth 1`). With `UMARELL_TARBALL=''` it checks that the pin's
   umarell URL answers `git ls-remote` anonymously and stops at once otherwise (the release would fail hours later).
-  With `UMARELL_JAM_TARBALL=''` and a `deploy/umarell-jam.pin` whose URL is not public it only warns (umarell_jam is
+  With `UMARELL_JAM_TARBALL=''` and a `deploy/umarell-jam.pin` whose URL does not answer it only warns (umarell_jam is
   optional: the release installs without it); a set `UMARELL_JAM_TARBALL` goes to `--umarell-jam-tarball`.
   It checks that a `CDKToolkit` stack is absent or healthy but never bootstraps itself (`cdk bootstrap` in
   `deployment/` synthesizes the app first, which needs the installer's context; `install.sh` bootstraps where
@@ -229,6 +230,6 @@ needed.
 
 Test the template with `bash deployment/tests/test-installer-template.sh`, which runs the build script and the
 function against fakes and runs cfn-lint where it is installed. For an end-to-end run, make a set with
-`make-artifacts.sh` from an export zip (`scripts/export-public.py`), the umarell tarball and, for umarell_jam, its
-umarell tarball (`--umarell-jam`). Then create the stack in
+`make-artifacts.sh` from an export zip (`scripts/export-public.py`) and, optionally (an offline test; else both come
+from GitHub), the umarell tarball (`--umarell`) and umarell_jam's (`--umarell-jam`). Then create the stack in
 a test account with `SourceMode=upload` (upload the set) or `SourceMode=s3` (`ArtifactsUri`).

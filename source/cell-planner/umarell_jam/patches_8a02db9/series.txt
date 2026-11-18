@@ -1,0 +1,26 @@
+# umarell_jam's own patch series for the public umarell 8a02db9 (8a02db9ba7db260366451f8c38bafb378cd65c29,
+# https://github.com/aws-samples/sample-industrial-multi-robot-agents, one commit: a sanitized 08d5a39), applied in
+# this order by umarell_jam/native_copy.py (patch -p1 --forward --batch) to a plain checkout, then the integration
+# hooks of umarell_jam/install.py (their diff on this base: integration.diff here, not part of the series).
+#
+# The fix set is v10 (docs/upstream/patches_08d5a39) rebased onto 8a02db9: every file applies to a pristine
+# 8a02db9 in this order with `git apply` (no offset, no fuzz); they differ from the 08d5a39 files only in their
+# `index` lines, and in 22v3 / 21v5 in context and comment lines that the public commit renamed (body_weld_2 /
+# welding_cell_2t / welding_cell_2s -> welding_cell_2_small). 28 (context compaction in the model step, upstream
+# d749dc5) is dropped: 8a02db9 contains it. Then the U3 hook U3_02 (OMPL seed; umarell_fast/patches_08d5a39, same
+# hunks); U3_01 has no 8a02db9 equivalent (08d5a39 already parses robots.yaml once per content).
+#
+# On 76ea13a umarell_jam built on fix set v8 (docs/upstream/patches_76ea13a) + umarell_fast/patches_76ea13a U3_*;
+# relative to v8 this base drops 26 (umarell appends trajectory_index.jsonl itself since dc60669) and takes the
+# rebased 22v3 / 24v2 / 25v2 (dc60669's tool_contact boxes, exact voxel test, --weld-targets converter).
+# These files are umarell_jam's: the planner revision of its component cache (native.code_revision) hashes the
+# patched copy, so they change only together with a deliberate cache invalidation.
+04v3_hull_backstop.diff
+22v3_no_workpiece_dip.diff
+20v2_driver_continuous.diff
+23v2_commanded_acceleration.diff
+21v5_vass_interlocks.diff
+24v2_voxel_boundary_inward.diff
+25v2_near_weld_refinement.diff
+27_hermite_rest_ends.diff
+U3_02_ompl_seed.diff
