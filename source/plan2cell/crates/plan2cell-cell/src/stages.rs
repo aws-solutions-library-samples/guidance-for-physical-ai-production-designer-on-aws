@@ -607,6 +607,20 @@ impl<'a> Cell<'a> {
                 Some(s) => *s = rep,
                 None => self.report.stages.push(rep),
             }
+            // Start and stop each describe the head's current state, and only the last one that
+            // ran still does: after a start, an earlier stop's `CS_ERROR ERR_OPERATOR_STOP` (and
+            // after a stop, an earlier start's `CS_RUNNING`) is history. Left in, it would sort
+            // after the start and readers of the report would take it for this run's state.
+            if r.is_ok() && !self.settings.dry_run {
+                let superseded = match st {
+                    Stage::Start => Some(Stage::Stop),
+                    Stage::Stop => Some(Stage::Start),
+                    _ => None,
+                };
+                if let Some(old) = superseded {
+                    self.report.stages.retain(|s| s.stage != old);
+                }
+            }
             if r.is_err() {
                 result = r;
                 break;
@@ -899,6 +913,23 @@ impl<'a> Cell<'a> {
                     format!("{}: {why} (see human_steps)", c.tool),
                 ));
             }
+            // A symbol-config edit landed and the build the overlay runs after it failed only on
+            // library-open errors (live, 2026-11-18: set_signature_access_bulk, then '#CmpUserMgr
+            // Implementation 3.5.21.0', '#CmpVisuHandler 3.5.19.0', '#SysTask 3.5.17.0'): as
+            // BuildClean, not a stop; the login builds again and fails deploy if it cannot. Any
+            // other build error, or an edit that failed, stays the project's error.
+            if r.failed()
+                && let Some(e) = codesys::auto_compile_library_errors(&r.text)
+            {
+                let shown: Vec<&str> = e.iter().take(3).map(String::as_str).collect();
+                out.warnings.push(format!(
+                    "{}: {} library error(s) in its auto-compile (the login builds again): {}",
+                    c.tool,
+                    e.len(),
+                    shown.join("; ")
+                ));
+                r = ToolOutput::ok(r.text.clone());
+            }
             let tool_err = |r: &ToolOutput| Error::Tool {
                 tool: c.tool.to_string(),
                 msg: r.short(),
@@ -1017,7 +1048,7 @@ impl<'a> Cell<'a> {
                     // repository does not have, which the next build of the same project resolves
                     // (live, 2026-11-02: '#SysTask 3.5.17.0' etc., then 0 errors). Only library-open
                     // errors: built once more; a library really missing fails as before.
-                    if !e.is_empty() && e.iter().all(|x| x.contains("Could not open library")) {
+                    if codesys::library_open_only(&e) {
                         out.notes.push(format!(
                             "{}: {} library error(s) on the first build after the open; libraries \
                              refreshed (download_missing_libraries, list_project_libraries), built again",
@@ -1043,7 +1074,7 @@ impl<'a> Cell<'a> {
                         // is bound to the running PLC, does not need (deploy's login built and ran the
                         // same project). Not a stop: the login builds again and fails start if it
                         // cannot.
-                        if !e.is_empty() && e.iter().all(|x| x.contains("Could not open library")) {
+                        if codesys::library_open_only(&e) {
                             let shown: Vec<&str> = e.iter().take(3).map(String::as_str).collect();
                             out.notes.push(format!(
                                 "warning: {}: {} library error(s) before the login (the login builds again): {}",

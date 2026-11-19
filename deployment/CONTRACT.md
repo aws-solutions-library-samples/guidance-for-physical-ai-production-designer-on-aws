@@ -410,7 +410,7 @@ behave exactly as above.
 **Parameters:**
 - `AdminEmail`
 - `SourceMode` (`github` | `s3` | `upload`)
-- `Release` (`latest` or a tag)
+- `Release` (`latest` or a tag; `latest` is the newest published GitHub release, else the newest `vX.Y.Z` tag)
 - `RepoUrl` (`https://github.com/<owner>/<repo>`)
 - `ArtifactsUri` (`s3://bucket/prefix/`)
 - `SourceArchiveUri`, `UmarellTarballUri` and `UmarellJamTarballUri` (`s3://` or `https://`, all optional; without

@@ -3171,13 +3171,12 @@ impl InfraService {
         }
         let out = run(binary, &args, &env, self.settings.production_timeout, Some(&*self.sink)).await.map_err(|err| (err, None))?;
         let report: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
-        let notes: Vec<String> = report["stages"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|s| s["notes"].as_array().into_iter().flatten())
-            .filter_map(|n| n.as_str().map(str::to_owned))
-            .collect();
+        // The report is the build's plan2cell-cell-report.json, merged over runs: the stages of
+        // earlier runs (deploy, an earlier stop's `CS_ERROR ERR_OPERATOR_STOP`, after this start
+        // in stage order) are in it too. Only this run's start stage counts.
+        let start = report["stages"].as_array().into_iter().flatten().find(|s| s["stage"] == "start");
+        let notes: Vec<String> =
+            start.and_then(|s| s["notes"].as_array()).into_iter().flatten().filter_map(|n| n.as_str().map(str::to_owned)).collect();
         let head = notes.iter().rev().find_map(|n| cell_state_in(n)).or_else(|| {
             report["projects"].as_array().into_iter().flatten().find_map(|p| p["state"].as_str().map(str::to_owned))
         });
@@ -3185,15 +3184,16 @@ impl InfraService {
         if restarted {
             self.update(|s| s.cell.runtime_started_s = Some(started));
         }
-        if out.code == Some(0) && report["ok"] != false {
+        let ok = match start {
+            Some(s) => s["ok"] != false,
+            None => report["ok"] != false,
+        };
+        if out.code == Some(0) && ok {
             let last = notes.iter().rev().find(|n| n.contains("in production")).cloned();
             Ok((last.unwrap_or_else(|| "in production".to_owned()), head))
         } else {
-            let error = report["stages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find_map(|s| s["error"].as_str().map(str::to_owned))
+            let error = start
+                .and_then(|s| s["error"].as_str().map(str::to_owned))
                 .or_else(|| out.stderr_tail.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_owned))
                 .unwrap_or_else(|| "no report".to_owned());
             let code = out.code.map_or("killed".to_owned(), |c| c.to_string());
@@ -4932,11 +4932,18 @@ if [ -f "$dir/guard" ] && [ "$3" != "$(cat "$dir/guard-ok" 2>/dev/null)" ]; then
   echo '{"schema":"plan2cell/cell-report@1","ok":false,"stages":[{"stage":"start","ok":false,"notes":[],"error":"start: the head runs PLAN_ID '"$head"' (GVL_Cell.PLAN_ID), this export is plan 16#0001: start the export the head runs, or deploy this one first (cell projects, deploy, krl DIR)"}],"projects":[]}'
   exit 7
 fi
+# `cell start --json` prints the build's report merged over runs (plan2cell-cell-report.json):
+# with `stale-report`, an earlier deploy and an earlier stop (CS_ERROR, after start in stage order).
+stale_deploy='' stale_stop=''
+if [ -f "$dir/stale-report" ]; then
+  stale_deploy='{"stage":"deploy","ok":true,"notes":["HeadPLC running on 192.168.100.10"],"error":null},'
+  stale_stop=',{"stage":"stop","ok":true,"notes":["PLC_PRG.bStop pulsed","CS_ERROR ERR_OPERATOR_STOP robot INT#0, udiCycles UDINT#10"],"error":null}'
+fi
 if [ -f "$dir/fail-start" ]; then
-  echo '{"schema":"plan2cell/cell-report@1","ok":false,"stages":[{"stage":"start","ok":false,"notes":["restarted codesys-master (as asked)"],"error":"not in production after 16 pulse(s): CS_ERROR ERR_ROBOT robot 2"}],"projects":[]}'
+  echo '{"schema":"plan2cell/cell-report@1","ok":false,"stages":[{"stage":"start","ok":false,"notes":["restarted codesys-master (as asked)"],"error":"not in production after 16 pulse(s): CS_ERROR ERR_ROBOT robot 2"}'"$stale_stop"'],"projects":[]}'
   exit 7
 fi
-echo '{"schema":"plan2cell/cell-report@1","ok":true,"stages":[{"stage":"start","ok":true,"notes":["restarted codesys-master (as asked)","CS_ERROR: PLC_PRG.bReset pulsed","in production after 4 read(s) and 3 pulse(s): CS_RUNNING, udiCycles 0"],"error":null}],"projects":[{"name":"HeadPLC","state":"RUN"}]}'
+echo '{"schema":"plan2cell/cell-report@1","ok":true,"stages":['"$stale_deploy"'{"stage":"start","ok":true,"notes":["restarted codesys-master (as asked)","CS_ERROR: PLC_PRG.bReset pulsed","in production after 4 read(s) and 3 pulse(s): CS_RUNNING, udiCycles 0"],"error":null}'"$stale_stop"'],"projects":[{"name":"HeadPLC","state":"RUN"}]}'
 "#;
 
     #[derive(Default)]
@@ -5237,13 +5244,26 @@ echo '{"schema":"plan2cell/cell-report@1","ok":true,"stages":[{"stage":"start","
         assert!(!logs.contains("tok-123"), "the token is never logged");
         assert!(!serde_json::to_string(&*f.recorder.statuses.lock().unwrap()).unwrap().contains("tok-123"));
 
-        // A failed start keeps what it read.
+        // The start's report is the build's, merged over runs: an earlier stop's CS_ERROR (after
+        // the start stage in stage order) is not the head's state now.
+        std::fs::write(f.root.join("stale-report"), "").unwrap();
+        f.service.stop_production().await.unwrap();
+        let status = settled(&f.service).await;
+        assert_eq!(status.cell.head_state.as_deref(), Some("CS_ERROR"), "{:#?}", status.cell);
+        f.service.production(ProductionRequest::default()).await.unwrap();
+        let status = settled(&f.service).await;
+        assert_eq!(status.cell.state, JobState::Done, "{:#?}", status.cell);
+        assert_eq!(status.cell.head_state.as_deref(), Some("CS_RUNNING"), "the start's own state, not the earlier stop's");
+        assert!(status.cell.message.as_deref().unwrap().starts_with("in production after 4 read(s)"), "{:?}", status.cell.message);
+
+        // A failed start keeps what it read (an earlier stop's notes are not a read).
         std::fs::write(f.root.join("fail-start"), "").unwrap();
         f.service.production(ProductionRequest::default()).await.unwrap();
         let status = settled(&f.service).await;
         assert_eq!(status.cell.state, JobState::Failed);
         assert!(status.cell.message.as_deref().unwrap().contains("CS_ERROR ERR_ROBOT robot 2"), "{:?}", status.cell.message);
         assert_eq!(status.cell.head_state.as_deref(), Some("CS_RUNNING"), "no new state read: the last one stays");
+        std::fs::remove_file(f.root.join("stale-report")).unwrap();
 
         // A failed bring-up.
         std::fs::write(f.root.join("fail-bringup"), "").unwrap();

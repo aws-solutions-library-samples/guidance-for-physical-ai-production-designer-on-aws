@@ -428,6 +428,21 @@ export class FactoryosStack extends Stack {
     pin(distribution, PINNED_IDS.distribution);
     // The edge version the distribution associates sends the edge copy of the secret: it exists before.
     distribution.node.addDependency(originSecret);
+    // VPC Block Public Access: in an account-region with BPA on (block-ingress), CloudFront cannot put the VPC
+    // origin's endpoints into a subnet that BPA covers ("You can't update an endpoint group that has endpoints in a
+    // subnet with Block Public Access enabled"). The exclusion is for the instance's own subnet only. That subnet is
+    // private: it has no route to the internet gateway, so the exclusion opens no internet path, and the instance
+    // stays reachable only from CloudFront's VPC origin (OriginIngress). With BPA off it changes nothing. It exists
+    // before the VPC origin.
+    const originSubnetBpa = new ec2.CfnVPCBlockPublicAccessExclusion(this, 'OriginSubnetBpaExclusion', {
+      internetGatewayExclusionMode: 'allow-bidirectional',
+      // The instance's subnet: ec2.Instance takes the first subnet of its selection (into its network interface).
+      subnetId: vpc.selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS }).subnets[0].subnetId,
+      tags: [{ key: 'Name', value: `${name}-factoryos-vpc-origin` }],
+    });
+    for (const vpcOrigin of distribution.node.findAll().filter((c) => c instanceof cloudfront.CfnVpcOrigin)) {
+      vpcOrigin.node.addDependency(originSubnetBpa);
+    }
     const siteDomain = distribution.distributionDomainName;
     const url = `https://${siteDomain}/`;
 

@@ -80,6 +80,10 @@ struct Behaviour {
     login_down: usize,
     /// set_signature_access_bulk leaves this variable out (`Signature.variable`).
     lose_symbol: Option<String>,
+    /// The overlay's auto-compile after each symbol-config edit fails (the edit lands) with
+    /// library-open errors (live, 2026-11-18) and, with `auto_compile_error`, a real one.
+    auto_compile_library_errors: bool,
+    auto_compile_error: bool,
     /// The head runs another export: `GVL_Cell.PLAN_ID` reads this instead of the plan's.
     head_plan: Option<&'static str>,
     /// A CODESYS dialog mcp-bridge.cjs does not answer blocks the IDE: every call gets the
@@ -271,6 +275,37 @@ fn paths(n: &DeviceNode, path: String, out: &mut Vec<(String, DeviceNode)>) {
 }
 
 impl MockCodesys {
+    /// A symbol-config edit that landed, with the overlay's auto-compile after it
+    /// (`withAutoCompile`): clean, or failed as `auto_compile_library_errors` says.
+    fn auto_compile(&self, file: &str, edit: &str) -> (String, bool) {
+        if !self.b.auto_compile_library_errors {
+            return (
+                format!("{edit}\n\n[auto-compile] Compilation complete."),
+                false,
+            );
+        }
+        let mut errors = vec![
+            "ERROR: Could not open library '#CmpUserMgr Implementation'. (Reason: The library \
+             'CmpUserMgr Implementation, 3.5.21.0 (System)' has not been installed to the system.)",
+            "ERROR: Could not open library '#CmpVisuHandler'. (Reason: The library \
+             'CmpVisuHandler, 3.5.19.0 (System)' has not been installed to the system.)",
+            "ERROR: Could not open library '#SysTask'. (Reason: The library 'SysTask, 3.5.17.0 \
+             (System)' has not been installed to the system.)",
+        ];
+        if self.b.auto_compile_error {
+            errors.push("ERROR: C0077: Unknown type: 'ST_Ticket' [PLC_PRG:12]");
+        }
+        (
+            format!(
+                "{edit}\n\n[auto-compile FAILED] Compilation complete for C:\\ProgramData\\plan2cell\\\
+                 projects\\demo\\{file}.\n{} error(s), 0 warning(s).\n\nErrors:\n{}",
+                errors.len(),
+                errors.join("\n")
+            ),
+            true,
+        )
+    }
+
     /// The children of a device with slots, as CODESYS creates them: a PROFINET device under a
     /// controller (type 81) comes with its modules under their GSDML names, a PN device of the
     /// robot simulator (83) with empty slots, or with none (`free_list`).
@@ -988,16 +1023,14 @@ impl MockCodesys {
                 if m.symbols.is_none() {
                     m.symbols = Some(Vec::new());
                 }
-                ok(
-                    "Created Symbol Configuration: Device/Plc Logic/Application/Symbols\n\n[auto-compile] Compilation complete.",
-                )
+                self.auto_compile(&p.file, "Created Symbol Configuration: Device/Plc Logic/Application/Symbols")
             }
             "set_symbol_config_settings" => {
                 assert_eq!(
                     a["contentFeatureFlags"],
                     serde_json::json!(["SupportOPCUA"])
                 );
-                ok("Symbol Configuration settings updated\n\n[auto-compile] Compilation complete.")
+                self.auto_compile(&p.file, "Symbol Configuration settings updated")
             }
             "set_signature_access_bulk" | "set_symbol_access" => {
                 let Some(syms) = m.symbols.as_mut() else {
@@ -1026,7 +1059,7 @@ impl MockCodesys {
                         syms.push(k);
                     }
                 }
-                ok("Bulk set\n\n[auto-compile] Compilation complete.")
+                self.auto_compile(&p.file, &format!("Signature {sig} bulk access set to {}.", s(a, "access")))
             }
             "list_configured_symbols" => {
                 let Some(syms) = m.symbols.as_ref() else {
@@ -2762,8 +2795,25 @@ fn run_on(
     b: Behaviour,
     stages: &[Stage],
     settings: Settings,
+    remote: MockRemote,
+    cfg: impl Fn(&str) -> CellConfig,
+) -> (
+    Server,
+    MockRemote,
+    plan2cell_cell::Result<()>,
+    plan2cell_cell::Report,
+) {
+    run_after(b, stages, settings, remote, cfg, None)
+}
+
+/// As [`run_on`], on the report of an earlier run on the same build directory.
+fn run_after(
+    b: Behaviour,
+    stages: &[Stage],
+    settings: Settings,
     mut remote: MockRemote,
     cfg: impl Fn(&str) -> CellConfig,
+    previous: Option<plan2cell_cell::Report>,
 ) -> (
     Server,
     MockRemote,
@@ -2779,7 +2829,7 @@ fn run_on(
         settings,
         &mut remote,
         &mut tools,
-        None,
+        previous,
     )
     .unwrap();
     let r = c.run(stages);
@@ -2869,6 +2919,102 @@ mod symbols {
         assert_eq!(
             h.deviations,
             ["symbol PLC_PRG.udiCycles not exported readable"]
+        );
+    }
+
+    #[test]
+    fn library_errors_in_the_symbol_auto_compile_are_warnings_and_the_head_builds() {
+        // Live, 2026-11-18 (demo_body_weld_2r): set_signature_access_bulk landed, its
+        // auto-compile failed only on library-open errors; the head was "not built".
+        let (dir, m) = common::example_with_symbols();
+        let b = Behaviour {
+            tree: Some((dir.path().to_path_buf(), m)),
+            auto_compile_library_errors: true,
+            ..Behaviour::default()
+        };
+        let (s, _, r, rep) = run_on(b, &[Stage::Projects], quick(), plc_host(), config);
+        r.unwrap();
+        let h = rep.projects.iter().find(|p| p.name == HEAD).unwrap();
+        assert!(
+            h.built && h.errors.is_empty() && h.deviations.is_empty(),
+            "{h:?}"
+        );
+        for tool in [
+            "create_symbol_config",
+            "set_symbol_config_settings",
+            "set_signature_access_bulk",
+        ] {
+            assert!(
+                h.warnings.iter().any(|w| w.starts_with(&format!(
+                    "{tool}: 3 library error(s) in its auto-compile (the login builds again): \
+                     Could not open library '#CmpUserMgr Implementation'."
+                ))),
+                "{tool}: {:#?}",
+                h.warnings
+            );
+        }
+        // The read back and the save ran after them.
+        let calls = s.calls();
+        let bulk = calls
+            .iter()
+            .position(|c| *c == format!("set_signature_access_bulk {HEAD}"))
+            .unwrap();
+        assert!(calls[bulk..].contains(&format!("list_configured_symbols {HEAD}")));
+        assert!(calls[bulk..].contains(&format!("save_project {HEAD}")));
+        assert!(rep.ok);
+    }
+
+    #[test]
+    fn a_real_error_in_the_symbol_auto_compile_is_still_not_built() {
+        let (dir, m) = common::example_with_symbols();
+        let b = Behaviour {
+            tree: Some((dir.path().to_path_buf(), m)),
+            auto_compile_library_errors: true,
+            auto_compile_error: true,
+            ..Behaviour::default()
+        };
+        let (_, _, r, rep) = run_on(b, &[Stage::Projects], quick(), plc_host(), config);
+        let e = r.unwrap_err();
+        assert_eq!(e.exit_code(), 8, "{e}");
+        assert!(e.to_string().contains(&format!("not built: {HEAD}")), "{e}");
+        let h = rep.projects.iter().find(|p| p.name == HEAD).unwrap();
+        assert!(!h.built, "{h:?}");
+        assert!(
+            h.errors
+                .iter()
+                .any(|x| x.starts_with("codesys tool create_symbol_config: ")
+                    && x.contains("C0077: Unknown type: 'ST_Ticket'")),
+            "{:#?}",
+            h.errors
+        );
+    }
+
+    #[test]
+    fn library_errors_in_the_projects_build_still_fail_it() {
+        // The auto-compile tolerance is only for the symbol-config edits: the projects stage's
+        // own build has no library refresh and second build (as start's BuildClean does), and a
+        // library really missing reads the same, so its library-open errors stay errors.
+        let b = Behaviour {
+            library_errors_always: Some(HEAD.into()),
+            ..Behaviour::default()
+        };
+        let (_, _, r, rep) = run_on(b, &[Stage::Projects], quick(), plc_host(), config);
+        let e = r.unwrap_err();
+        assert_eq!(e.exit_code(), 8, "{e}");
+        assert!(e.to_string().contains(&format!("not built: {HEAD}")), "{e}");
+        let h = rep.projects.iter().find(|p| p.name == HEAD).unwrap();
+        assert!(!h.built, "{h:?}");
+        assert!(
+            h.errors
+                .iter()
+                .any(|x| x.contains("Could not open library '#SysTask'")),
+            "{:#?}",
+            h.errors
+        );
+        assert!(
+            !h.warnings.iter().any(|w| w.contains("library error(s)")),
+            "{:#?}",
+            h.warnings
         );
     }
 
@@ -3031,6 +3177,85 @@ mod production {
             "{:?}",
             st.notes
         );
+    }
+
+    /// The report collects the stages across runs, sorted projects .. start, stop. An earlier
+    /// stop's `CS_ERROR ERR_OPERATOR_STOP` must not stay after a later start (it read as the
+    /// head's state after Start production), nor an earlier start's `CS_RUNNING` after a stop.
+    #[test]
+    fn start_and_stop_each_replace_the_others_entry_in_the_report() {
+        let stage = |st: Stage, note: &str| plan2cell_cell::stages::StageReport {
+            stage: st,
+            ok: true,
+            notes: vec![note.into()],
+            error: None,
+        };
+        let previous = plan2cell_cell::Report {
+            plan_id: Some("16#F77E".into()),
+            ok: true,
+            stages: vec![
+                stage(Stage::Deploy, "deployed"),
+                stage(Stage::Start, "in production after 1 read(s): CS_RUNNING"),
+                stage(
+                    Stage::Stop,
+                    "CS_ERROR ERR_OPERATOR_STOP robot INT#0, udiCycles UDINT#10",
+                ),
+            ],
+            ..Default::default()
+        };
+        let behaviour = |state: &'static str| Behaviour {
+            cell_states: vec![state],
+            ..Behaviour::default()
+        };
+        let kinds =
+            |r: &plan2cell_cell::Report| r.stages.iter().map(|s| s.stage).collect::<Vec<_>>();
+
+        let (_, _, r, rep) = run_after(
+            behaviour("CS_RUNNING"),
+            &[Stage::Start],
+            quick(),
+            plc_host_up(),
+            config,
+            Some(previous.clone()),
+        );
+        r.unwrap();
+        assert_eq!(kinds(&rep), [Stage::Deploy, Stage::Start], "{rep:#?}");
+        assert!(rep.ok);
+        assert!(
+            !rep.stages
+                .iter()
+                .flat_map(|s| &s.notes)
+                .any(|n| n.contains("CS_ERROR")),
+            "the earlier stop's state is gone: {rep:#?}"
+        );
+
+        let (_, _, r, rep) = run_after(
+            behaviour("CS_RUNNING"),
+            &[Stage::Stop],
+            quick(),
+            plc_host(),
+            config,
+            Some(rep),
+        );
+        r.unwrap();
+        assert_eq!(kinds(&rep), [Stage::Deploy, Stage::Stop], "{rep:#?}");
+
+        // A failed start keeps the stop: it is still the last state the head was put in.
+        let (_, _, r, rep) = run_after(
+            behaviour("CS_READY"),
+            &[Stage::Start],
+            quick(),
+            plc_host_up(),
+            config,
+            Some(previous),
+        );
+        assert!(r.is_err());
+        assert_eq!(
+            kinds(&rep),
+            [Stage::Deploy, Stage::Start, Stage::Stop],
+            "{rep:#?}"
+        );
+        assert!(!rep.ok);
     }
 
     #[test]

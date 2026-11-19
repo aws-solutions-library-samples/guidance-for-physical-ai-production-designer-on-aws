@@ -113,6 +113,16 @@ case "$url" in
   *) echo "fake curl: unhandled $url" >&2; exit 2 ;;
 esac
 EOF
+cat > "$T/bin/git" <<'EOF2'
+#!/usr/bin/env bash
+printf 'git %s\n' "$*" >> "$FAKE/calls"
+case "$*" in
+  *"ls-remote --tags --refs https://github.com/"*)
+    [ "${FAKE_TAGS_RC:-0}" = 0 ] || exit "$FAKE_TAGS_RC"
+    for t in ${FAKE_TAGS:-}; do printf '%040d\trefs/tags/%s\n' 1 "$t"; done ;;
+  *) echo "fake git: unhandled: $*" >&2; exit 2 ;;
+esac
+EOF2
 if ! command -v sha256sum >/dev/null 2>&1; then
   printf '#!/usr/bin/env bash\nexec shasum -a 256 "$@"\n' > "$T/bin/sha256sum"
 fi
@@ -151,7 +161,7 @@ sha() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 
 reset() {
   rm -rf "$T/calls" "$T/signals" "$T/s3" "$T/http" "$T/work"; mkdir -p "$T/s3/inputs-bkt" "$T/http/github"; : > "$T/calls"
-  unset FAKE_LATEST FAKE_DEPLOY_RC WAIT_HANDLE_URL
+  unset FAKE_LATEST FAKE_TAGS FAKE_TAGS_RC FAKE_DEPLOY_RC WAIT_HANDLE_URL
   export ACTION=install SOURCE_MODE=upload RELEASE=latest \
     REPO_URL=https://github.com/aws-solutions-library-samples/guidance-for-physical-ai-production-designer-on-aws \
     ARTIFACTS_URI="" SOURCE_ARCHIVE_URI="" UMARELL_TARBALL_URI="" UMARELL_JAM_TARBALL_URI="" APP_STACK_NAME=pai-pd ADMIN_EMAIL=ops@example.org \
@@ -282,10 +292,24 @@ check "github: latest is resolved through the releases/latest redirect (not api.
 reset; export SOURCE_MODE=github RELEASE=v0.1.19; cp "$T/export.tar.gz" "$T/http/github/v0.1.19.tar.gz"
 out=$(build); rc=$?
 check "github: a pinned tag is downloaded as is" $([ "$rc" = 0 ] && ! grep -q 'releases/latest' "$T/calls" && grep -q 'tags/v0.1.19.tar.gz$' "$T/calls"; echo $?) "$out"
-reset; export SOURCE_MODE=github WAIT_HANDLE_URL=https://handle.example.com/h
+reset; export SOURCE_MODE=github FAKE_TAGS="v0.1.9 v0.1.10 v0.2.0-rc1 latest v0.1.8"; cp "$T/export.tar.gz" "$T/http/github/v0.1.10.tar.gz"
 out=$(build); rc=$?
-check "github: no release yet: a clear failure, signalled" \
-  $([ "$rc" != 0 ] && grep -q 'has no published release yet' <<<"$out" && [ "$(signal_field Status)" = FAILURE ]; echo $?) "$out"
+check "github: latest without a published release: the newest vX.Y.Z tag (numeric order, no pre-releases), installed" \
+  $([ "$rc" = 0 ] && grep -q 'no published release of .*: its newest tag v0.1.10' <<<"$out" \
+     && grep -q "^git .*ls-remote --tags --refs $REPO_URL.git$" "$T/calls" && grep -q 'tags/v0.1.10.tar.gz$' "$T/calls" \
+     && ! grep -q api.github.com "$T/calls" && grep -q '^deploy.sh' "$T/calls"; echo $?) "$out"$'\n'"$(cat "$T/calls")"
+reset; export SOURCE_MODE=github FAKE_LATEST=v0.1.20 FAKE_TAGS="v0.1.21"; cp "$T/export.tar.gz" "$T/http/github/v0.1.20.tar.gz"
+out=$(build); rc=$?
+check "github: a published release wins over a newer tag (no ls-remote)" \
+  $([ "$rc" = 0 ] && grep -q 'tags/v0.1.20.tar.gz$' "$T/calls" && ! grep -q '^git ' "$T/calls"; echo $?) "$out"
+reset; export SOURCE_MODE=github FAKE_TAGS="latest v1 v0.1.2-rc1" WAIT_HANDLE_URL=https://handle.example.com/h
+out=$(build); rc=$?
+check "github: no release and no vX.Y.Z tag: a clear failure, signalled" \
+  $([ "$rc" != 0 ] && grep -q 'has no published release and no vX.Y.Z tag yet' <<<"$out" && [ "$(signal_field Status)" = FAILURE ]; echo $?) "$out"
+reset; export SOURCE_MODE=github FAKE_TAGS_RC=128 WAIT_HANDLE_URL=https://handle.example.com/h
+out=$(build); rc=$?
+check "github: tags cannot be listed: a clear failure, signalled" \
+  $([ "$rc" != 0 ] && grep -q 'could not list the tags of' <<<"$out" && [ "$(signal_field Status)" = FAILURE ]; echo $?) "$out"
 
 # --- failures, the export's shape, uninstall -------------------------------------------------------------------------
 reset; put "$T/export.zip" inputs-bkt/pai-pd.zip; export FAKE_DEPLOY_RC=1 WAIT_HANDLE_URL=https://handle.example.com/h

@@ -36,6 +36,12 @@
 //! `sidecar\t<tool>\t<file hash>\n` line per tool sidecar and a `robot_sidecar\t<model>\t<file hash>\n`
 //! line per robot model sidecar; `combined` is the sha256 of the lines
 //! `scene\t<h>\n`, `robot\t<id>\t<h>\n` (by id), `fixture\t<id>\t<h>\n` (by id) and `usda\t<h>\n`.
+//! The USDA bundle's (`scenes/<name>/<name>.zip`, [`usda_hash`]) is the planning digest its zip
+//! comment records (Generate USDA's: that of the stage composed lean, so composing it again with
+//! or without the robots' and tools' visual meshes leaves it), else its file hash. An output
+//! recorded before bundles had a planning digest recorded the file hash; the hashes the bundle's
+//! comment records of the bytes an older composer wrote ([`robo_fitting_room::LEGACY_SHA256_KEY`]:
+//! with its visual options, and lean) count as its digest ([`ResolvedCell::usda_aliases`]).
 //! File hashes are cached by (path, mtime, size).
 
 use std::collections::{BTreeMap, HashMap};
@@ -89,6 +95,10 @@ pub struct ResolvedCell {
     /// The scene's USDA bundle (Isaac scene), if there is one.
     pub usda_zip: Option<PathBuf>,
     pub inputs: InputHashes,
+    /// Other hashes recorded `usda`s that count as `inputs.usda`: the file hashes the bundle had as
+    /// an older composer wrote it (see [`usda_hash`]), so outputs recorded before the planning
+    /// digest stay current after Generate USDA of the unchanged scene.
+    pub usda_aliases: Vec<String>,
 }
 
 /// One robot or fixture of a [`ResolvedCell`].
@@ -116,6 +126,11 @@ pub struct InputHashes {
 }
 
 impl InputHashes {
+    fn combined(mut self) -> Self {
+        self.combine();
+        self
+    }
+
     fn combine(&mut self) {
         let mut text = format!("scene\t{}\n", self.scene);
         for (id, hash) in &self.urdfs {
@@ -285,11 +300,17 @@ pub fn resolve_root(root: &Path, fitted_dir: &Path) -> anyhow::Result<ResolvedCe
         scene: if scene_path.is_file() { file_hash(&scene_path) } else { String::new() },
         urdfs: robots.iter().map(|r| (r.scene_id.clone(), robot_hash(&r.urdf, &tool_catalogues(&r.urdf, fitted_dir)))).collect(),
         fixtures: fixtures.iter().map(|f| (f.scene_id.clone(), package_hash(&f.urdf))).collect(),
-        usda: usda_zip.as_deref().map(file_hash),
+        usda: None,
         combined: String::new(),
     };
+    let mut usda_aliases = Vec::new();
+    if let Some(zip) = usda_zip.as_deref() {
+        let hash = usda_hash(zip);
+        inputs.usda = Some(hash.hash);
+        usda_aliases = hash.aliases;
+    }
     inputs.combine();
-    Ok(ResolvedCell { name, root: root.to_path_buf(), kind, scene_path, scene_base, fitted_scene, robots, fixtures, usda_zip, inputs })
+    Ok(ResolvedCell { name, root: root.to_path_buf(), kind, scene_path, scene_base, fitted_scene, robots, fixtures, usda_zip, inputs, usda_aliases })
 }
 
 /// The cell of fitted scene `scene`: a cell folder that references it (or was copied from it),
@@ -573,6 +594,18 @@ pub fn staleness(r: &ResolvedCell, recorded: &InputHashes) -> Option<String> {
     if recorded.combined.is_empty() || recorded.combined == now.combined {
         return None;
     }
+    // Recorded before the bundle had a planning digest: its file hash then counts as the digest.
+    let legacy;
+    let recorded = match &recorded.usda {
+        Some(usda) if now.usda.is_some() && r.usda_aliases.contains(usda) => {
+            legacy = InputHashes { usda: now.usda.clone(), ..recorded.clone() }.combined();
+            if legacy.combined == now.combined {
+                return None;
+            }
+            &legacy
+        }
+        _ => recorded,
+    };
     let mut reasons = Vec::new();
     if recorded.scene != now.scene {
         reasons.push(match &r.fitted_scene {
@@ -665,6 +698,47 @@ pub fn file_hash(path: &Path) -> String {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(path.to_path_buf(), (modified, len, hash.clone()));
+    hash
+}
+
+/// A USDA bundle's hash ([`usda_hash`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UsdaHash {
+    pub hash: String,
+    /// The hashes its zip comment records of the bytes an older composer wrote for it
+    /// ([`robo_fitting_room::LEGACY_SHA256_KEY`]), which recorded inputs may have as their `usda`.
+    pub aliases: Vec<String>,
+}
+
+/// The hash of a USDA bundle: the planning digest Generate USDA records in its zip comment (see
+/// [`robo_fitting_room::PLANNING_DIGEST_KEY`]: that of the stage composed lean, the same whichever
+/// visual meshes the bundle was composed with), else (a bundle made otherwise, or before the
+/// composer recorded one) its [`file_hash`]; and the legacy hashes the comment records. Cached by
+/// (path, mtime, size); an empty hash if it can't be read.
+pub fn usda_hash(zip: &Path) -> UsdaHash {
+    type Cache = HashMap<PathBuf, (std::time::SystemTime, u64, UsdaHash)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Mutex::default);
+    let Ok(meta) = std::fs::metadata(zip) else { return UsdaHash::default() };
+    let (modified, len) = (meta.modified().unwrap_or(std::time::UNIX_EPOCH), meta.len());
+    if let Some((m, l, hash)) = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(zip)
+        && (*m, *l) == (modified, len)
+    {
+        return hash.clone();
+    }
+    let comment = std::fs::File::open(zip)
+        .ok()
+        .and_then(|file| zip::ZipArchive::new(file).ok())
+        .map(|archive| archive.comment().to_vec())
+        .unwrap_or_default();
+    let hash = match robo_fitting_room::bundle_planning_digest(&comment) {
+        Some(digest) => UsdaHash { hash: digest, aliases: robo_fitting_room::bundle_legacy_hashes(&comment) },
+        None => UsdaHash { hash: file_hash(zip), aliases: Vec::new() },
+    };
+    cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(zip.to_path_buf(), (modified, len, hash.clone()));
     hash
 }
 
@@ -938,6 +1012,90 @@ pub(crate) mod tests {
         let plan = serde_json::json!({ "planner_meta": { "inputs": r.inputs } });
         assert_eq!(plan_inputs(&plan), Some(r.inputs.clone()));
         assert_eq!(plan_inputs(&serde_json::json!({})), None);
+    }
+
+    /// Writes a USDA bundle `zip` of `usda` (its comment `comment`, if any).
+    fn write_bundle(zip: &Path, usda: &str, comment: Option<String>) {
+        use std::io::Write as _;
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(zip).unwrap());
+        if let Some(comment) = comment {
+            writer.set_comment(comment).unwrap();
+        }
+        writer.start_file("scene.usda", zip::write::SimpleFileOptions::default()).unwrap();
+        writer.write_all(usda.as_bytes()).unwrap();
+        writer.finish().unwrap();
+    }
+
+    /// Generate USDA again, with other visual meshes (another bundle, the same planning digest in
+    /// its zip comment), leaves the cell's outputs as they were; another digest, or a bundle without
+    /// one that changed, makes them stale.
+    #[test]
+    fn the_usda_bundle_counts_by_its_planning_digest() {
+        let h = host("usda");
+        let zip = h.assets.join("scenes/jam2/jam2.zip");
+        let digest = |c: char| std::iter::repeat_n(c, 64).collect::<String>();
+        let comment = |d: &str| Some(format!("{}{d} full_robots=true full_tools=true", robo_fitting_room::PLANNING_DIGEST_KEY));
+        write_bundle(&zip, "#usda 1.0\n(full visuals)\n", comment(&digest('a')));
+        let r = ensure_cell(&h.store, "jam2.yaml").unwrap();
+        assert_eq!(r.usda_zip.as_deref(), Some(zip.as_path()));
+        assert_eq!(r.inputs.usda.as_deref(), Some(digest('a').as_str()), "the digest, not the file's hash");
+
+        write_bundle(&zip, "#usda 1.0\n(collision hulls only, a shorter stage)\n".trim_end(), comment(&digest('a')));
+        let now = resolve(&h.store, "jam2").unwrap();
+        assert_ne!(file_hash(&zip), digest('a'));
+        assert_eq!(now.inputs, r.inputs);
+        assert_eq!(staleness(&now, &r.inputs), None, "other visuals, the same planning digest");
+
+        write_bundle(&zip, "#usda 1.0\n(a robot moved)\n", comment(&digest('b')));
+        assert_eq!(staleness(&resolve(&h.store, "jam2").unwrap(), &r.inputs).as_deref(), Some("the USDA bundle changed"));
+
+        // A bundle without a digest (made otherwise, or by an older composer): its bytes count.
+        write_bundle(&zip, "#usda 1.0\n(no digest)\n", None);
+        let before = resolve(&h.store, "jam2").unwrap();
+        assert_eq!(before.inputs.usda, Some(file_hash(&zip)));
+        write_bundle(&zip, "#usda 1.0\n(no digest, other bytes)\n", None);
+        let after = resolve(&h.store, "jam2").unwrap();
+        assert_eq!(staleness(&after, &before.inputs).as_deref(), Some("the USDA bundle changed"));
+    }
+
+    /// Outputs recorded before bundles had a planning digest recorded the bundle's file hash. The
+    /// first Generate USDA after the upgrade writes a bundle with a digest and, as legacy hashes,
+    /// the file hashes an older composer would have written (these visual options, and lean):
+    /// an output that recorded one of them stays current, one that recorded another goes stale.
+    #[test]
+    fn outputs_recorded_by_file_hash_stay_current_by_the_bundles_legacy_hashes() {
+        let h = host("usda-legacy");
+        let zip = h.assets.join("scenes/jam2/jam2.zip");
+        write_bundle(&zip, "#usda 1.0\n(lean, by an older composer)\n", None);
+        let old = ensure_cell(&h.store, "jam2.yaml").unwrap();
+        let recorded = old.inputs.clone();
+        assert_eq!(recorded.usda, Some(file_hash(&zip)), "an older bundle counts by its bytes");
+        assert!(old.usda_aliases.is_empty());
+
+        let digest = "d".repeat(64);
+        let full_legacy = "f".repeat(64);
+        let comment = |digest: &str, legacy: &[&str]| {
+            let mut c = format!("{}{digest} full_robots=true full_tools=true", robo_fitting_room::PLANNING_DIGEST_KEY);
+            for hash in legacy {
+                c += &format!(" {}{hash}", robo_fitting_room::LEGACY_SHA256_KEY);
+            }
+            Some(c)
+        };
+        let lean_legacy = recorded.usda.clone().unwrap();
+        write_bundle(&zip, "#usda 1.0\n(full, by this composer)\n", comment(&digest, &[&full_legacy, &lean_legacy]));
+        let now = resolve(&h.store, "jam2").unwrap();
+        assert_eq!(now.inputs.usda.as_deref(), Some(digest.as_str()));
+        assert_eq!(now.usda_aliases, vec![full_legacy.clone(), lean_legacy.clone()]);
+        assert_ne!(now.inputs.combined, recorded.combined);
+        assert_eq!(staleness(&now, &recorded), None, "recorded the lean bundle's file hash: current");
+        assert_eq!(staleness(&now, &InputHashes { usda: Some(full_legacy.clone()), ..recorded.clone() }.combined()), None);
+
+        write_bundle(&zip, "#usda 1.0\n(full, a robot moved)\n", comment(&"b".repeat(64), &["e".repeat(64).as_str()]));
+        let moved = resolve(&h.store, "jam2").unwrap();
+        assert_eq!(staleness(&moved, &recorded).as_deref(), Some("the USDA bundle changed"));
+        // Recorded since: the digest.
+        assert_eq!(staleness(&moved, &now.inputs).as_deref(), Some("the USDA bundle changed"));
+        assert_eq!(staleness(&moved, &moved.inputs), None);
     }
 
     #[test]

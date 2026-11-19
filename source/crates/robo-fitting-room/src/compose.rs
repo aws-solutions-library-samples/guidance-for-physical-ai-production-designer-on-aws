@@ -32,6 +32,12 @@ pub struct ComposeReport {
     pub total_faces: usize,
     pub usda_bytes: u64,
     pub zip_bytes: u64,
+    /// The bundle's planning digest (lowercase hex sha256), also in its zip comment: see
+    /// [`PLANNING_DIGEST_KEY`].
+    pub planning_sha256: String,
+    /// The sha256 of the bundle as composers before the planning digest wrote it, with these
+    /// options and lean, also in its zip comment: see [`LEGACY_SHA256_KEY`].
+    pub legacy_sha256: Vec<String>,
 }
 
 /// Caches parsed OBJs by canonical source path so the same mesh used by
@@ -248,9 +254,187 @@ pub fn compose_stage_with_options(
     // FR-109: the offset parse_scene subtracted from every placement, as layer provenance.
     let scene_origin = manifest_scene_origin(&String::from_utf8_lossy(&manifest_bytes));
 
+    let (usda_buf, stats) = compose_usda(scene, &usda_name, scene_origin, options, true)?;
+    // The bundle's planning digest: that of the lean stage (robots and tools as their collision
+    // hulls), the same whatever visuals were asked for, see [`PLANNING_DIGEST_KEY`].
+    let lean = ComposeOptions { full_robots: false, full_tools: false };
+    let lean_buf = if options.full_robots == lean.full_robots && options.full_tools == lean.full_tools {
+        None
+    } else {
+        Some(compose_usda(scene, &usda_name, scene_origin, &lean, false)?.0)
+    };
+    let planning = planning_digest(&manifest_bytes, lean_buf.as_deref().unwrap_or(&usda_buf));
+
+    let usda_bytes = usda_buf.len() as u64;
+    let floor_plan_segments = scene
+        .floor_plan
+        .as_ref()
+        .map(|fp| fp.segments.len() + fp.footprint_segments.len())
+        .unwrap_or(0);
+
+    // The bundle, and the sha256 of its bytes as composers before the planning digest wrote them
+    // (the same bytes without the zip comment): with these options, and lean (see
+    // [`LEGACY_SHA256_KEY`]).
+    let plain = write_bundle(&manifest_name, &manifest_bytes, &usda_name, &usda_buf)?;
+    let mut legacy = vec![sha256_hex(&plain)];
+    if let Some(lean_buf) = &lean_buf {
+        let lean_plain = write_bundle(&manifest_name, &manifest_bytes, &usda_name, lean_buf)?;
+        legacy.push(sha256_hex(&lean_plain));
+    }
+    legacy.dedup();
+    let mut comment = format!(
+        "{PLANNING_DIGEST_KEY}{planning} full_robots={} full_tools={}",
+        options.full_robots, options.full_tools
+    );
+    for hash in &legacy {
+        comment += &format!(" {LEGACY_SHA256_KEY}{hash}");
+    }
+    let bundle = with_comment(plain, &comment)?;
+    std::fs::write(out_path, &bundle).map_err(|e| {
+        FittingRoomError::UsdWrite(format!("write {}: {}", out_path.display(), e))
+    })?;
+
+    let zip_bytes = std::fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
+
+    Ok(ComposeReport {
+        zip_path: out_path.to_path_buf(),
+        usda_name,
+        manifest_name,
+        robot_count: scene.robots.len(),
+        fixture_count: scene.fixtures.len(),
+        floor_plan_segments,
+        mesh_count: stats.mesh_count,
+        total_vertices: stats.total_vertices,
+        total_faces: stats.total_faces,
+        usda_bytes,
+        zip_bytes,
+        planning_sha256: planning,
+        legacy_sha256: legacy,
+    })
+}
+
+/// The zip comment's key of a USDA bundle's planning digest: the comment reads
+/// `planning-sha256=<hex> full_robots=<bool> full_tools=<bool>`. The digest is the sha256 of
+/// `manifest\0<manifest bytes>\0usda\0<lean USDA>`, the USDA composed lean (robots and tools as
+/// their collision hulls, `full_robots`/`full_tools` off) whatever the bundle was composed with:
+/// what the bundle's visual options change (the robots' and tools' visual meshes and materials)
+/// is left out, everything else (the manifest, the placements, the fixtures, the hulls, the
+/// physics, the composer's own output format) is in it. Two composes of the same scene with the
+/// same inputs have the same digest whichever visuals they asked for; the cells' input hashes
+/// use it for their USDA bundle (a planner reads the stage's poses, hulls and fixtures, not the
+/// robots' visual meshes).
+pub const PLANNING_DIGEST_KEY: &str = "planning-sha256=";
+
+/// The planning digest a bundle's zip comment records ([`PLANNING_DIGEST_KEY`]), if any.
+pub fn bundle_planning_digest(comment: &[u8]) -> Option<String> {
+    let comment = std::str::from_utf8(comment).ok()?;
+    let digest = comment.split_whitespace().find_map(|word| word.strip_prefix(PLANNING_DIGEST_KEY))?;
+    (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())).then(|| digest.to_ascii_lowercase())
+}
+
+/// The zip comment's key of a sha256 the bundle had before composers recorded a comment: the
+/// sha256 of the same bundle without it, the bytes an older composer wrote for the same scene with
+/// the same visual options (the first, `legacy-sha256=<hex>`) and lean (the second, when the bundle
+/// isn't lean). Outputs recorded before the planning digest hashed their USDA bundle by its file,
+/// so a cell counts those hashes as its bundle's planning digest: Generate USDA of an unchanged
+/// scene after the upgrade doesn't stale outputs made from the bundle the older composer wrote,
+/// with these visual options or lean.
+pub const LEGACY_SHA256_KEY: &str = "legacy-sha256=";
+
+/// The legacy sha256s a bundle's zip comment records ([`LEGACY_SHA256_KEY`]), in order.
+pub fn bundle_legacy_hashes(comment: &[u8]) -> Vec<String> {
+    let Ok(comment) = std::str::from_utf8(comment) else { return Vec::new() };
+    comment
+        .split_whitespace()
+        .filter_map(|word| word.strip_prefix(LEGACY_SHA256_KEY))
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A USDA bundle of the manifest and the USDA, without a zip comment: byte for byte what
+/// composers before [`PLANNING_DIGEST_KEY`] wrote (their entries, order and options; dated the
+/// zip epoch, as theirs were without zip's `time` feature).
+fn write_bundle(
+    manifest_name: &str,
+    manifest: &[u8],
+    usda_name: &str,
+    usda: &[u8],
+) -> Result<Vec<u8>, FittingRoomError> {
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = entry_options();
+    zip.start_file(manifest_name, opts)
+        .map_err(|e| FittingRoomError::UsdWrite(format!("zip manifest entry: {}", e)))?;
+    zip.write_all(manifest)
+        .map_err(|e| FittingRoomError::UsdWrite(format!("write manifest: {}", e)))?;
+    zip.start_file(usda_name, opts)
+        .map_err(|e| FittingRoomError::UsdWrite(format!("zip usda entry: {}", e)))?;
+    zip.write_all(usda)
+        .map_err(|e| FittingRoomError::UsdWrite(format!("write usda: {}", e)))?;
+    let cursor = zip
+        .finish()
+        .map_err(|e| FittingRoomError::UsdWrite(format!("zip finalize: {}", e)))?;
+    Ok(cursor.into_inner())
+}
+
+/// `zip` (a zip without a comment, as [`write_bundle`] writes it) with the zip comment `comment`:
+/// the end of central directory record, its last 22 bytes, gets the comment's length and the
+/// comment after it, nothing else changes (what `ZipWriter::set_comment` writes too).
+fn with_comment(mut zip: Vec<u8>, comment: &str) -> Result<Vec<u8>, FittingRoomError> {
+    const EOCD: usize = 22;
+    let len = u16::try_from(comment.len())
+        .map_err(|_| FittingRoomError::UsdWrite("zip comment too long".into()))?;
+    let start = zip.len().checked_sub(EOCD);
+    match start {
+        Some(start) if zip[start..start + 4] == [0x50, 0x4b, 0x05, 0x06] && zip[zip.len() - 2..] == [0, 0] => {
+            let end = zip.len();
+            zip[end - 2..].copy_from_slice(&len.to_le_bytes());
+            zip.extend_from_slice(comment.as_bytes());
+            Ok(zip)
+        }
+        _ => Err(FittingRoomError::UsdWrite("zip comment: no end of central directory record".into())),
+    }
+}
+
+/// [`PLANNING_DIGEST_KEY`]'s digest of a manifest and its lean USDA.
+fn planning_digest(manifest: &[u8], lean_usda: &[u8]) -> String {
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"manifest\0");
+    hasher.update(manifest);
+    hasher.update(b"\0usda\0");
+    hasher.update(lean_usda);
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The options of every entry of a bundle: deflated, dated 1980-01-01 00:00 (the zip epoch)
+/// whatever the clock says, so that the same content makes the same bytes (the zip crate would
+/// date entries now with its `time` feature, which any crate of the build may turn on).
+fn entry_options() -> SimpleFileOptions {
+    SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .last_modified_time(zip::DateTime::default())
+}
+
+/// The USDA of `scene` (named `usda_name`): its text and mesh statistics. `report` logs the
+/// scene's and the meshes' warnings (off for the lean pass of [`planning_digest`]).
+fn compose_usda(
+    scene: &SceneDefinition,
+    usda_name: &str,
+    scene_origin: [f64; 3],
+    options: &ComposeOptions,
+    report: bool,
+) -> Result<(Vec<u8>, MeshStats), FittingRoomError> {
     // The scene's warnings (FR-103): what composes, but not as the manifest may expect.
-    for warning in scene_warnings(scene) {
-        log::warn!("{}", warning);
+    if report {
+        for warning in scene_warnings(scene) {
+            log::warn!("{}", warning);
+        }
     }
 
     let mut cache = MeshCache::default();
@@ -325,7 +509,9 @@ pub fn compose_stage_with_options(
     // already in the mesh cache). Nothing to frame: no rig, and the header's default view.
     // NFR-108: the ground lies under the same box.
     let bounds = compute_scene_bounds(scene, &mut cache)?;
-    cache.warn_multi_material();
+    if report {
+        cache.warn_multi_material();
+    }
     let rig = bounds.as_ref().map(CameraRig::framing);
     let perspective = bounds.as_ref().map(camera_rig::perspective_seed);
 
@@ -335,7 +521,7 @@ pub fn compose_stage_with_options(
         write_header(
             &mut w,
             scene,
-            &usda_name,
+            usda_name,
             scene_origin,
             perspective.as_ref(),
         )?;
@@ -363,47 +549,7 @@ pub fn compose_stage_with_options(
         w.flush()?;
     }
 
-    let usda_bytes = usda_buf.len() as u64;
-    let floor_plan_segments = scene
-        .floor_plan
-        .as_ref()
-        .map(|fp| fp.segments.len() + fp.footprint_segments.len())
-        .unwrap_or(0);
-
-    let zip_file = File::create(out_path).map_err(|e| {
-        FittingRoomError::UsdWrite(format!("create {}: {}", out_path.display(), e))
-    })?;
-    let mut zip = zip::ZipWriter::new(zip_file);
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-
-    zip.start_file(&manifest_name, opts)
-        .map_err(|e| FittingRoomError::UsdWrite(format!("zip manifest entry: {}", e)))?;
-    zip.write_all(&manifest_bytes)
-        .map_err(|e| FittingRoomError::UsdWrite(format!("write manifest: {}", e)))?;
-
-    zip.start_file(&usda_name, opts)
-        .map_err(|e| FittingRoomError::UsdWrite(format!("zip usda entry: {}", e)))?;
-    zip.write_all(&usda_buf)
-        .map_err(|e| FittingRoomError::UsdWrite(format!("write usda: {}", e)))?;
-
-    zip.finish()
-        .map_err(|e| FittingRoomError::UsdWrite(format!("zip finalize: {}", e)))?;
-
-    let zip_bytes = std::fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
-
-    Ok(ComposeReport {
-        zip_path: out_path.to_path_buf(),
-        usda_name,
-        manifest_name,
-        robot_count: scene.robots.len(),
-        fixture_count: scene.fixtures.len(),
-        floor_plan_segments,
-        mesh_count: stats.mesh_count,
-        total_vertices: stats.total_vertices,
-        total_faces: stats.total_faces,
-        usda_bytes,
-        zip_bytes,
-    })
+    Ok((usda_buf, stats))
 }
 
 #[derive(Default)]
@@ -529,7 +675,7 @@ pub fn compose_urdf_bundle(
         FittingRoomError::UsdWrite(format!("create {}: {}", out_path.display(), e))
     })?;
     let mut zip = zip::ZipWriter::new(zip_file);
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let opts = entry_options();
 
     let mut file_count = 0usize;
 
@@ -4331,6 +4477,144 @@ mod tests {
             .unwrap()
             .write_all(s.as_bytes())
             .unwrap();
+    }
+
+    /// "Generate USDA" twice of the same scene makes the same bundle, byte for byte (fixed entry
+    /// dates and order, no clock, no random ids); the visual options change the bundle, not its
+    /// planning digest (the zip comment the cells' input hashes use); a moved robot changes both.
+    #[test]
+    fn same_compose_same_bundle_and_visual_options_keep_the_planning_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let urdf = dir.path().join("rt.urdf");
+        write_robot_with_tool_urdf(&urdf);
+        let manifest = dir.path().join("scene.yaml");
+        write_dummy_manifest(&manifest);
+        let placement = |x: f64| RobotPlacement {
+            robot_id: "RT".into(),
+            dressed_urdf: urdf.clone(),
+            position: [x, 0.0, 0.0],
+            orientation_deg: [0.0; 3],
+            home_pose_deg: None,
+            pedestal: None,
+            payload: None,
+            link_density_kg_m3: None,
+        };
+        let scene_at = |x: f64| SceneDefinition {
+            name: "same".into(),
+            description: "".into(),
+            robots: vec![placement(x)],
+            fixtures: vec![],
+            floor_plan: None,
+        };
+        let compose = |name: &str, scene: &SceneDefinition, full_robots: bool, full_tools: bool| {
+            let out = dir.path().join(name).join("scene.zip");
+            std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+            let opts = ComposeOptions { full_robots, full_tools };
+            let report = compose_stage_with_options(scene, &manifest, &out, &opts).unwrap();
+            let bytes = std::fs::read(&out).unwrap();
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).unwrap();
+            let comment = bundle_planning_digest(archive.comment());
+            assert_eq!(comment.as_deref(), Some(report.planning_sha256.as_str()), "{name}: the zip comment records the digest");
+            assert_eq!(bundle_legacy_hashes(archive.comment()), report.legacy_sha256, "{name}: the zip comment records the legacy hashes");
+            let mut entries = Vec::new();
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).unwrap();
+                assert_eq!(entry.last_modified(), Some(zip::DateTime::default()), "{name}: {:?} is dated the zip epoch", entry.name());
+                let mut content = Vec::new();
+                std::io::Read::read_to_end(&mut entry, &mut content).unwrap();
+                entries.push((entry.name().unwrap().into_owned(), content));
+            }
+            // The first legacy hash: the bundle as the composer before the planning digest wrote
+            // it (its code, verbatim), the same bytes without the comment.
+            assert_eq!(report.legacy_sha256.first(), Some(&sha256_hex(&composed_before_the_digest(&entries))), "{name}");
+            // The comment, as ZipWriter::set_comment would write it.
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            zip.set_comment(String::from_utf8(archive.comment().to_vec()).unwrap()).unwrap();
+            for (entry, content) in &entries {
+                zip.start_file(entry.as_str(), entry_options()).unwrap();
+                zip.write_all(content).unwrap();
+            }
+            assert!(zip.finish().unwrap().into_inner() == bytes, "{name}: the comment is written as set_comment writes it");
+            (bytes, report.planning_sha256, report.legacy_sha256, entries)
+        };
+        let scene = scene_at(0.0);
+        let (full_a, digest_full_a, legacy_full, _) = compose("full-a", &scene, true, true);
+        let (full_b, digest_full_b, _, _) = compose("full-b", &scene, true, true);
+        assert!(full_a == full_b, "two composes of the same scene with the same options differ");
+        assert_eq!(digest_full_a, digest_full_b);
+
+        let (lean, digest_lean, legacy_lean, lean_entries) = compose("lean", &scene, false, false);
+        let (_, digest_tools, legacy_tools, _) = compose("tools", &scene, false, true);
+        let (_, digest_robots, _, _) = compose("robots", &scene, true, false);
+        assert!(lean != full_a, "the visual options change the bundle");
+        assert_eq!(digest_lean, digest_full_a, "the visual options keep the planning digest");
+        assert_eq!(digest_tools, digest_full_a);
+        assert_eq!(digest_robots, digest_full_a);
+
+        // The legacy hashes: a lean bundle has its own; another records its own and the lean one,
+        // the file hash outputs recorded for a lean bundle an older composer wrote.
+        let lean_before = sha256_hex(&composed_before_the_digest(&lean_entries));
+        assert_eq!(legacy_lean, vec![lean_before.clone()]);
+        assert_eq!(legacy_full.len(), 2);
+        assert_eq!(legacy_full[1], lean_before);
+        assert_eq!(legacy_tools[1], lean_before);
+        assert_ne!(legacy_full[0], legacy_tools[0]);
+
+        let (moved, digest_moved, legacy_moved, _) = compose("moved", &scene_at(0.5), true, true);
+        assert!(moved != full_a);
+        assert_ne!(digest_moved, digest_full_a, "a moved robot changes the planning digest");
+        assert!(legacy_moved.iter().all(|hash| !legacy_full.contains(hash)), "and its legacy hashes");
+    }
+
+    /// A bundle of `entries` as `compose_stage_with_options` wrote it before the planning digest
+    /// (v0.1.29's code, verbatim but for the in-memory file).
+    fn composed_before_the_digest(entries: &[(String, Vec<u8>)]) -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for (name, content) in entries {
+            zip.start_file(name.as_str(), opts).unwrap();
+            zip.write_all(content).unwrap();
+        }
+        zip.finish().unwrap().into_inner()
+    }
+
+    /// Opt-in (`FR_LEGACY_BUNDLE=<zip>`, a bundle an older composer wrote, e.g. a workspace's
+    /// `scenes/<name>/<name>.zip` from before the planning digest): this build writes its entries
+    /// into the same bytes, so the legacy hash Generate USDA records is the hash outputs recorded.
+    #[test]
+    fn a_legacy_bundle_is_rewritten_byte_for_byte() {
+        let Ok(path) = std::env::var("FR_LEGACY_BUNDLE") else { return };
+        let bytes = std::fs::read(&path).unwrap();
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).unwrap();
+        assert!(archive.comment().is_empty(), "{path} has a comment: not an older composer's");
+        let mut entries = Vec::new();
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).unwrap();
+            let mut content = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut content).unwrap();
+            entries.push((entry.name().unwrap().into_owned(), content));
+        }
+        let [(manifest_name, manifest), (usda_name, usda)] = &entries[..] else { panic!("{path}: {} entries", entries.len()) };
+        let rewritten = write_bundle(manifest_name, manifest, usda_name, usda).unwrap();
+        assert_eq!(sha256_hex(&rewritten), sha256_hex(&bytes), "{path} rewritten");
+        eprintln!("{path}: rewritten byte for byte, sha256 {}", sha256_hex(&bytes));
+    }
+
+    #[test]
+    fn bundle_planning_digest_reads_the_comment() {
+        let hex = "ab".repeat(32);
+        let comment = format!("{PLANNING_DIGEST_KEY}{hex} full_robots=true full_tools=true");
+        assert_eq!(bundle_planning_digest(comment.as_bytes()), Some(hex.clone()));
+        assert_eq!(bundle_planning_digest(format!("{PLANNING_DIGEST_KEY}{}", hex.to_uppercase()).as_bytes()), Some(hex.clone()));
+        assert_eq!(bundle_planning_digest(b""), None);
+        assert_eq!(bundle_planning_digest(b"planning-sha256=abc"), None);
+        assert_eq!(bundle_planning_digest(b"made by something else"), None);
+
+        let other = "cd".repeat(32);
+        let comment = format!("{comment} {LEGACY_SHA256_KEY}{} {LEGACY_SHA256_KEY}{other} {LEGACY_SHA256_KEY}abc", hex.to_uppercase());
+        assert_eq!(bundle_planning_digest(comment.as_bytes()), Some(hex.clone()));
+        assert_eq!(bundle_legacy_hashes(comment.as_bytes()), vec![hex, other]);
+        assert!(bundle_legacy_hashes(b"").is_empty());
     }
 
     #[test]

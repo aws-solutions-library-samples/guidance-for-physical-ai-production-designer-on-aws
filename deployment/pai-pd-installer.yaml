@@ -47,7 +47,7 @@ Parameters:
     Default: github
   Release:
     Type: String
-    Description: latest, or a release tag such as v0.1.20 (SourceMode github).
+    Description: latest (the newest GitHub release, else the newest vX.Y.Z tag), or a release tag such as v0.1.20 (SourceMode github).
     AllowedPattern: '^[A-Za-z0-9._-]+$'
     Default: latest
   RepoUrl:
@@ -371,7 +371,16 @@ Resources:
                       loc=$(curl -fsSI --retry 3 "$repo/releases/latest" | tr -d '\r' | sed -n 's/^[Ll]ocation: *//p' | tail -1) \
                         || fail "could not reach $repo/releases/latest (is the repository public?)"
                       tag="${loc##*/releases/tag/}"
-                      [ "$tag" != "$loc" ] || fail "$repo has no published release yet (releases/latest went to '$loc')"
+                      if [ "$tag" = "$loc" ]; then
+                        # No published GitHub release (releases/latest goes to /releases): the newest vX.Y.Z tag.
+                        tags=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= ls-remote --tags --refs "$repo.git") \
+                          || fail "could not list the tags of $repo (is the repository public?)"
+                        tag=$(python3 -c 'import re, sys
+                  v = [m.group(1) for m in re.finditer(r"refs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$", sys.stdin.read(), re.M)]
+                  print(max(v, key=lambda t: tuple(map(int, t[1:].split(".")))) if v else "")' <<<"$tags")
+                        [ -n "$tag" ] || fail "$repo has no published release and no vX.Y.Z tag yet"
+                        say "no published release of $repo: its newest tag $tag"
+                      fi
                     fi
                     [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || fail "unusable release tag '$tag'"
                     say "release $tag of $repo"

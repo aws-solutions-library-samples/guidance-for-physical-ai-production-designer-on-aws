@@ -1929,6 +1929,40 @@ pub fn parse_compile(text: &str) -> (Vec<String>, Vec<String>) {
     (e, w)
 }
 
+/// The compiler's text of a library CODESYS could not open: "Could not open library
+/// '#SysTask'. (Reason: The library 'SysTask, 3.5.17.0 (System)' has not been installed to the
+/// system.)". The offline build resolves a library's own placeholders to versions no IDE here
+/// has; the login's build, with the device bound to the running PLC, does not need them.
+pub const LIBRARY_OPEN: &str = "Could not open library";
+
+/// Errors of a build that are all library-open errors ([`LIBRARY_OPEN`]), and at least one.
+pub fn library_open_only(errors: &[String]) -> bool {
+    !errors.is_empty() && errors.iter().all(|x| x.contains(LIBRARY_OPEN))
+}
+
+/// How the overlay marks the build a symbol-config edit runs after it, when that build fails
+/// (`withAutoCompile`): `<edit's answer>\n\n[auto-compile FAILED] <compile_project's answer>`.
+pub const AUTO_COMPILE_FAILED: &str = "[auto-compile FAILED]";
+
+/// A symbol-config edit (`create_symbol_config`, `set_symbol_config_settings`,
+/// `set_signature_access_bulk`, `set_symbol_access`) that landed and whose auto-compile failed
+/// only on library-open errors: those errors. `None` for anything else: the edit failed, the
+/// build has another error, it names no errors (a build that did not run), or it lists fewer
+/// `ERROR:` lines than its count says (an error text over several lines).
+pub fn auto_compile_library_errors(text: &str) -> Option<Vec<String>> {
+    let (edit, build) = text.split_once(AUTO_COMPILE_FAILED)?;
+    if crate::mcp::ToolOutput::ok(edit).failed() {
+        return None;
+    }
+    let (e, _) = parse_compile(build);
+    let counted = build.lines().find_map(|l| {
+        l.trim()
+            .split_once(" error(s), ")
+            .and_then(|(n, _)| n.parse::<usize>().ok())
+    });
+    (library_open_only(&e) && counted.is_none_or(|n| n == e.len())).then_some(e)
+}
+
 /// A failed login (or any online call) whose cause is the project, not the connection:
 /// CODESYS builds `Device.Application` at login, and a build with errors or a library the IDE
 /// lacks fails the same way on every attempt (no runtime restart or retry helps). Gateway,
@@ -2403,6 +2437,49 @@ mod tests {
         ] {
             assert!(!build_failure(t), "{t}");
         }
+    }
+
+    #[test]
+    fn auto_compile_with_only_library_open_errors() {
+        // The live answer (2026-11-18, demo_body_weld_2r).
+        let live = "Signature PLC_PRG bulk access set to ReadOnly.\n\n[auto-compile FAILED] \
+            Compilation complete for C:\\ProgramData\\plan2cell\\projects\\demo_body_weld_2r\\\
+            HeadPLC_demo_body_weld_2r.project.\n3 error(s), 0 warning(s).\n\nErrors:\n\
+            ERROR: Could not open library '#CmpUserMgr Implementation'. (Reason: The library \
+            'CmpUserMgr Implementation, 3.5.21.0 (System)' has not been installed to the system.)\n\
+            ERROR: Could not open library '#CmpVisuHandler'. (Reason: The library 'CmpVisuHandler, \
+            3.5.19.0 (System)' has not been installed to the system.)\n\
+            ERROR: Could not open library '#SysTask'. (Reason: The library 'SysTask, 3.5.17.0 \
+            (System)' has not been installed to the system.)";
+        let e = auto_compile_library_errors(live).unwrap();
+        assert_eq!(e.len(), 3);
+        assert!(e[0].starts_with("Could not open library '#CmpUserMgr Implementation'"));
+        // A real error with them: the project's error.
+        let real = format!("{live}\nERROR: C0046: Identifier x not defined [PLC_PRG:3]")
+            .replace("3 error(s)", "4 error(s)");
+        assert_eq!(auto_compile_library_errors(&real), None);
+        // Fewer ERROR lines than the count (an error over several lines): not trusted.
+        assert_eq!(
+            auto_compile_library_errors(&live.replace("3 error(s)", "4 error(s)")),
+            None
+        );
+        // A build that did not run, a failed edit, a clean auto-compile, a plain build.
+        for t in [
+            "Bulk set\n\n[auto-compile FAILED] Failed initiating compilation for C:\\p. Output:\nx",
+            "Bulk set\n\n[auto-compile FAILED] Compilation initiated for C:\\p. WARNING: Build \
+             command reported errors. Use get_compile_messages for details.",
+            "Bulk set\n\n[auto-compile] Compilation complete.",
+            "Compilation complete.\n1 error(s), 0 warning(s).\n\nErrors:\nERROR: Could not open library '#SysTask'.",
+        ] {
+            assert_eq!(auto_compile_library_errors(t), None, "{t}");
+        }
+        let failed_edit = live.replace(
+            "Signature PLC_PRG bulk access set to ReadOnly.",
+            "Operation failed. Output:\nSignature 'X' not found",
+        );
+        assert_eq!(auto_compile_library_errors(&failed_edit), None);
+        assert!(library_open_only(&e));
+        assert!(!library_open_only(&[]));
     }
 
     #[test]

@@ -601,3 +601,28 @@ describe('context validation and variants', () => {
     }
   });
 });
+
+describe('VPC Block Public Access', () => {
+  it('excludes only the instance subnet (private, no internet gateway route), before the VPC origin', () => {
+    const ex = resources(base, 'AWS::EC2::VPCBlockPublicAccessExclusion');
+    expect(ex).toHaveLength(1);
+    const [exId, exRes] = ex[0];
+    expect(exRes.Properties.InternetGatewayExclusionMode).toBe('allow-bidirectional');
+    expect(exRes.Properties.VpcId).toBeUndefined();
+    const instance = base.json.Resources[PINNED_IDS.instance];
+    expect(exRes.Properties.SubnetId).toEqual(instance.Properties.NetworkInterfaces[0].SubnetId);
+    expect(exRes.Properties.SubnetId.Ref).toBeDefined();
+    // The excluded subnet's route table has no route to the internet gateway (only the NAT gateway's).
+    const subnetId = exRes.Properties.SubnetId.Ref;
+    const assoc = resources(base, 'AWS::EC2::SubnetRouteTableAssociation').find(([, r]) => r.Properties.SubnetId.Ref === subnetId)!;
+    const routes = resources(base, 'AWS::EC2::Route').filter(([, r]) => r.Properties.RouteTableId.Ref === assoc[1].Properties.RouteTableId.Ref);
+    expect(routes.length).toBeGreaterThan(0);
+    for (const [, r] of routes) {
+      expect(r.Properties.GatewayId).toBeUndefined();
+      expect(r.Properties.NatGatewayId).toBeDefined();
+    }
+    const vpcOrigins = resources(base, 'AWS::CloudFront::VpcOrigin');
+    expect(vpcOrigins).toHaveLength(1);
+    expect(list(vpcOrigins[0][1].DependsOn)).toContain(exId);
+  });
+});

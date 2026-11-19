@@ -19,6 +19,8 @@ Two AWS CloudFormation stacks ([the README's architecture](../README.md#overview
   - an Amazon Cognito user pool (native users only, no self sign-up, TOTP MFA required, managed login) with a public
     app client (PKCE, no secret);
   - an Amazon CloudFront distribution with a VPC origin to the instance on port 80;
+  - a VPC Block Public Access exclusion for the instance's private subnet only (no route to the internet gateway):
+    with VPC BPA on in the account-region, CloudFront cannot place the VPC origin's endpoints in a covered subnet;
   - the `<stack>-Release` SSM document that starts a release on the instance, and the CloudWatch log group of the
     bootstrap and release logs;
   - the `VerifyAnonymousDenial` custom resource, which checks that the edge gate denies anonymous requests before the
@@ -215,8 +217,8 @@ needed.
 1. Resolves the export. An explicit `SourceArchiveUri` comes first. Then the artifact set: `ArtifactsUri`, or the
    inputs bucket for `SourceMode=upload`, using `artifacts.json` or the names `pai-pd*` / `factoryos*`
    `.zip`/`.tar.gz`, `umarell*.tar.gz` and `umarell-jam*.tar.gz` (umarell_jam's, optional; `UmarellJamTarballUri` wins
-   over it). Last, GitHub: the tag that `<repo>/releases/latest` redirects to, or
-   `Release`, as `<repo>/archive/refs/tags/<tag>.tar.gz`.
+   over it). Last, GitHub: the tag that `<repo>/releases/latest` redirects to (without a published GitHub release,
+   the newest `vX.Y.Z` tag of `git ls-remote --tags`), or `Release`, as `<repo>/archive/refs/tags/<tag>.tar.gz`.
 2. Checks every `.sha256` next to an `s3://` file.
 3. Unpacks the export (exactly one top directory, with `deployment/`).
 4. Stages an `https://` umarell (or umarell_jam) archive to `s3://<inputs>/staging/`, because the one-click path

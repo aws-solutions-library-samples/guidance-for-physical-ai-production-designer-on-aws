@@ -24,8 +24,9 @@ pub mod mcp;
 pub mod stdio;
 
 pub use compose::{
-    compose_stage, compose_stage_with_options, compose_urdf_bundle, ComposeOptions, ComposeReport,
-    UrdfBundleReport,
+    bundle_legacy_hashes, bundle_planning_digest, compose_stage, compose_stage_with_options,
+    compose_urdf_bundle, ComposeOptions, ComposeReport, UrdfBundleReport, LEGACY_SHA256_KEY,
+    PLANNING_DIGEST_KEY,
 };
 pub use error::FittingRoomError;
 pub use floor_plan::FloorPlan;
